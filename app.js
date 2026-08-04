@@ -95,6 +95,23 @@
   let styleRev = 1;
   const restyle = () => { styleRev += 1; };
 
+  // Haptics, where the device has them. This is the Vibration API, which in
+  // practice means Android: Safari has never shipped it, installed or not, so
+  // every buzz here is a nicety and never something the app relies on to
+  // communicate. Kept to moments that feel physical — picking a page up,
+  // dropping it, a page turning, an angle clicking square, hitting a limit.
+  const BUZZ = {
+    pick: 10,
+    drop: 14,
+    snap: 6,
+    turn: 5,
+    limit: [0, 18, 45, 18],
+  };
+  function buzz(kind) {
+    if (!navigator.vibrate) return;
+    try { navigator.vibrate(BUZZ[kind] || 8); } catch { /* device said no */ }
+  }
+
   let pendingCell = null;
   const pointers = new Map();
   let gesture = null;
@@ -312,6 +329,7 @@
 
   function addPage(layout) {
     if (state.pages.length >= MAX_PAGES) {
+      buzz('limit');
       toast(`A carousel tops out at ${MAX_PAGES} pages`);
       return false;
     }
@@ -507,6 +525,7 @@
     const aimed = state.selected >= 0;
     const target = aimed ? state.selected : pg.cells.findIndex((c) => !c);
     if (target === -1) {
+      buzz('limit');
       toast('This page is full — pick a tile to replace, or add a page');
       return;
     }
@@ -610,7 +629,7 @@
     const sel = window.getSelection && window.getSelection();
     if (sel && sel.removeAllRanges) sel.removeAllRanges();
     document.addEventListener('touchmove', blockScroll, { passive: false });
-    if (navigator.vibrate) navigator.vibrate(8);
+    buzz('pick');
 
     const items = [...strip.querySelectorAll('.film')];
     // Every thumbnail is the same size — one deck, one shape — so a single
@@ -665,6 +684,7 @@
       items.forEach((it) => { it.style.transform = ''; it.style.transition = ''; });
       if (target === index) return;
 
+      buzz('drop');
       snapshot();
       // Follow the page you were looking at, which may not be the one moved.
       const viewing = state.pages[state.current];
@@ -869,6 +889,7 @@
 
     preparePeek();
     sliding = true;
+    buzz('turn');
     setTrack(-delta * slideStep(), true);
     setTimeout(() => {
       // Reset the track and paint the new page in the same frame, so the
@@ -883,9 +904,10 @@
   const tilt = (pts) => Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
 
   const SNAP = 5 * Math.PI / 180;
+  const nearSquare = (a) => Math.abs(a - Math.round(a / (Math.PI / 2)) * (Math.PI / 2)) < SNAP;
   function snapAngle(a) {
     const quarter = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
-    return Math.abs(a - quarter) < SNAP ? quarter : a;
+    return nearSquare(a) ? quarter : a;
   }
 
   function rebase() {
@@ -910,6 +932,7 @@
       cy: rect.y + rect.h / 2 + p.oy,
       zoom: p.zoom,
       rot: cell.rot,
+      snapped: nearSquare(cell.rot),
     };
   }
 
@@ -1008,7 +1031,16 @@
     }
 
     const cell = page().cells[gesture.i];
-    cell.rot = snapAngle(gesture.rot + turn);
+    const wanted = gesture.rot + turn;
+    cell.rot = snapAngle(wanted);
+    // Only on entering the zone. Comparing the snapped value against the raw
+    // one can't tell "already square" from "not snapping", so a photo that
+    // started at 0 buzzed on its very first frame.
+    const snapped = nearSquare(wanted);
+    if (snapped !== gesture.snapped) {
+      gesture.snapped = snapped;
+      if (snapped) buzz('snap');
+    }
     cell.zoom = clamp(gesture.zoom * scale, 1, 8);
 
     // Carry the photo's centre through the same similarity transform the
