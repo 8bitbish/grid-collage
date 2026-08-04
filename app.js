@@ -353,10 +353,6 @@
     renderFilmstrip();
     renderTray();
     syncPanel();
-    $('pager-count').textContent = `${state.current + 1} / ${state.pages.length}`;
-    $('page-count').textContent = state.pages.length;
-    $('btn-prev').disabled = state.current === 0;
-    $('btn-next').disabled = state.current === state.pages.length - 1;
   }
 
   /* ----------------------------------------------------------- photo tray */
@@ -605,9 +601,6 @@
     add.addEventListener('click', () => addPage(LAYOUTS[0]) && refresh());
     strip.appendChild(add);
 
-    $('page-note').textContent = state.pages.length >= MAX_PAGES
-      ? `${MAX_PAGES} of ${MAX_PAGES} — that's Instagram's limit`
-      : 'drag to reorder · max 20';
   }
 
   /* ------------------------------------------------------------ photo tray */
@@ -615,7 +608,7 @@
   function renderTray() {
     const tray = $('tray');
     [...tray.querySelectorAll('.tray-item')].forEach((n) => n.remove());
-    $('photo-count').textContent = state.photos.length;
+    $('dock-photos-count').textContent = state.photos.length || '';
 
     state.photos.forEach((photo) => {
       const el = document.createElement('div');
@@ -639,9 +632,6 @@
       tray.insertBefore(el, $('btn-add-photos'));
     });
 
-    $('tray-note').textContent = state.photos.length
-      ? 'drag onto a tile, or tap to place'
-      : 'nothing imported yet';
   }
 
   /* ------------------------------------------------------------ tile panel */
@@ -651,7 +641,6 @@
     const pg = page();
     const cell = pg.cells[i];
     const photo = photoFor(cell);
-    const field = $('cell-field');
 
     // The layout highlight belongs to the page, not the selection, so it has
     // to be set before we bail out on there being no selected tile.
@@ -659,8 +648,11 @@
       'is-active', c.dataset.id === pg.layout.id,
     ));
 
-    if (!photo) { field.hidden = true; return; }
-    field.hidden = false;
+    if (!photo) {
+      if (drawer === 'tile') closeDrawer();
+      return;
+    }
+    if (drawer !== 'tile') openDrawer('tile');
 
     const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
     const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
@@ -1229,14 +1221,25 @@
     });
   }
 
-  function setTab(name) {
-    const isPage = name === 'page';
-    $('panel-page').hidden = !isPage;
-    $('panel-style').hidden = isPage;
-    $('tab-page').classList.toggle('is-active', isPage);
-    $('tab-style').classList.toggle('is-active', !isPage);
-    $('tab-page').setAttribute('aria-selected', String(isPage));
-    $('tab-style').setAttribute('aria-selected', String(!isPage));
+  // The dock shows the list of settings, or drills into one of them. Keeping
+  // it to one row means the preview never has to share the screen with a
+  // panel, and using a control can't scroll the preview out of view.
+  const DRAWERS = ['photos', 'layout', 'shape', 'gap', 'padding', 'corners',
+    'background', 'page', 'export', 'tile'];
+  let drawer = null;
+
+  function openDrawer(name) {
+    drawer = name;
+    DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
+    $('dock-root').hidden = true;
+    $('dock-drawer').hidden = false;
+  }
+
+  function closeDrawer() {
+    drawer = null;
+    DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
+    $('dock-drawer').hidden = true;
+    $('dock-root').hidden = false;
   }
 
   /* ------------------------------------------------------------------ misc */
@@ -1573,7 +1576,7 @@
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
-  setTab('page');
+  closeDrawer();
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
@@ -1581,13 +1584,18 @@
   $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
 
-  $('tab-page').addEventListener('click', () => setTab('page'));
-  $('tab-style').addEventListener('click', () => setTab('style'));
+  [...$('dock-root').children].forEach((btn) => {
+    btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
+  });
+  $('dock-back').addEventListener('click', () => {
+    // Backing out of the tile drawer means letting go of the tile, which puts
+    // the canvas back into swiping.
+    if (drawer === 'tile') { select(-1); return; }
+    closeDrawer();
+  });
 
   $('btn-export').addEventListener('click', exportDeck);
   $('btn-add-photos').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
-  $('btn-prev').addEventListener('click', () => slidePage(-1));
-  $('btn-next').addEventListener('click', () => slidePage(1));
   $('btn-duplicate').addEventListener('click', () => {
     if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
     snapshot();
@@ -1637,6 +1645,7 @@
     if (e.target.matches('input, select, textarea')) return;
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
+    if (e.key === 'Escape' && drawer) { closeDrawer(); return; }
     if (e.key === 'ArrowLeft' && state.selected === -1) slidePage(-1);
     if (e.key === 'ArrowRight' && state.selected === -1) slidePage(1);
     if ((e.key === 'Backspace' || e.key === 'Delete') && state.selected !== -1) {

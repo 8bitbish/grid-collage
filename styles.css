@@ -59,43 +59,47 @@ body {
 .topbar-actions { display: flex; gap: 8px; }
 
 /* -------------------------------------------------------------- layout */
+/* An app shell: header, pages, preview, dock. Nothing scrolls the page, so
+   using a control can never push the preview off screen. */
 .app {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* pages along the top */
+.pagesbar {
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .stage {
-  min-width: 0;
+  flex: 1;
   min-height: 0;
-  overflow: hidden;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 14px 18px 16px;
+  padding: 12px;
   background:
     radial-gradient(1200px 600px at 30% -10%, #1b1b24 0%, transparent 60%),
     var(--bg);
 }
 
-/* flex:1 against a definite-height stage is what lets the canvas'
-   percentage max-height resolve, so big posts scale down instead of clipping */
 .canvas-wrap {
   position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
   width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
 }
 
-/* The carousel track. The neighbouring pages sit just outside the current one
-   and only become visible while it's moving, so nothing changes at rest. */
+/* The carousel track. The neighbouring pages sit right against the current
+   one and only become visible while it's moving. */
 .track {
   position: relative;
   width: 100%;
@@ -123,24 +127,15 @@ body {
 
 /* Sized by constraint, not by an explicit width: a replaced element with a
    set width and a clamping max-height gets stretched, whereas auto width and
-   height let the browser shrink it and keep the ratio. What used to make it
-   tiny was the backing store, not this — see previewSize(). */
+   height let the browser shrink it and keep the ratio. */
 #canvas {
   width: auto;
   height: auto;
   max-width: 100%;
   max-height: 100%;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
   touch-action: none;
   cursor: pointer;
-}
-
-.stage-hint {
-  flex: none;
-  margin: 0;
-  color: var(--muted);
-  font-size: 12.5px;
-  text-align: center;
 }
 
 .dropzone {
@@ -157,30 +152,140 @@ body {
   pointer-events: none;
 }
 
-/* --------------------------------------------------------------- panel */
-.panel {
-  border-left: 1px solid var(--line);
+/* ---------------------------------------------------------------- dock */
+.dock {
+  flex: none;
+  border-top: 1px solid var(--line);
   background: var(--surface);
-  padding: 18px;
-  overflow-y: auto;
+  min-height: 82px;
   display: flex;
-  flex-direction: column;
-  gap: 20px;
+  align-items: stretch;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
-.field { display: flex; flex-direction: column; gap: 9px; }
+.dock-root {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0 6px;
+}
+.dock-root::-webkit-scrollbar { display: none; }
 
-.field-label {
+.dock-item {
+  flex: none;
+  min-width: 74px;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 8px;
+  cursor: pointer;
+  border-radius: 10px;
+}
+.dock-item svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dock-item:hover { color: var(--text); background: var(--surface-2); }
+.dock-item span { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+.dock-count {
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+}
+.dock-count:empty { display: none; }
+
+/* drilled into one setting */
+.dock-drawer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.dock-back {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.dock-back svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dock-back:hover { background: #262632; }
+
+.dock-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.dock-slider {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  overflow: visible;
+  max-width: 460px;
+}
+
+.dock-label {
   font-size: 11.5px;
   font-weight: 650;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  gap: 10px;
 }
 
+.dock-tile { gap: 16px; overflow: visible; }
+.dock-tile .dock-slider { flex: 1; }
+.dock-tile-actions { flex: none; display: flex; gap: 8px; }
+
+/* -------------------------------------------------------- shared bits */
 .val {
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -265,13 +370,19 @@ input[type="range"]::-moz-range-thumb {
 
 /* ------------------------------------------------------------ layouts */
 .layouts {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  align-items: center;
   gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 2px 0;
 }
 
 .layout-btn {
-  aspect-ratio: 1;
+  flex: none;
+  width: 46px;
+  height: 46px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -345,93 +456,6 @@ input[type="range"]::-moz-range-thumb {
 .colour-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
 .colour-row input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
 
-/* ---------------------------------------------------------------- tabs */
-.tabs {
-  flex: none;
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.tab {
-  flex: 1;
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  padding: 7px 4px;
-  border-radius: 7px;
-  cursor: pointer;
-}
-.tab:hover { color: var(--text); }
-.tab.is-active { background: var(--text); color: #12121a; }
-
-.tab-panel { display: flex; flex-direction: column; gap: 20px; }
-
-.hint {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
-/* --------------------------------------------------------------- pager */
-.pager {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.pager-arrow {
-  appearance: none;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 17px;
-  line-height: 1;
-  cursor: pointer;
-}
-.pager-arrow:hover:not(:disabled) { background: #262632; }
-.pager-arrow:disabled { opacity: 0.3; cursor: default; }
-.pager-count { min-width: 54px; text-align: center; }
-
-/* ---------------------------------------------------- filmstrip + tray */
-.tray-block {
-  flex: none;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.tray-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tray-title {
-  font-size: 11.5px;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.tray-note { font-size: 11.5px; color: var(--muted); }
-
 .filmstrip,
 .tray {
   display: flex;
@@ -439,9 +463,10 @@ input[type="range"]::-moz-range-thumb {
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 3px 2px 6px;
   scrollbar-width: thin;
 }
+.filmstrip { padding: 9px 12px; }
+.tray { padding: 2px 0; }
 
 .film {
   position: relative;
@@ -455,7 +480,7 @@ input[type="range"]::-moz-range-thumb {
 }
 /* Fixed height, not fixed width: a 9:16 thumbnail 62px wide is 110px tall,
    and that row grows straight out of the preview's vertical budget. */
-.film canvas { display: block; height: 52px; width: auto; }
+.film canvas { display: block; height: 46px; width: auto; }
 .film:hover { border-color: #4a4a5c; }
 .film.is-current { border-color: var(--accent); }
 .film.is-dragging { opacity: 0.35; }
@@ -643,37 +668,11 @@ input[type="range"]::-moz-range-thumb {
 
 /* ------------------------------------------------------------- mobile */
 @media (max-width: 860px) {
-  /* The document flows and scrolls on a phone rather than being pinned to the
-     viewport. Left as a fixed-height centred column, the stage overflowed in
-     both directions and clipped the top of the preview off the screen. */
-  html, body { height: auto; min-height: 100%; }
-  body { overflow: visible; }
-
-  .topbar { padding: 10px 12px; position: sticky; top: 0; z-index: 15; }
-  .app { grid-template-columns: 1fr; min-height: 0; }
-  .stage {
-    padding: 0 0 14px;
-    gap: 10px;
-    overflow: visible;
-    justify-content: flex-start;
-  }
-  .pager { padding-top: 10px; }
-  /* Full-bleed preview. The stage has no side padding on mobile, so the
-     canvas spans the screen; the other rows carry their own padding. */
-  /* The container carries the post's shape, so it has a definite height for
-     previewSize() to measure and there's no dead space under a square post.
-     max-height keeps a 9:16 page from filling the whole screen. */
-  .canvas-wrap {
-    flex: none;
-    width: 100%;
-    aspect-ratio: var(--post-ratio, 1 / 1);
-    max-height: 64vh;
-  }
+  .topbar { padding: 10px 12px; }
+  .topbar .brand-name { display: none; }
+  .stage { padding: 0; }
   #canvas { box-shadow: none; }
-  .tray-block { padding: 0 12px; }
-  .panel { border-left: none; border-top: 1px solid var(--line); }
-  .stage-hint { display: none; }
-  .film canvas { height: 46px; }
-  .tray-item { width: 50px; height: 50px; }
+  .dock { min-height: 76px; }
+  .dock-item { min-width: 66px; font-size: 11px; }
   .tray-x { opacity: 1; }
-}
+}}
