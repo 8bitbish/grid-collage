@@ -242,6 +242,9 @@
         const p = place(cell, photo, rect, s);
         g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
         g.rotate(cell.rot);
+        // About the photo's own centre, so the area covered is unchanged and
+        // the cover clamp still holds.
+        if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
         g.drawImage(photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
@@ -299,7 +302,7 @@
     return layoutCells(layout).map(() => null);
   }
 
-  const emptyCell = (photoId) => ({ photo: photoId, zoom: 1, rot: 0, ox: 0, oy: 0 });
+  const emptyCell = (photoId) => ({ photo: photoId, zoom: 1, rot: 0, ox: 0, oy: 0, flipX: false, flipY: false });
 
   function newPage(layout = LAYOUTS[0], photoId = null) {
     const pg = { id: uid(), layout, cells: blankCells(layout), dirty: true };
@@ -776,11 +779,12 @@
     const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
     const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
 
-    $('cell-index').textContent = `#${i + 1}`;
     $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
     $('zoom').min = Math.ceil(p.minZoom * 100);
     $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
     $('zoom').value = Math.round(p.zoom * 100);
+    $('zoom-val').textContent = `${Math.round(p.zoom * 100)}%`;
+    $('angle').value = degrees > 180 ? degrees - 360 : degrees;
   }
 
   function select(i) {
@@ -794,6 +798,7 @@
     if (!cell) return;
     snapshot();
     cell.zoom = 1; cell.rot = 0; cell.ox = 0; cell.oy = 0;
+    cell.flipX = false; cell.flipY = false;
     render();
     syncPanel();
   }
@@ -930,6 +935,21 @@
     }
 
     const i = cellAt(p.x, p.y);
+
+    // Waiting on a second tile to swap with.
+    if (swapFrom !== null && pointers.size === 0) {
+      if (i === -1 || i === swapFrom) { cancelSwap(); return; }
+      snapshot();
+      const cells = page().cells;
+      [cells[swapFrom], cells[i]] = [cells[i], cells[swapFrom]];
+      const moved = swapFrom;
+      cancelSwap();
+      select(i);
+      refresh();
+      toast(`Swapped tiles ${moved + 1} and ${i + 1}`);
+      return;
+    }
+
     if (pointers.size === 0) {
       if (i !== state.selected) { select(-1); return; }
     } else if (i !== state.selected) {
@@ -1347,15 +1367,82 @@
     'background', 'page', 'export', 'tile'];
   let drawer = null;
 
+  // Which sub-panel of the tile drawer is showing, and the tile waiting to be
+  // swapped with another.
+  let tileSub = null;
+  let swapFrom = null;
+
+  function showTileSub(name) {
+    tileSub = name;
+    $('tile-actions').hidden = !!name;
+    ['zoom', 'rotate', 'flip'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    setBackIcon();
+  }
+
+  // The tile bar drops the tile with a cross, as sketched; everything else
+  // steps back up a level with an arrow.
+  function setBackIcon() {
+    const cross = drawer === 'tile' && !tileSub;
+    // Via a class, not `.hidden`: that property belongs to HTMLElement, and
+    // setting it on an <svg> quietly creates a useless expando instead.
+    $('dock-back').classList.toggle('is-cross', cross);
+    $('dock-back').setAttribute('aria-label', cross ? 'Done with this tile' : 'Back');
+    $('dock-drawer').classList.toggle('is-tile', drawer === 'tile');
+  }
+
+  function cancelSwap() {
+    if (swapFrom === null) return;
+    swapFrom = null;
+    $('canvas-wrap').classList.remove('is-swapping');
+    render();
+  }
+
+  function tileAction(action) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    if (!cell) return;
+
+    if (action === 'swap') {
+      swapFrom = i;
+      $('canvas-wrap').classList.add('is-swapping');
+      toast('Tap another tile to swap them over');
+      return;
+    }
+    if (action === 'replace') { pendingCell = i; fileInput.click(); return; }
+    if (action === 'delete') {
+      snapshot();
+      page().cells[i] = null;
+      select(-1);
+      refresh();
+      return;
+    }
+    if (action === 'reset') { resetCell(i); return; }
+    showTileSub(action);
+  }
+
+  function flipCell(axis) {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    snapshot();
+    if (axis === 'x') cell.flipX = !cell.flipX;
+    else cell.flipY = !cell.flipY;
+    render();
+  }
+
   function openDrawer(name) {
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
+    if (name === 'tile') showTileSub(null); else tileSub = null;
+    setBackIcon();
     $('dock-root').hidden = true;
     $('dock-drawer').hidden = false;
   }
 
   function closeDrawer() {
     drawer = null;
+    tileSub = null;
+    cancelSwap();
+    setBackIcon();
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
@@ -1446,7 +1533,10 @@
       current: state.current,
       pages: state.pages.map((pg) => ({
         layout: pg.layout.id,
-        cells: pg.cells.map((c) => (c ? { photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy } : null)),
+        cells: pg.cells.map((c) => (c ? {
+          photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy,
+          flipX: !!c.flipX, flipY: !!c.flipY,
+        } : null)),
       })),
     };
   }
@@ -1707,10 +1797,38 @@
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
   });
   $('dock-back').addEventListener('click', () => {
-    // Backing out of the tile drawer means letting go of the tile, which puts
-    // the canvas back into swiping.
-    if (drawer === 'tile') { select(-1); return; }
+    // Inside a tile sub-panel, step back to the tile's actions. At the top of
+    // the tile bar the cross lets go of the tile, which puts the canvas back
+    // into swiping.
+    if (drawer === 'tile' && tileSub) { showTileSub(null); return; }
+    if (drawer === 'tile') { cancelSwap(); select(-1); return; }
     closeDrawer();
+  });
+
+  [...$('tile-actions').children].forEach((btn) => {
+    btn.addEventListener('click', () => tileAction(btn.dataset.tile));
+  });
+  $('btn-flip-h').addEventListener('click', () => flipCell('x'));
+  $('btn-flip-v').addEventListener('click', () => flipCell('y'));
+  $('btn-rot90').addEventListener('click', () => {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    snapshot();
+    cell.rot = snapAngle(cell.rot + Math.PI / 2);
+    settle(state.selected);
+    render();
+    syncPanel();
+  });
+  $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
+  $('angle').addEventListener('pointerup', endRun);
+  $('angle').addEventListener('input', (e) => {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    snapshot('angle');
+    cell.rot = (Number(e.target.value) * Math.PI) / 180;
+    settle(state.selected);
+    render();
+    $('cell-angle').textContent = `${Math.round(Number(e.target.value))}°`;
   });
 
   $('btn-export').addEventListener('click', exportDeck);
@@ -1736,14 +1854,6 @@
     settle(state.selected);
     render();
   });
-  $('btn-remove').addEventListener('click', () => {
-    snapshot();
-    page().cells[state.selected] = null;
-    select(-1);
-    refresh();
-  });
-  $('btn-recenter').addEventListener('click', () => resetCell(state.selected));
-  $('btn-replace').addEventListener('click', () => { pendingCell = state.selected; fileInput.click(); });
 
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet-copy').addEventListener('click', copyImage);
@@ -1763,6 +1873,8 @@
 
     if (e.target.matches('input, select, textarea')) return;
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
+    if (e.key === 'Escape' && swapFrom !== null) { cancelSwap(); return; }
+    if (e.key === 'Escape' && drawer === 'tile' && tileSub) { showTileSub(null); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
     if (e.key === 'Escape' && drawer) { closeDrawer(); return; }
     if (e.key === 'ArrowLeft' && state.selected === -1) slidePage(-1);

@@ -121,6 +121,23 @@ body {
 .canvas-wrap.is-sliding .peek { visibility: visible; }
 .canvas-wrap.is-sliding #canvas { box-shadow: none; }
 
+/* waiting for the second tile of a swap */
+.canvas-wrap.is-swapping #canvas { cursor: crosshair; }
+.canvas-wrap.is-swapping::after {
+  content: 'Tap another tile';
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  translate: -50% 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .track { transition: none !important; }
 }
@@ -240,6 +257,10 @@ body {
   color: var(--text);
   cursor: pointer;
 }
+.dock-back #dock-back-cross,
+.dock-back.is-cross #dock-back-arrow { display: none; }
+.dock-back.is-cross #dock-back-cross { display: block; }
+
 .dock-back svg {
   width: 19px;
   height: 19px;
@@ -281,9 +302,45 @@ body {
   gap: 10px;
 }
 
-.dock-tile { gap: 16px; overflow: visible; }
-.dock-tile .dock-slider { flex: 1; }
-.dock-tile-actions { flex: none; display: flex; gap: 8px; }
+.dock-tile { gap: 12px; overflow: visible; padding: 0; }
+
+.tile-actions {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tile-actions::-webkit-scrollbar { display: none; }
+.tile-actions .dock-item { min-width: 68px; }
+.dock-item-danger:hover { color: #ff8fae; background: #2a1620; }
+
+.tile-sub {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tile-sub .dock-slider { flex: 1; }
+.tile-sub .btn { flex: none; }
+
+/* the cross that drops the tile, kept apart from the actions like the sketch */
+.dock-back { position: relative; }
+.dock-drawer.is-tile .dock-back { border-color: #3a3a48; }
+.dock-drawer.is-tile::before {
+  content: '';
+  position: absolute;
+  left: 58px;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--line);
+}
+.dock-drawer.is-tile { padding-left: 12px; }
 
 /* -------------------------------------------------------- shared bits */
 .val {
