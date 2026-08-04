@@ -699,7 +699,7 @@
 
   /* ------------------------------------------------------ carousel motion */
 
-  const PEEK_GAP = 20;
+  const PEEK_GAP = 0;   // pages sit edge to edge while swiping
   const SLIDE_MS = 280;
   const reducedMotion = window.matchMedia
     ? window.matchMedia('(prefers-reduced-motion: reduce)').matches

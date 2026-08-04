@@ -113,9 +113,9 @@ body {
   left: 50%;
   top: 50%;
   visibility: hidden;
-  border-radius: 6px;
 }
 .canvas-wrap.is-sliding .peek { visibility: visible; }
+.canvas-wrap.is-sliding #canvas { box-shadow: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .track { transition: none !important; }
@@ -130,7 +130,6 @@ body {
   height: auto;
   max-width: 100%;
   max-height: 100%;
-  border-radius: 6px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
   touch-action: none;
   cursor: pointer;
@@ -670,7 +669,7 @@ input[type="range"]::-moz-range-thumb {
     aspect-ratio: var(--post-ratio, 1 / 1);
     max-height: 64vh;
   }
-  #canvas { border-radius: 0; box-shadow: none; }
+  #canvas { box-shadow: none; }
   .tray-block { padding: 0 12px; }
   .panel { border-left: none; border-top: 1px solid var(--line); }
   .stage-hint { display: none; }
