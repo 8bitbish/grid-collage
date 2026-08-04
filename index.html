@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grid Collage — build a photo grid for Instagram</title>
+<meta name="description" content="Drop photos into a grid, tweak the gap, background and crop, then export one square image ready to post.">
+<meta name="theme-color" content="#0d0d10">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d10'/%3E%3Cg fill='%23ff4d8d'%3E%3Crect x='6' y='6' width='8' height='8' rx='2'/%3E%3Crect x='18' y='6' width='8' height='8' rx='2'/%3E%3Crect x='6' y='18' width='8' height='8' rx='2'/%3E%3Crect x='18' y='18' width='8' height='8' rx='2' fill='%23ffb648'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <span class="brand-name">Grid Collage</span>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-shuffle" class="btn btn-ghost" type="button" title="Shuffle the photos between cells">Shuffle</button>
+    <button id="btn-clear" class="btn btn-ghost" type="button">Clear</button>
+    <button id="btn-export" class="btn btn-primary" type="button">Download</button>
+  </div>
+</header>
+
+<main class="app">
+
+  <!-- ------------------------------------------------ stage -->
+  <section class="stage" id="stage">
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="canvas" width="1080" height="1080" aria-label="Collage preview"></canvas>
+      <div class="dropzone" id="dropzone" hidden><span>Drop photos to add them</span></div>
+    </div>
+    <p class="stage-hint" id="stage-hint">Click a tile to add a photo · drag inside a photo to reposition · scroll to zoom</p>
+  </section>
+
+  <!-- ------------------------------------------------ controls -->
+  <aside class="panel">
+
+    <div class="field">
+      <label class="field-label">Layout</label>
+      <div class="layouts" id="layouts"></div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">Post shape</label>
+      <div class="segmented" id="ratios"></div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="gap">Gap <span class="val" id="gap-val">24</span></label>
+      <input type="range" id="gap" min="0" max="120" step="2" value="24">
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="padding">Border <span class="val" id="padding-val">24</span></label>
+      <input type="range" id="padding" min="0" max="160" step="2" value="24">
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="radius">Corners <span class="val" id="radius-val">0</span></label>
+      <input type="range" id="radius" min="0" max="120" step="2" value="0">
+    </div>
+
+    <div class="field">
+      <label class="field-label">Background</label>
+      <div class="swatches" id="swatches"></div>
+      <label class="colour-row">
+        <input type="color" id="bg" value="#ffffff">
+        <span id="bg-hex">#FFFFFF</span>
+      </label>
+    </div>
+
+    <div class="field" id="cell-field" hidden>
+      <label class="field-label">Selected tile <span class="val" id="cell-index"></span></label>
+      <input type="range" id="zoom" min="100" max="400" step="1" value="100">
+      <div class="row">
+        <button class="btn btn-ghost btn-sm" id="btn-replace" type="button">Replace</button>
+        <button class="btn btn-ghost btn-sm" id="btn-recenter" type="button">Recenter</button>
+        <button class="btn btn-ghost btn-sm btn-danger" id="btn-remove" type="button">Remove</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">Photos <span class="val" id="photo-count">0</span></label>
+      <div class="strip" id="strip"><p class="strip-empty">No photos yet — drop some anywhere on the page.</p></div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">Export</label>
+      <div class="row">
+        <select id="quality" class="select">
+          <option value="1080">1080px (Instagram)</option>
+          <option value="1440">1440px</option>
+          <option value="2160">2160px</option>
+        </select>
+        <select id="format" class="select">
+          <option value="image/jpeg">JPG</option>
+          <option value="image/png">PNG</option>
+        </select>
+      </div>
+    </div>
+
+  </aside>
+</main>
+
+<input type="file" id="file-input" accept="image/*" multiple hidden>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
