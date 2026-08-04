@@ -85,6 +85,7 @@
   const canvas = $('canvas');
   const ctx = canvas.getContext('2d');
   const fileInput = $('file-input');
+  const dropzone = $('dropzone');
 
   const page = () => state.pages[state.current];
   const photoById = (id) => state.photos.find((p) => p.id === id);
@@ -129,13 +130,6 @@
   function outputSize() {
     const w = state.quality;
     return { w, h: Math.round(w * state.ratio.h / state.ratio.w) };
-  }
-
-  // Hands the post's shape to CSS so the preview container can hold it.
-  function publishRatio() {
-    document.documentElement.style.setProperty(
-      '--post-ratio', `${state.ratio.w} / ${state.ratio.h}`,
-    );
   }
 
   // The preview only needs enough pixels to look sharp on screen; rendering it
@@ -369,11 +363,21 @@
 
   function refresh() {
     saveDeck();
-    publishRatio();
     render();
     renderFilmstrip();
     renderTray();
     syncPanel();
+    syncEmpty();
+    syncFades();
+  }
+
+  // An untouched deck is one blank page and no photos: say so on the canvas
+  // rather than showing an empty square and leaving the way in to be guessed.
+  function syncEmpty() {
+    const empty = !state.photos.length;
+    $('blank').hidden = !empty;
+    $('canvas-wrap').classList.toggle('is-blank', empty);
+    $('btn-export').disabled = empty;
   }
 
   /* ----------------------------------------------------------- photo tray */
@@ -708,10 +712,15 @@
     strip.innerHTML = '';
 
     state.pages.forEach((pg, i) => {
-      const el = document.createElement('div');
+      // A button, so it can be tabbed to and pressed. Not `draggable`: that's
+      // left over from the old HTML5 reorder, and a native drag starting
+      // mid-gesture cancels the pointer stream the new one runs on.
+      const el = document.createElement('button');
+      el.type = 'button';
       el.className = 'film' + (i === state.current ? ' is-current' : '');
-      el.draggable = true;
       el.title = `Page ${i + 1}`;
+      el.setAttribute('aria-label', `Page ${i + 1} of ${state.pages.length}`);
+      if (i === state.current) el.setAttribute('aria-current', 'true');
 
       // Thumbnails are cached on the page and only redrawn when that page or
       // the deck style actually changed. Redrawing all 20 on every refresh
@@ -746,11 +755,31 @@
     add.className = 'film-add';
     add.type = 'button';
     add.textContent = '+';
-    add.title = 'Add a page';
+    add.setAttribute('aria-label', 'Add a page');
+    add.title = state.pages.length >= MAX_PAGES
+      ? `A carousel tops out at ${MAX_PAGES} pages`
+      : 'Add a page';
     add.disabled = state.pages.length >= MAX_PAGES;
     add.addEventListener('click', () => addPage(LAYOUTS[0]) && refresh());
     strip.appendChild(add);
 
+    // Past a handful of pages the strip runs off the edge, so the page you're
+    // actually looking at has to be brought back into it. Not mid-reorder:
+    // the strip is being scrolled by the drag itself.
+    if (!reorder) {
+      const cur = strip.children[state.current];
+      if (cur) {
+        const box = strip.getBoundingClientRect();
+        const it = cur.getBoundingClientRect();
+        const pad = 12;
+        let by = 0;
+        if (it.right > box.right - pad) by = it.right - box.right + pad;
+        else if (it.left < box.left + pad) by = it.left - box.left - pad;
+        if (by) {
+          strip.scrollBy({ left: by, behavior: reducedMotion ? 'auto' : 'smooth' });
+        }
+      }
+    }
   }
 
   /* ------------------------------------------------------------ photo tray */
@@ -766,14 +795,36 @@
       el.className = 'tray-item' + (uses ? ' is-used' : '');
       el.draggable = true;
       el.title = uses ? `Used ${uses}x — drag onto a tile` : 'Not placed yet — drag onto a tile';
-      el.innerHTML = `<img src="${photo.thumbUrl}" alt="" loading="lazy">`
-        + (uses ? `<span class="tray-badge">${uses}</span>` : '')
-        + '<button class="tray-x" type="button" aria-label="Remove photo">&times;</button>';
+      // Built as nodes, not markup: a filename is user text and can hold
+      // quotes or angle brackets, which would break out of an attribute.
+      const label = photo.name || 'Photo';
+      const pick = document.createElement('button');
+      pick.className = 'tray-pick';
+      pick.type = 'button';
+      pick.setAttribute('aria-label', `Place ${label}`);
+      const img = document.createElement('img');
+      img.src = photo.thumbUrl;
+      img.alt = '';
+      img.loading = 'lazy';
+      pick.appendChild(img);
+      el.appendChild(pick);
 
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('.tray-x')) { removePhoto(photo.id); return; }
-        placePhoto(photo.id);
-      });
+      if (uses) {
+        const badge = document.createElement('span');
+        badge.className = 'tray-badge';
+        badge.textContent = uses;
+        el.appendChild(badge);
+      }
+
+      const kill = document.createElement('button');
+      kill.className = 'tray-x';
+      kill.type = 'button';
+      kill.setAttribute('aria-label', `Remove ${label}`);
+      kill.textContent = '×';
+      el.appendChild(kill);
+
+      pick.addEventListener('click', () => placePhoto(photo.id));
+      kill.addEventListener('click', () => removePhoto(photo.id));
       el.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData(DRAG_TYPE, photo.id);
         e.dataTransfer.effectAllowed = 'copy';
@@ -794,12 +845,16 @@
 
     // The layout highlight belongs to the page, not the selection, so it has
     // to be set before we bail out on there being no selected tile.
-    [...$('layouts').children].forEach((c) => c.classList.toggle(
-      'is-active', c.dataset.id === pg.layout.id,
-    ));
+    [...$('layouts').children].forEach((c) => {
+      const on = c.dataset.id === pg.layout.id;
+      c.classList.toggle('is-active', on);
+      c.setAttribute('aria-pressed', String(on));
+    });
 
     if (!photo) {
-      if (drawer === 'tile') closeDrawer();
+      // The reel is how an empty tile gets filled, so don't shut it just
+      // because the tile is still empty.
+      if (drawer === 'tile' && tileSub !== 'replace') closeDrawer();
       return;
     }
     if (drawer !== 'tile') openDrawer('tile');
@@ -819,6 +874,15 @@
     state.selected = i;
     render();
     syncPanel();
+  }
+
+  // An empty tile opens the same reel as Replace, rather than the device
+  // picker, so the photos already imported are the first thing offered.
+  function fillEmptyTile(i) {
+    state.selected = i;
+    openDrawer('tile');
+    showTileSub('replace');
+    render();
   }
 
   function resetCell(i) {
@@ -845,9 +909,11 @@
 
   const PEEK_GAP = 0;   // pages sit edge to edge while swiping
   const SLIDE_MS = 280;
-  const reducedMotion = window.matchMedia
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false;
+  const motionQuery = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  let reducedMotion = motionQuery ? motionQuery.matches : false;
+  if (motionQuery && motionQuery.addEventListener) {
+    motionQuery.addEventListener('change', (e) => { reducedMotion = e.matches; });
+  }
 
   let sliding = false;
 
@@ -1074,9 +1140,14 @@
       const dx = e.clientX - swipe.x;
 
       // A quick flick should turn the page even if it didn't travel far, so
-      // decide on velocity as well as distance.
-      const first = swipe.samples[0];
-      const last = swipe.samples[swipe.samples.length - 1];
+      // decide on velocity as well as distance. Only the tail of the gesture
+      // counts: dragging slowly and then flicking is one of the commonest
+      // ways to turn a page, and averaging over the whole drag hides it.
+      const cut = performance.now() - 120;
+      const recent = swipe.samples.filter((s) => s.t >= cut);
+      const win = recent.length >= 2 ? recent : swipe.samples;
+      const first = win[0];
+      const last = win[win.length - 1];
       const span = last.t - first.t;
       const velocity = span > 0 ? (last.x - first.x) / span : 0;   // px per ms
       const far = Math.abs(dx) > canvas.clientWidth * 0.22;
@@ -1091,6 +1162,7 @@
         // A tap, not a swipe: pick up the tile, or ask for a photo for it.
         const cell = page().cells[swipe.cell];
         if (photoFor(cell)) select(swipe.cell);
+        else if (state.photos.length) fillEmptyTile(swipe.cell);
         else { pendingCell = swipe.cell; fileInput.click(); }
       }
       swipe = null;
@@ -1167,10 +1239,29 @@
 
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
+    hideDropzone();
     if (!e.dataTransfer.files.length) return;
     e.preventDefault();
     addPhotos(e.dataTransfer.files);
   });
+
+  // dragenter/dragleave fire for every element the pointer crosses, so count
+  // depth rather than trusting a single leave to mean "gone".
+  let dragDepth = 0;
+  const draggingFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  const hideDropzone = () => { dragDepth = 0; dropzone.hidden = true; };
+
+  window.addEventListener('dragenter', (e) => {
+    if (!draggingFiles(e)) return;
+    dragDepth += 1;
+    dropzone.hidden = false;
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (!draggingFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) dropzone.hidden = true;
+  });
+  window.addEventListener('dragend', hideDropzone);
 
   fileInput.addEventListener('change', () => {
     const files = [...fileInput.files];
@@ -1313,6 +1404,8 @@
         s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
         btn.appendChild(s);
       });
+      btn.setAttribute('aria-label', layout.id === '1x1' ? 'Single image' : `Layout ${layout.id}`);
+      btn.setAttribute('aria-pressed', 'false');
       btn.addEventListener('click', () => setLayout(layout));
       wrap.appendChild(btn);
     });
@@ -1325,6 +1418,8 @@
       btn.type = 'button';
       btn.textContent = ratio.label;
       btn.dataset.id = ratio.id;
+      btn.setAttribute('aria-label', `Post shape ${ratio.label}`);
+      btn.setAttribute('aria-pressed', String(ratio.id === state.ratio.id));
       btn.addEventListener('click', () => {
         snapshot();
         state.ratio = ratio;
@@ -1346,6 +1441,9 @@
       btn.className = 'swatch';
       btn.style.background = colour;
       btn.dataset.id = colour;
+      btn.title = colour.toUpperCase();
+      btn.setAttribute('aria-label', `Background ${colour.toUpperCase()}`);
+      btn.setAttribute('aria-pressed', 'false');
       btn.addEventListener('click', () => setBg(colour));
       wrap.appendChild(btn);
     });
@@ -1379,8 +1477,13 @@
   }
 
   function markActive(wrap, btn) {
-    [...wrap.children].forEach((c) => c.classList.remove('is-active'));
-    if (btn) btn.classList.add('is-active');
+    [...wrap.children].forEach((c) => {
+      c.classList.remove('is-active');
+      if (c.hasAttribute('aria-pressed')) c.setAttribute('aria-pressed', 'false');
+    });
+    if (!btn) return;
+    btn.classList.add('is-active');
+    if (btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', 'true');
   }
 
   function slider(id, key) {
@@ -1427,6 +1530,7 @@
     // way out rather than being redrawn for every photo scrolled past.
     else if (centred !== -1) { centred = -1; renderFilmstrip(); }
     setBackIcon();
+    syncFades();
   }
 
   // The photos already imported, run past a fixed marker: whichever sits in
@@ -1450,17 +1554,22 @@
       el.type = 'button';
       el.className = 'choose-item';
       el.title = photo.name || 'Photo';
-      el.innerHTML = `<img src="${photo.thumbUrl}" alt="">`;
+      const shot = document.createElement('img');
+      shot.src = photo.thumbUrl;
+      shot.alt = '';
+      el.appendChild(shot);
       // Tapping doesn't apply directly — it brings that photo to the middle,
       // and the middle is what counts.
       el.addEventListener('click', () => scrollChooserTo(i, true));
       strip.appendChild(el);
     });
 
-    // Open on whatever the tile already holds.
+    // Open on whatever the tile already holds; on an empty tile, put the
+    // first photo in straight away so there's something to judge.
     const start = Math.max(0, state.photos.findIndex((p) => cell && p.id === cell.photo));
     centred = start;
     markCentred(start);
+    if (!cell) { applyCentred(); markCentred(start); }
     requestAnimationFrame(() => scrollChooserTo(start, false));
   }
 
@@ -1516,7 +1625,7 @@
     const photo = state.photos[centred];
     const i = state.selected;
     const cell = page().cells[i];
-    if (!photo || !cell || cell.photo === photo.id) return;
+    if (!photo || (cell && cell.photo === photo.id)) return;
     // One undo step for a run through the reel, not one per photo passed.
     snapshot('choose');
     // A fresh crop each time, so flicking between options compares like
@@ -1588,6 +1697,7 @@
     setBackIcon();
     $('dock-root').hidden = true;
     $('dock-drawer').hidden = false;
+    syncFades();
   }
 
   function closeDrawer() {
@@ -1600,7 +1710,37 @@
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
+    syncFades();
   }
+
+  /* ------------------------------------------------- sideways scroll hints */
+
+  // Rows that can run off the edge fade there, but only while there really is
+  // more to see — a fade on a row that already fits would promise nothing.
+  const FADE_ROWS = [
+    ...['filmstrip', 'dock-root', 'tray', 'layouts', 'tile-actions'].map($),
+    // Not the tile panel: it deliberately overflows (its own rows scroll), so
+    // measuring it would show slack that can never be scrolled away.
+    ...document.querySelectorAll('.dock-panel:not(#dp-tile)'),
+  ].filter(Boolean);
+
+  function fadeRow(el) {
+    if (!el) return;
+    const slack = el.scrollWidth - el.clientWidth;
+    const room = slack > 2 && el.clientWidth > 0;
+    el.classList.toggle('fade-l', room && el.scrollLeft > 2);
+    el.classList.toggle('fade-r', room && el.scrollLeft < slack - 2);
+  }
+
+  function syncFades() {
+    FADE_ROWS.forEach(fadeRow);
+  }
+
+  FADE_ROWS.forEach((el) => {
+    el.classList.add('hscroll');
+    el.addEventListener('scroll', () => fadeRow(el), { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(() => fadeRow(el)).observe(el);
+  });
 
   /* ------------------------------------------------------------------ misc */
 
@@ -1935,7 +2075,6 @@
   buildRatios();
   buildSwatches();
   setBgInputs(state.bg);
-  publishRatio();
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
@@ -1989,11 +2128,14 @@
     cell.rot = (Number(e.target.value) * Math.PI) / 180;
     settle(state.selected);
     render();
-    $('cell-angle').textContent = `${Math.round(Number(e.target.value))}°`;
+    // Rotating raises the minimum zoom, so the zoom control has to be told —
+    // it was still reading 100% while the photo sat at 141%.
+    syncPanel();
   });
 
   $('btn-export').addEventListener('click', exportDeck);
   $('btn-add-photos').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
+  $('blank-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('btn-duplicate').addEventListener('click', () => {
     if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
     snapshot();
