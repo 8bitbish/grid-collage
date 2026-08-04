@@ -722,6 +722,10 @@ input[type="range"]::-moz-range-thumb {
 .film {
   position: relative;
   flex: none;
+  /* A button's default padding is 1px 6px, which left every thumbnail sitting
+     in a tile 12px wider than the page it stands for — most obvious at 9:16,
+     where the picture is narrower than its own frame. */
+  padding: 0;
   border: 2px solid transparent;
   border-radius: 9px;
   overflow: hidden;
@@ -781,11 +785,16 @@ input[type="range"]::-moz-range-thumb {
   color: #fff;
 }
 
+/* The page it would add has the deck's shape, so the slot standing in for it
+   does too — otherwise it reads as a wider page at the end of the row. No
+   min-width: that would win over the aspect ratio and push the row taller at
+   9:16, which is the one shape with no height to spare. */
 .film-add {
   flex: none;
-  width: 44px;
+  width: auto;
+  aspect-ratio: var(--page-ratio, 1);
   align-self: stretch;
-  min-height: 52px;
+  min-height: 50px;
   border: 1px dashed var(--line);
   border-radius: 9px;
   background: transparent;

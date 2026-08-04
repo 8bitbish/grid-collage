@@ -713,6 +713,11 @@
     const strip = $('filmstrip');
     strip.innerHTML = '';
 
+    // The add-a-page slot is CSS, not a canvas, so it takes the deck's shape
+    // from here rather than measuring one.
+    document.documentElement.style.setProperty(
+      '--page-ratio', String(state.ratio.w / state.ratio.h));
+
     state.pages.forEach((pg, i) => {
       // A button, so it can be tabbed to and pressed. Not `draggable`: that's
       // left over from the old HTML5 reorder, and a native drag starting
