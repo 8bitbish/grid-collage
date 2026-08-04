@@ -19,6 +19,10 @@
 html, body {
   margin: 0;
   height: 100%;
+  /* No blue flash behind a tap. The app gives its own feedback — the pressed
+     state, the selection ring, a buzz — and the system square lands on the
+     wrong shape anyway. Keyboard focus is unaffected: that's :focus-visible. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -29,6 +33,17 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Chrome, not a document: a tap that catches a label shouldn't leave a
+     blue run of selected text, or raise the long-press callout over it. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Anything you might actually want to select or copy stays selectable. */
+input, textarea, .val, #bg-hex {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ------------------------------------------------------------- topbar */
