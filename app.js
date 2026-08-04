@@ -115,6 +115,12 @@
     try { navigator.vibrate(BUZZ[kind] || 8); } catch { /* device said no */ }
   }
 
+  // iOS Safari only applies :active to a touch if something in the ancestry
+  // listens for touchstart. Without this the press states below are dead on
+  // an iPhone — and with the system tap highlight off, that's no feedback at
+  // all. An empty listener is the whole fix; passive, so it costs no scroll.
+  document.addEventListener('touchstart', () => {}, { passive: true });
+
   let pendingCell = null;
   let importForChooser = false;
   const pointers = new Map();
@@ -770,23 +776,33 @@
     add.addEventListener('click', () => addPage(LAYOUTS[0]) && refresh());
     strip.appendChild(add);
 
+    markCurrent(state.current);
+  }
+
+  // Which page the strip shows as current, kept apart from a full re-render so
+  // it can answer a swipe on the frame the swipe is decided, rather than when
+  // the animation lands.
+  function markCurrent(i) {
+    const strip = $('filmstrip');
+    const films = [...strip.querySelectorAll('.film')];
+    films.forEach((el, n) => {
+      el.classList.toggle('is-current', n === i);
+      if (n === i) el.setAttribute('aria-current', 'true');
+      else el.removeAttribute('aria-current');
+    });
+
     // Past a handful of pages the strip runs off the edge, so the page you're
     // actually looking at has to be brought back into it. Not mid-reorder:
     // the strip is being scrolled by the drag itself.
-    if (!reorder) {
-      const cur = strip.children[state.current];
-      if (cur) {
-        const box = strip.getBoundingClientRect();
-        const it = cur.getBoundingClientRect();
-        const pad = 12;
-        let by = 0;
-        if (it.right > box.right - pad) by = it.right - box.right + pad;
-        else if (it.left < box.left + pad) by = it.left - box.left - pad;
-        if (by) {
-          strip.scrollBy({ left: by, behavior: reducedMotion ? 'auto' : 'smooth' });
-        }
-      }
-    }
+    const cur = films[i];
+    if (reorder || !cur) return;
+    const box = strip.getBoundingClientRect();
+    const it = cur.getBoundingClientRect();
+    const pad = 12;
+    let by = 0;
+    if (it.right > box.right - pad) by = it.right - box.right + pad;
+    else if (it.left < box.left + pad) by = it.left - box.left - pad;
+    if (by) strip.scrollBy({ left: by, behavior: reducedMotion ? 'auto' : 'smooth' });
   }
 
   /* ------------------------------------------------------------ photo tray */
@@ -971,6 +987,10 @@
     preparePeek();
     sliding = true;
     buzz('turn');
+    // Straight away, not when the slide lands: state.current can't move until
+    // the animation finishes (the render reads it), but the strip is showing
+    // where you're going, and waiting 280ms for it to admit that reads as lag.
+    markCurrent(target);
     setTrack(-delta * slideStep(), true);
     setTimeout(() => {
       // Reset the track and paint the new page in the same frame, so the

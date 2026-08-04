@@ -236,6 +236,50 @@ input, textarea, .val, #bg-hex {
   mask-image: none;
 }
 
+/* ------------------------------------------------------- press feedback
+   With the system tap highlight off, these are the only thing that answers a
+   finger, so they matter more than they would otherwise.
+
+   Instant going in — a transition on the press is precisely the lag this is
+   meant to cure — and a short settle coming out, which is what the duration
+   on the resting rule buys. Controls that already animate their position
+   answer with light instead of movement, so nothing fights a transform. */
+.dock-item,
+.dock-back,
+.film-add,
+.tray-add,
+.tray-pick,
+.layout-btn,
+.swatch {
+  transition: background-color 140ms, color 140ms, border-color 140ms,
+              transform 140ms, filter 140ms;
+}
+.dock-item:active,
+.dock-back:active,
+.film-add:active:not(:disabled),
+.tray-add:active,
+.tray-pick:active,
+.layout-btn:active,
+.swatch:active,
+.film:active,
+.choose-item:active,
+.btn:active:not(:disabled) {
+  transition-duration: 0s;
+}
+
+.dock-item:active { background: var(--surface-2); color: var(--text); transform: scale(0.92); }
+.dock-back:active { background: #2f2f3c; transform: scale(0.92); }
+.film-add:active:not(:disabled) { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
+.tray-add:active { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
+.tray-pick:active { transform: scale(0.92); filter: brightness(1.3); }
+.layout-btn:active { border-color: var(--accent); transform: scale(0.92); }
+.swatch:active { transform: scale(0.88); }
+/* These two carry transforms of their own — the strip sliding pages aside,
+   the reel scaling the centred option — so they brighten rather than move. */
+.film:active { filter: brightness(1.4); }
+.choose-item:active { filter: brightness(1.25); }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(0.97); }
+
 /* ---------------------------------------------------------------- dock */
 .dock {
   flex: none;
@@ -290,7 +334,9 @@ input, textarea, .val, #bg-hex {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.dock-item:hover { color: var(--text); background: var(--surface-2); }
+@media (hover: hover) {
+  .dock-item:hover { color: var(--text); background: var(--surface-2); }
+}
 .dock-item span { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 
 .dock-count {
@@ -541,7 +587,7 @@ input, textarea, .val, #bg-hex {
   transition: background 0.12s, border-color 0.12s, transform 0.06s;
 }
 .btn:hover { background: #262632; border-color: #3a3a48; }
-.btn:active { transform: translateY(1px); }
+/* The press state lives with the others, up in the press-feedback block. */
 .btn-sm { padding: 7px 8px; font-size: 12.5px; }
 /* 44px square: the smallest target a thumb hits reliably. */
 .btn-icon {
@@ -627,7 +673,9 @@ input[type="range"]::-moz-range-thumb {
   gap: 3px;
   transition: border-color 0.12s, background 0.12s;
 }
-.layout-btn:hover { border-color: #4a4a5c; }
+@media (hover: hover) {
+  .layout-btn:hover { border-color: #4a4a5c; }
+}
 .layout-btn span { background: #4a4a5c; border-radius: 2px; }
 .layout-btn.is-active { border-color: var(--accent); background: rgba(255, 77, 141, 0.1); }
 .layout-btn.is-active span { background: var(--accent); }
@@ -744,7 +792,9 @@ input[type="range"]::-moz-range-thumb {
 /* Fixed height, not fixed width: a 9:16 thumbnail 62px wide is 110px tall,
    and that row grows straight out of the preview's vertical budget. */
 .film canvas { display: block; height: 46px; width: auto; }
-.film:hover { border-color: #4a4a5c; }
+@media (hover: hover) {
+  .film:hover { border-color: #4a4a5c; }
+}
 .film.is-current { border-color: var(--accent); }
 /* The page being moved rides above the rest and tracks the finger exactly,
    so it gets no transition of its own until it settles. */
@@ -802,7 +852,9 @@ input[type="range"]::-moz-range-thumb {
   font-size: 18px;
   cursor: pointer;
 }
-.film-add:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+@media (hover: hover) {
+  .film-add:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+}
 .film-add:disabled { opacity: 0.3; cursor: default; }
 
 .tray-item {
@@ -872,7 +924,9 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   white-space: nowrap;
 }
-.tray-add:hover { border-color: var(--accent); color: var(--text); }
+@media (hover: hover) {
+  .tray-add:hover { border-color: var(--accent); color: var(--text); }
+}
 .tray-add-plus { font-size: 17px; }
 
 /* ------------------------------------------------------------- a11y */
