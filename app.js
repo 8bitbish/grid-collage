@@ -506,20 +506,89 @@
 
   /* ---------------------------------------------------------------- export */
 
-  function download() {
-    if (!state.cells.some((c) => c && c.img)) { toast('Add a photo first'); return; }
+  // When the page is embedded, the frame is usually sandboxed without
+  // `allow-downloads` and a link click is silently swallowed — so we never
+  // claim a save we can't make, and fall back to a sheet you can save from.
+  const FRAMED = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
+  // Renders without the selection outline, then restores the preview.
+  function exportBlob(type) {
     render(true);
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => { render(); resolve(blob); }, type, 0.92);
+    });
+  }
+
+  let sheetUrl = null;
+
+  async function download() {
+    if (!state.cells.some((c) => c && c.img)) { toast('Add a photo first'); return; }
+
+    const blob = await exportBlob(state.format);
+    if (!blob) { toast("Couldn't render the image"); return; }
+
     const ext = state.format === 'image/png' ? 'png' : 'jpg';
-    canvas.toBlob((blob) => {
-      const url = URL.createObjectURL(blob);
+    const name = `grid-collage-${state.layout.id}-${state.ratio.id.replace(':', 'x')}.${ext}`;
+    const size = `${canvas.width}×${canvas.height}`;
+
+    // The share sheet is the only route to the camera roll on iOS, and it
+    // survives sandboxing when the frame allows web-share.
+    const file = new File([blob], name, { type: state.format });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Grid collage' }); return; }
+      catch (err) { if (err.name === 'AbortError') return; }
+    }
+
+    const url = URL.createObjectURL(blob);
+    if (!FRAMED) {
       const a = document.createElement('a');
       a.href = url;
-      a.download = `grid-collage-${state.layout.id}-${state.ratio.id.replace(':', 'x')}.${ext}`;
+      a.download = name;
+      // Firefox only honours a click on an anchor that's in the document, and
+      // revoking straight away can cancel the download mid-flight.
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
-      render();
-      toast(`Saved ${canvas.width}×${canvas.height} ${ext.toUpperCase()}`);
-    }, state.format, 0.92);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast(`Saved ${size} ${ext.toUpperCase()}`);
+      return;
+    }
+
+    openSheet(url, name, size, ext);
+  }
+
+  function openSheet(url, name, size, ext) {
+    if (sheetUrl) URL.revokeObjectURL(sheetUrl);
+    sheetUrl = url;
+    $('sheet-img').src = url;
+    $('sheet-size').textContent = `${size} ${ext.toUpperCase()}`;
+    $('sheet-download').onclick = () => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+    $('sheet').hidden = false;
+  }
+
+  function closeSheet() {
+    $('sheet').hidden = true;
+    $('sheet-img').removeAttribute('src');
+    if (sheetUrl) { URL.revokeObjectURL(sheetUrl); sheetUrl = null; }
+  }
+
+  async function copyImage() {
+    if (!navigator.clipboard || !window.ClipboardItem) { toast('This browser can’t copy images'); return; }
+    try {
+      // The clipboard only accepts PNG, whatever the chosen export format.
+      const png = await exportBlob('image/png');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      toast('Copied to clipboard');
+    } catch {
+      toast('Copying was blocked — save the image instead');
+    }
   }
 
   /* ---------------------------------------------------------------- misc UI */
@@ -577,6 +646,9 @@
   $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); render(); save(); });
   $('format').addEventListener('change', (e) => { state.format = e.target.value; save(); });
   $('btn-export').addEventListener('click', download);
+  $('sheet-close').addEventListener('click', closeSheet);
+  $('sheet-copy').addEventListener('click', copyImage);
+  $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
 
   $('zoom').addEventListener('input', (e) => {
     const cell = state.cells[state.selected];
@@ -621,7 +693,11 @@
       e.preventDefault();
       removeCell(state.selected);
     }
-    if (e.key === 'Escape') { select(-1); render(); }
+    if (e.key === 'Escape') {
+      if (!$('sheet').hidden) { closeSheet(); return; }
+      select(-1);
+      render();
+    }
   });
 
   render();
