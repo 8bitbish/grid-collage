@@ -24,11 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pages itself has to be switched on by a repo admin first
+      # (Settings > Pages > Source: GitHub Actions) — GITHUB_TOKEN can't
+      # create the site, it can only deploy to one that already exists.
       - uses: actions/configure-pages@v5
-        with:
-          # Turns Pages on the first time this runs, so there's no manual
-          # trip through repository settings.
-          enablement: true
 
       # The site is the repository root — no build step to run.
       - uses: actions/upload-pages-artifact@v3
