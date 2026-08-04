@@ -174,7 +174,10 @@ body {
   flex: none;
   border-top: 1px solid var(--line);
   background: var(--surface);
-  min-height: 82px;
+  /* Fixed, not min-height: the bar must not resize when it swaps between the
+     settings list, a drawer and the tile actions. */
+  height: 82px;
+  box-sizing: content-box;
   display: flex;
   align-items: stretch;
   padding-bottom: env(safe-area-inset-bottom, 0);
@@ -236,6 +239,7 @@ body {
 
 /* drilled into one setting */
 .dock-drawer {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: center;
@@ -315,6 +319,7 @@ body {
   scrollbar-width: none;
 }
 .tile-actions::-webkit-scrollbar { display: none; }
+.tile-actions { padding-left: 12px; }
 .tile-actions .dock-item { min-width: 68px; }
 .dock-item-danger:hover { color: #ff8fae; background: #2a1620; }
 
@@ -334,13 +339,13 @@ body {
 .dock-drawer.is-tile::before {
   content: '';
   position: absolute;
-  left: 58px;
-  top: 14px;
-  bottom: 14px;
+  left: 62px;
+  top: 18px;
+  bottom: 18px;
   width: 1px;
   background: var(--line);
 }
-.dock-drawer.is-tile { padding-left: 12px; }
+.dock-drawer.is-tile { padding: 0 0 0 12px; gap: 0; }
 
 /* -------------------------------------------------------- shared bits */
 .val {
@@ -765,7 +770,7 @@ input[type="range"]::-moz-range-thumb {
   .topbar .brand-name { display: none; }
   .stage { padding: 0; }
   #canvas { box-shadow: none; }
-  .dock { min-height: 76px; }
+  .dock { height: 76px; }
   .dock-item { min-width: 66px; font-size: 11px; }
   .tray-x { opacity: 1; }
 }}
