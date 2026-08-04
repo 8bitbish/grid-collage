@@ -54,6 +54,12 @@
   const MAX_PAGES = 20;      // Instagram's carousel limit
   const DRAG_TYPE = 'application/x-collage-photo';
 
+  // A phone photo is ~12MP; the largest tile we ever draw is 2160px. Decoding
+  // at full size costs memory and draw time for detail that can't survive the
+  // downscale, so photos are resized once on the way in.
+  const MAX_EDGE = 2560;
+  const THUMB_EDGE = 160;
+
   /* --------------------------------------------------------------- state */
 
   const state = {
@@ -82,7 +88,12 @@
 
   const page = () => state.pages[state.current];
   const photoById = (id) => state.photos.find((p) => p.id === id);
-  const imageFor = (cell) => (cell && cell.photo ? (photoById(cell.photo) || {}).img : null);
+  const photoFor = (cell) => (cell && cell.photo ? photoById(cell.photo) : null);
+
+  // Bumped whenever something deck-wide changes, which invalidates every
+  // cached page thumbnail at once.
+  let styleRev = 1;
+  const restyle = () => { styleRev += 1; };
 
   let pendingCell = null;
   const pointers = new Map();
@@ -151,22 +162,19 @@
   //
   // Offsets are stored in BASE_WIDTH units so framing survives a change of
   // preview or export resolution.
-  function place(cell, img, rect, s) {
+  function place(cell, photo, rect, s) {
     const cos = Math.abs(Math.cos(cell.rot));
     const sin = Math.abs(Math.sin(cell.rot));
 
     const hx = (rect.w / 2) * cos + (rect.h / 2) * sin;
     const hy = (rect.w / 2) * sin + (rect.h / 2) * cos;
 
-    const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight);
-    const minZoom = Math.max(
-      (2 * hx) / (img.naturalWidth * base),
-      (2 * hy) / (img.naturalHeight * base),
-    );
+    const base = Math.max(rect.w / photo.w, rect.h / photo.h);
+    const minZoom = Math.max((2 * hx) / (photo.w * base), (2 * hy) / (photo.h * base));
     const zoom = Math.max(cell.zoom, minZoom);
 
-    const dw = img.naturalWidth * base * zoom;
-    const dh = img.naturalHeight * base * zoom;
+    const dw = photo.w * base * zoom;
+    const dh = photo.h * base * zoom;
 
     const limX = Math.max(0, dw / 2 - hx);
     const limY = Math.max(0, dh / 2 - hy);
@@ -183,10 +191,10 @@
   // Write the clamp back, so the next gesture starts from what's on screen.
   function settle(i) {
     const cell = page().cells[i];
-    const img = imageFor(cell);
-    if (!img) return;
+    const photo = photoFor(cell);
+    if (!photo) return;
     const s = canvas.width / BASE_WIDTH;
-    const p = place(cell, img, cellRects()[i], s);
+    const p = place(cell, photo, cellRects()[i], s);
     cell.ox = p.ox / s;
     cell.oy = p.oy / s;
     cell.zoom = p.zoom;
@@ -209,17 +217,17 @@
 
     rects.forEach((rect, i) => {
       const cell = pg.cells[i];
-      const img = imageFor(cell);
+      const photo = photoFor(cell);
 
       g.save();
       roundedPath(g, rect, radius);
       g.clip();
 
-      if (img && img.complete && img.naturalWidth) {
-        const p = place(cell, img, rect, s);
+      if (photo && photo.bitmap) {
+        const p = place(cell, photo, rect, s);
         g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
         g.rotate(cell.rot);
-        g.drawImage(img, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        g.drawImage(photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -245,7 +253,9 @@
       canvas.height = H;
     }
     drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected });
-    page().dirty = true;
+    // Only the current page is editable, so it's the only thumbnail that can
+    // have gone stale from a render.
+    page().rev = (page().rev || 0) + 1;
   }
 
   function roundedPath(g, r, radius) {
@@ -318,6 +328,7 @@
   }
 
   function refresh() {
+    saveDeck();
     render();
     renderFilmstrip();
     renderTray();
@@ -330,29 +341,98 @@
 
   /* ----------------------------------------------------------- photo tray */
 
-  function addPhotos(files) {
-    const images = [...files].filter((f) => f.type.startsWith('image/'));
+  // Encode a bitmap back to a blob — for the copy we persist, and for the
+  // small tray thumbnail.
+  async function encode(bitmap, type, quality) {
+    if (window.OffscreenCanvas) {
+      const off = new OffscreenCanvas(bitmap.width, bitmap.height);
+      off.getContext('2d').drawImage(bitmap, 0, 0);
+      return off.convertToBlob({ type, quality });
+    }
+    const el = document.createElement('canvas');
+    el.width = bitmap.width;
+    el.height = bitmap.height;
+    el.getContext('2d').drawImage(bitmap, 0, 0);
+    return new Promise((res) => el.toBlob(res, type, quality));
+  }
+
+  async function shrink(bitmap, edge) {
+    const long = Math.max(bitmap.width, bitmap.height);
+    if (long <= edge) return bitmap;
+    const k = edge / long;
+    return createImageBitmap(bitmap, {
+      resizeWidth: Math.round(bitmap.width * k),
+      resizeHeight: Math.round(bitmap.height * k),
+      resizeQuality: 'high',
+    });
+  }
+
+  // Decode once, at a sane size, and keep the ImageBitmap. Every later draw is
+  // then a straight blit with no decode behind it, and what we persist is the
+  // resized copy rather than the original 12MP file.
+  async function ingest(blob, name) {
+    const decoded = await createImageBitmap(blob);
+    const bitmap = await shrink(decoded, MAX_EDGE);
+    const resized = bitmap !== decoded;
+    if (resized) decoded.close();
+
+    const thumbBitmap = await shrink(bitmap, THUMB_EDGE);
+    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.8);
+    if (thumbBitmap !== bitmap) thumbBitmap.close();
+
+    // Only re-encode when we actually changed the pixels — a JPEG that was
+    // already small enough can be persisted exactly as it arrived.
+    const stored = !resized && blob.type === 'image/jpeg'
+      ? blob
+      : await encode(bitmap, 'image/jpeg', 0.92);
+
+    return {
+      id: uid(),
+      name,
+      bitmap,
+      w: bitmap.width,
+      h: bitmap.height,
+      blob: stored,
+      thumbUrl: URL.createObjectURL(thumbBlob),
+      thumbBlob,
+    };
+  }
+
+  async function addPhotos(files) {
+    const images = [...files].filter((f) => f.type.startsWith('image/') || /\.hei[cf]$/i.test(f.name));
     if (!images.length) return;
 
     const wasEmpty = state.photos.length === 0;
-    let pending = images.length;
+    if (images.length > 2) toast(`Importing ${images.length} photos…`);
 
-    images.forEach((file) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        state.photos.push({ id: uid(), img, url, name: file.name });
-        if (--pending === 0) afterImport(wasEmpty);
-        renderTray();
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        const heic = /\.hei[cf]$/i.test(file.name);
-        toast(heic ? `${file.name} is HEIC — this browser can't read it` : `Couldn't read ${file.name}`);
-        if (--pending === 0) afterImport(wasEmpty);
-      };
-      img.src = url;
+    // A few at a time: all 20 at once spikes memory with 12MP decodes, one at
+    // a time leaves the decoder idle between photos.
+    const queue = [...images];
+    const results = new Array(images.length);
+    const worker = async () => {
+      while (queue.length) {
+        const index = images.length - queue.length;
+        const file = queue.shift();
+        try {
+          results[index] = await ingest(file, file.name);
+        } catch {
+          const heic = /\.hei[cf]$/i.test(file.name) || file.type === 'image/heic';
+          toast(heic
+            ? `${file.name} is HEIC — this browser can't decode it`
+            : `Couldn't read ${file.name}`);
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+
+    // Added in the order they were chosen, whatever order they finished in.
+    results.filter(Boolean).forEach((photo) => {
+      state.photos.push(photo);
+      savePhoto(photo);
     });
+    renderTray();
+    requestPersistence();
+    afterImport(wasEmpty);
   }
 
   // Dropping a pile of photos into an empty deck almost always means "one page
@@ -416,11 +496,15 @@
   function removePhoto(photoId) {
     const uses = usageCount(photoId);
     state.pages.forEach((pg) => {
-      pg.cells.forEach((c, i) => { if (c && c.photo === photoId) { pg.cells[i] = null; pg.dirty = true; } });
+      pg.cells.forEach((c, i) => { if (c && c.photo === photoId) { pg.cells[i] = null; pg.rev = (pg.rev || 0) + 1; } });
     });
     const photo = photoById(photoId);
-    if (photo) URL.revokeObjectURL(photo.url);
+    if (photo) {
+      URL.revokeObjectURL(photo.thumbUrl);
+      if (photo.bitmap) photo.bitmap.close();
+    }
     state.photos = state.photos.filter((p) => p.id !== photoId);
+    dropPhoto(photoId);
     if (uses) toast(`Removed from ${uses} tile${uses > 1 ? 's' : ''}`);
     refresh();
   }
@@ -437,15 +521,23 @@
       el.draggable = true;
       el.title = `Page ${i + 1}`;
 
+      // Thumbnails are cached on the page and only redrawn when that page or
+      // the deck style actually changed. Redrawing all 20 on every refresh
+      // cost 78ms per page change.
       const out = outputSize();
       const tw = 96;
       const th = Math.round(tw * out.h / out.w);
-      const thumb = document.createElement('canvas');
-      thumb.width = tw;
-      thumb.height = th;
-      // Placeholders on, or an empty page is indistinguishable from one
-      // holding a white photo.
-      drawPage(thumb.getContext('2d'), pg, tw, th, { placeholders: true });
+      const key = `${styleRev}:${pg.rev || 0}:${tw}x${th}`;
+      if (!pg.thumb || pg.thumbKey !== key) {
+        pg.thumb = pg.thumb || document.createElement('canvas');
+        pg.thumb.width = tw;
+        pg.thumb.height = th;
+        // Placeholders on, or an empty page is indistinguishable from one
+        // holding a white photo.
+        drawPage(pg.thumb.getContext('2d'), pg, tw, th, { placeholders: true });
+        pg.thumbKey = key;
+      }
+      const thumb = pg.thumb;
 
       const num = document.createElement('span');
       num.className = 'film-num';
@@ -505,7 +597,7 @@
       el.className = 'tray-item' + (uses ? ' is-used' : '');
       el.draggable = true;
       el.title = uses ? `Used ${uses}x — drag onto a tile` : 'Not placed yet — drag onto a tile';
-      el.innerHTML = `<img src="${photo.url}" alt="">`
+      el.innerHTML = `<img src="${photo.thumbUrl}" alt="" loading="lazy">`
         + (uses ? `<span class="tray-badge">${uses}</span>` : '')
         + '<button class="tray-x" type="button" aria-label="Remove photo">&times;</button>';
 
@@ -532,7 +624,7 @@
     const i = state.selected;
     const pg = page();
     const cell = pg.cells[i];
-    const img = imageFor(cell);
+    const photo = photoFor(cell);
     const field = $('cell-field');
 
     // The layout highlight belongs to the page, not the selection, so it has
@@ -541,10 +633,10 @@
       'is-active', c.dataset.id === pg.layout.id,
     ));
 
-    if (!img) { field.hidden = true; return; }
+    if (!photo) { field.hidden = true; return; }
     field.hidden = false;
 
-    const p = place(cell, img, cellRects()[i], canvas.width / BASE_WIDTH);
+    const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
     const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
 
     $('cell-index').textContent = `#${i + 1}`;
@@ -591,12 +683,12 @@
   function rebase() {
     const i = state.selected;
     const cell = page().cells[i];
-    const img = imageFor(cell);
-    if (!img || !pointers.size) { gesture = null; return; }
+    const photo = photoFor(cell);
+    if (!photo || !pointers.size) { gesture = null; return; }
 
     const s = canvas.width / BASE_WIDTH;
     const rect = cellRects()[i];
-    const p = place(cell, img, rect, s);
+    const p = place(cell, photo, rect, s);
     const pts = [...pointers.values()];
 
     gesture = {
@@ -652,7 +744,7 @@
 
     if (!pointers.has(e.pointerId)) {
       const p = toCanvas(e);
-      const over = imageFor(page().cells[cellAt(p.x, p.y)]);
+      const over = photoFor(page().cells[cellAt(p.x, p.y)]);
       canvas.style.cursor = state.selected === -1 ? 'grab' : (over ? 'grab' : 'pointer');
       return;
     }
@@ -701,7 +793,7 @@
       } else if (swipe.moved < 8 && swipe.cell !== -1) {
         // A tap, not a swipe: pick up the tile, or ask for a photo for it.
         const cell = page().cells[swipe.cell];
-        if (imageFor(cell)) select(swipe.cell);
+        if (photoFor(cell)) select(swipe.cell);
         else { pendingCell = swipe.cell; fileInput.click(); }
       }
       swipe = null;
@@ -728,13 +820,13 @@
     const i = cellAt(p.x, p.y);
     if (i !== state.selected) return;
     const cell = page().cells[i];
-    const img = imageFor(cell);
-    if (!img) return;
+    const photo = photoFor(cell);
+    if (!photo) return;
     e.preventDefault();
 
     const s = canvas.width / BASE_WIDTH;
     const rect = cellRects()[i];
-    const before = place(cell, img, rect, s);
+    const before = place(cell, photo, rect, s);
     const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     cell.zoom = clamp(before.zoom * scale, 1, 8);
 
@@ -938,9 +1030,9 @@
       btn.addEventListener('click', () => {
         state.ratio = ratio;
         markActive(wrap, btn);
-        state.pages.forEach((pg) => { pg.dirty = true; });
+        restyle();
         refresh();
-        save();
+        saveDeck();
       });
       wrap.appendChild(btn);
     });
@@ -965,8 +1057,9 @@
     $('bg').value = colour;
     $('bg-hex').textContent = colour.toUpperCase();
     markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour}"]`));
+    restyle();
     refresh();
-    save();
+    saveDeck();
   }
 
   function markActive(wrap, btn) {
@@ -982,8 +1075,9 @@
     input.addEventListener('input', () => {
       state[key] = Number(input.value);
       label.textContent = input.value;
+      restyle();
       refresh();
-      save();
+      saveDeck();
     });
   }
 
@@ -1008,27 +1102,142 @@
     toastTimer = setTimeout(() => el.classList.remove('is-visible'), 2600);
   }
 
-  const SETTINGS_KEY = 'grid-collage:settings';
+  /* --------------------------------------------------------- persistence */
+  //
+  // An installed app is expected to still be there when you reopen it, and a
+  // 20-page deck is far too much work to lose to a relaunch. Photos live in
+  // IndexedDB as resized blobs; the deck is a small JSON record beside them.
 
-  function save() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-        ratio: state.ratio.id, gap: state.gap, padding: state.padding,
-        radius: state.radius, bg: state.bg, quality: state.quality, format: state.format,
-      }));
-    } catch { /* private mode — settings just won't stick */ }
+  const DB_NAME = 'grid-collage';
+  const STORE_PHOTOS = 'photos';
+  const STORE_META = 'meta';
+  let dbPromise = null;
+
+  function db() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains(STORE_PHOTOS)) d.createObjectStore(STORE_PHOTOS, { keyPath: 'id' });
+        if (!d.objectStoreNames.contains(STORE_META)) d.createObjectStore(STORE_META, { keyPath: 'key' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    }).catch(() => null);
+    return dbPromise;
   }
 
-  function restore() {
-    let saved;
-    try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch { /* ignore */ }
-    if (!saved) return;
-    state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
-    ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
-      if (typeof saved[k] === 'number') state[k] = saved[k];
+  async function put(store, value) {
+    const d = await db();
+    if (!d) return;
+    await new Promise((resolve) => {
+      const tx = d.transaction(store, 'readwrite');
+      tx.objectStore(store).put(value);
+      tx.oncomplete = resolve;
+      tx.onerror = resolve;
+      tx.onabort = resolve;
     });
-    if (saved.bg) state.bg = saved.bg;
-    if (saved.format) state.format = saved.format;
+  }
+
+  async function getAll(store) {
+    const d = await db();
+    if (!d) return [];
+    return new Promise((resolve) => {
+      const req = d.transaction(store, 'readonly').objectStore(store).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  function savePhoto(photo) {
+    put(STORE_PHOTOS, {
+      id: photo.id, name: photo.name, blob: photo.blob, thumb: photo.thumbBlob, w: photo.w, h: photo.h,
+    });
+  }
+
+  async function dropPhoto(id) {
+    const d = await db();
+    if (!d) return;
+    d.transaction(STORE_PHOTOS, 'readwrite').objectStore(STORE_PHOTOS).delete(id);
+  }
+
+  let saveTimer;
+  function saveDeck() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      put(STORE_META, {
+        key: 'deck',
+        ratio: state.ratio.id,
+        gap: state.gap,
+        padding: state.padding,
+        radius: state.radius,
+        bg: state.bg,
+        quality: state.quality,
+        format: state.format,
+        current: state.current,
+        pages: state.pages.map((pg) => ({
+          layout: pg.layout.id,
+          cells: pg.cells.map((c) => (c ? { photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy } : null)),
+        })),
+      });
+    }, 400);
+  }
+
+  async function restoreAll() {
+    const [saved] = await Promise.all([
+      getAll(STORE_META).then((rows) => rows.find((r) => r.key === 'deck')),
+    ]);
+    if (saved) {
+      state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
+      ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
+        if (typeof saved[k] === 'number') state[k] = saved[k];
+      });
+      if (saved.bg) state.bg = saved.bg;
+      if (saved.format) state.format = saved.format;
+    }
+
+    const rows = await getAll(STORE_PHOTOS);
+    for (const row of rows) {
+      try {
+        const bitmap = await createImageBitmap(row.blob);
+        state.photos.push({
+          id: row.id, name: row.name, bitmap, w: row.w || bitmap.width, h: row.h || bitmap.height,
+          blob: row.blob, thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
+        });
+        // Keep the id counter clear of anything we just restored.
+        const n = Number(String(row.id).replace(/\D/g, ''));
+        if (n >= nextId) nextId = n + 1;
+      } catch { /* unreadable row — skip it */ }
+    }
+
+    if (saved && saved.pages && saved.pages.length) {
+      state.pages = saved.pages.map((p) => {
+        const layout = LAYOUTS.find((l) => l.id === p.layout) || LAYOUTS[0];
+        const pg = newPage(layout);
+        pg.cells = blankCells(layout).map((_, i) => {
+          const c = p.cells[i];
+          // Drop references to photos that are no longer in the tray.
+          return c && photoById(c.photo) ? { ...c } : null;
+        });
+        return pg;
+      });
+      state.current = clamp(saved.current || 0, 0, state.pages.length - 1);
+    }
+
+    const placed = state.pages.filter((pg) => pg.cells.some(Boolean)).length;
+    if (placed) toast(`Picked up where you left off — ${placed} page${placed > 1 ? 's' : ''}`);
+    restyle();
+    refresh();
+  }
+
+  // Without this the browser may evict the deck under storage pressure.
+  function requestPersistence() {
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persisted().then((already) => {
+        if (!already) navigator.storage.persist().catch(() => {});
+      }).catch(() => {});
+    }
   }
 
   /* ------------------------------------------------------------------ wire */
@@ -1037,7 +1246,6 @@
   // refresh, and a refresh with no pages throws.
   state.pages = [newPage()];
 
-  restore();
   buildLayouts();
   buildRatios();
   buildSwatches();
@@ -1049,8 +1257,8 @@
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
-  $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); save(); });
-  $('format').addEventListener('change', (e) => { state.format = e.target.value; save(); });
+  $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
+  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
 
   $('tab-page').addEventListener('click', () => setTab('page'));
@@ -1104,6 +1312,7 @@
   });
 
   refresh();
+  restoreAll();
 
   if (window.ResizeObserver) {
     let last = 0;
