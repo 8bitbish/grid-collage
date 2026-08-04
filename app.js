@@ -52,7 +52,6 @@
 
   const BASE_WIDTH = 1080;   // slider values are authored against a 1080px post
   const MAX_PAGES = 20;      // Instagram's carousel limit
-  const DRAG_TYPE = 'application/x-collage-photo';
 
   // A phone photo is ~12MP; the largest tile we ever draw is 2160px. Decoding
   // at full size costs memory and draw time for detail that can't survive the
@@ -373,7 +372,7 @@
     saveDeck();
     render();
     renderFilmstrip();
-    renderTray();
+    renderPhotos();
     syncPanel();
     syncEmpty();
     syncFades();
@@ -480,7 +479,7 @@
       state.photos.push(photo);
       savePhoto(photo);
     });
-    renderTray();
+    renderPhotos();
     requestPersistence();
     if (importForChooser) {
       // Added to choose between, so don't go dropping them into other tiles.
@@ -805,26 +804,40 @@
     if (by) strip.scrollBy({ left: by, behavior: reducedMotion ? 'auto' : 'smooth' });
   }
 
-  /* ------------------------------------------------------------ photo tray */
+  /* --------------------------------------------------------- photo library */
+  //
+  // Every photo imported, on its own screen rather than in a strip along the
+  // bottom: the way in is pinned to the left of the pages, and the count on it
+  // is the whole status. Tapping a photo drops it into a tile and leaves the
+  // library open, so filling a four-up page is four taps and one close.
 
-  function renderTray() {
-    const tray = $('tray');
-    [...tray.querySelectorAll('.tray-item')].forEach((n) => n.remove());
-    $('dock-photos-count').textContent = state.photos.length || '';
+  function renderPhotos() {
+    const grid = $('pm-grid');
+    grid.innerHTML = '';
+
+    const n = state.photos.length;
+    $('photos-count').textContent = n;
+    $('btn-photos').classList.toggle('is-empty', n === 0);
+    $('btn-photos').title = n
+      ? `${n} photo${n > 1 ? 's' : ''} — tap to open the library`
+      : 'Add your photos';
+    $('pm-count').textContent = n || '';
+    $('pm-empty').hidden = n > 0;
 
     state.photos.forEach((photo) => {
-      const el = document.createElement('div');
       const uses = usageCount(photo.id);
-      el.className = 'tray-item' + (uses ? ' is-used' : '');
-      el.draggable = true;
-      el.title = uses ? `Used ${uses}x — drag onto a tile` : 'Not placed yet — drag onto a tile';
       // Built as nodes, not markup: a filename is user text and can hold
       // quotes or angle brackets, which would break out of an attribute.
       const label = photo.name || 'Photo';
+
+      const el = document.createElement('div');
+      el.className = 'pm-item' + (uses ? ' is-used' : '');
+
       const pick = document.createElement('button');
-      pick.className = 'tray-pick';
+      pick.className = 'pm-pick';
       pick.type = 'button';
-      pick.setAttribute('aria-label', `Place ${label}`);
+      pick.setAttribute('aria-label',
+        uses ? `Place ${label} again (on ${uses} tile${uses > 1 ? 's' : ''})` : `Place ${label}`);
       const img = document.createElement('img');
       img.src = photo.thumbUrl;
       img.alt = '';
@@ -834,13 +847,13 @@
 
       if (uses) {
         const badge = document.createElement('span');
-        badge.className = 'tray-badge';
+        badge.className = 'pm-badge';
         badge.textContent = uses;
         el.appendChild(badge);
       }
 
       const kill = document.createElement('button');
-      kill.className = 'tray-x';
+      kill.className = 'pm-x';
       kill.type = 'button';
       kill.setAttribute('aria-label', `Remove ${label}`);
       kill.textContent = '×';
@@ -848,14 +861,30 @@
 
       pick.addEventListener('click', () => placePhoto(photo.id));
       kill.addEventListener('click', () => removePhoto(photo.id));
-      el.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData(DRAG_TYPE, photo.id);
-        e.dataTransfer.effectAllowed = 'copy';
-      });
-
-      tray.insertBefore(el, $('btn-add-photos'));
+      grid.appendChild(el);
     });
+  }
 
+  let libraryOpen = false;
+
+  function openLibrary() {
+    libraryOpen = true;
+    $('photos-modal').hidden = false;
+    document.body.classList.add('is-library');
+    $('btn-photos').setAttribute('aria-expanded', 'true');
+    renderPhotos();
+    // Straight to the way out, so Tab and a screen reader both start where the
+    // eye does rather than at the far end of the grid.
+    $('pm-close').focus();
+  }
+
+  function closeLibrary() {
+    if (!libraryOpen) return;
+    libraryOpen = false;
+    $('photos-modal').hidden = true;
+    document.body.classList.remove('is-library');
+    $('btn-photos').setAttribute('aria-expanded', 'false');
+    $('btn-photos').focus();
   }
 
   /* ------------------------------------------------------------ tile panel */
@@ -1247,22 +1276,10 @@
   });
 
   /* ------------------------------------------------------------ drag & drop */
-
-  canvas.addEventListener('dragover', (e) => {
-    if (![...e.dataTransfer.types].includes(DRAG_TYPE)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  });
-
-  canvas.addEventListener('drop', (e) => {
-    const id = e.dataTransfer.getData(DRAG_TYPE);
-    if (!id) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const p = toCanvas(e);
-    const i = cellAt(p.x, p.y);
-    if (i !== -1) assign(i, id);
-  });
+  //
+  // Files from outside only. Dragging a photo from the library onto a tile
+  // went with the tray: the library is a modal over the canvas, so there is
+  // nothing to drop onto. Tapping a photo places it instead.
 
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
@@ -1533,7 +1550,7 @@
   // The dock shows the list of settings, or drills into one of them. Keeping
   // it to one row means the preview never has to share the screen with a
   // panel, and using a control can't scroll the preview out of view.
-  const DRAWERS = ['photos', 'layout', 'shape', 'gap', 'padding', 'corners',
+  const DRAWERS = ['layout', 'shape', 'gap', 'padding', 'corners',
     'background', 'page', 'export', 'tile'];
   let drawer = null;
 
@@ -1745,7 +1762,7 @@
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    ...['filmstrip', 'dock-root', 'tray', 'layouts', 'tile-actions'].map($),
+    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     ...document.querySelectorAll('.dock-panel:not(#dp-tile)'),
@@ -2124,20 +2141,28 @@
   // of these rows scroll sideways, and a tick every time you push the dock
   // along would be noise. Eighty milliseconds late is not something a thumb
   // can feel; a buzz for a gesture that wasn't a tap is.
-  let dockTap = null;
-  $('dock').addEventListener('pointerdown', (e) => {
-    const btn = e.target.closest('button');
-    dockTap = btn && !btn.disabled && !btn.closest('.choose-strip')
-      ? { btn, x: e.clientX, y: e.clientY }
-      : null;
-  });
-  $('dock').addEventListener('pointerup', (e) => {
-    if (!dockTap) return;
-    const still = Math.hypot(e.clientX - dockTap.x, e.clientY - dockTap.y) < 8;
-    if (still && dockTap.btn.contains(e.target)) buzz('tap');
-    dockTap = null;
-  });
-  $('dock').addEventListener('pointercancel', () => { dockTap = null; });
+  function buzzTaps(root) {
+    let pending = null;
+    root.addEventListener('pointerdown', (e) => {
+      const btn = e.target.closest('button');
+      pending = btn && !btn.disabled && !btn.closest('.choose-strip')
+        ? { btn, x: e.clientX, y: e.clientY }
+        : null;
+    });
+    root.addEventListener('pointerup', (e) => {
+      if (!pending) return;
+      const still = Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 8;
+      if (still && pending.btn.contains(e.target)) buzz('tap');
+      pending = null;
+    });
+    root.addEventListener('pointercancel', () => { pending = null; });
+  }
+
+  buzzTaps($('dock'));
+  // The library and the way into it are the same kind of control, so they get
+  // the same tick — the grid scrolls, so the same tap test applies.
+  buzzTaps($('photos-modal'));
+  buzzTaps($('btn-photos'));
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
@@ -2187,7 +2212,13 @@
   });
 
   $('btn-export').addEventListener('click', exportDeck);
-  $('btn-add-photos').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
+  $('btn-photos').addEventListener('click', openLibrary);
+  $('pm-close').addEventListener('click', closeLibrary);
+  $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
+  // Tapping the dimmed area behind the card is the other way out.
+  $('photos-modal').addEventListener('pointerdown', (e) => {
+    if (e.target === $('photos-modal')) closeLibrary();
+  });
   $('blank-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('btn-duplicate').addEventListener('click', () => {
     if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
@@ -2228,6 +2259,9 @@
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
 
     if (e.target.matches('input, select, textarea')) return;
+    // The library sits over everything, so it takes Escape before anything
+    // underneath gets a look at it.
+    if (libraryOpen && e.key === 'Escape') { closeLibrary(); return; }
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && swapFrom !== null) { cancelSwap(); return; }
     if (e.key === 'Escape' && drawer === 'tile' && tileSub) { showTileSub(null); return; }

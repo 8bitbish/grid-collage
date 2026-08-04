@@ -85,12 +85,202 @@ input, textarea, .val, #bg-hex {
   flex-direction: column;
 }
 
-/* pages along the top */
+/* pages along the top, with the photo library pinned to the left of them */
 .pagesbar {
   flex: none;
+  display: flex;
+  align-items: stretch;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
+
+/* Pinned, not part of the strip: the way into the photos has to stay put
+   however far along the pages you have scrolled. */
+.photos-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.photos-btn svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.photos-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+/* Nothing imported yet is the one time this wants to catch the eye. */
+.photos-btn.is-empty { color: var(--text); }
+.photos-btn.is-empty .photos-count { background: var(--accent); color: #fff; }
+.photos-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+
+/* ----------------------------------------------------- the photo library */
+.photos-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: rgba(8, 8, 11, 0.72);
+  padding: 0;
+}
+.photos-modal[hidden] { display: none; }
+
+.pm-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  /* Full bleed on a phone; a panel on anything wider. */
+  max-width: 720px;
+}
+
+.pm-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.pm-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-head .val { color: var(--muted); font-weight: 600; }
+
+.pm-close {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.pm-close svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+.pm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.pm-item {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.pm-pick {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.pm-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* How many tiles it's on. The old tray also dimmed a used photo, which made
+   sense there but not here: importing builds a page per photo, so every photo
+   is used from the start and the whole library would sit faded. The count is
+   the signal; a photo not placed anywhere simply has no badge. */
+.pm-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+}
+.pm-x {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pm-empty {
+  margin: 48px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.8;
+}
+.pm-empty[hidden] { display: none; }
+.pm-empty span { font-size: 13px; opacity: 0.85; }
 
 .stage {
   position: relative;
@@ -247,8 +437,9 @@ input, textarea, .val, #bg-hex {
 .dock-item,
 .dock-back,
 .film-add,
-.tray-add,
-.tray-pick,
+.photos-btn,
+.pm-close,
+.pm-pick,
 .layout-btn,
 .swatch {
   transition: background-color 140ms, color 140ms, border-color 140ms,
@@ -257,8 +448,10 @@ input, textarea, .val, #bg-hex {
 .dock-item:active,
 .dock-back:active,
 .film-add:active:not(:disabled),
-.tray-add:active,
-.tray-pick:active,
+.photos-btn:active,
+.pm-close:active,
+.pm-pick:active,
+.pm-x:active,
 .layout-btn:active,
 .swatch:active,
 .film:active,
@@ -270,8 +463,10 @@ input, textarea, .val, #bg-hex {
 .dock-item:active { background: var(--surface-2); color: var(--text); transform: scale(0.92); }
 .dock-back:active { background: #2f2f3c; transform: scale(0.92); }
 .film-add:active:not(:disabled) { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
-.tray-add:active { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
-.tray-pick:active { transform: scale(0.92); filter: brightness(1.3); }
+.photos-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.93); }
+.pm-close:active { background: #2f2f3c; transform: scale(0.92); }
+.pm-pick:active { transform: scale(0.94); filter: brightness(1.25); }
+.pm-x:active { transform: scale(0.88); }
 .layout-btn:active { border-color: var(--accent); transform: scale(0.92); }
 .swatch:active { transform: scale(0.88); }
 /* These two carry transforms of their own — the strip sliding pages aside,
@@ -744,18 +939,15 @@ input[type="range"]::-moz-range-thumb {
 .colour-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
 .colour-row input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
 
-.filmstrip,
-.tray {
+.filmstrip {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-}
-.filmstrip::-webkit-scrollbar,
-.tray::-webkit-scrollbar { display: none; }
-.filmstrip {
   padding: 9px 12px;
   /* A long press is how you pick a page up, so none of the usual long-press
      behaviours may fire: selecting the page number, the iOS callout, or the
@@ -765,7 +957,7 @@ input[type="range"]::-moz-range-thumb {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
-.tray { padding: 2px 0; }
+.filmstrip::-webkit-scrollbar { display: none; }
 
 .film {
   position: relative;
@@ -857,77 +1049,9 @@ input[type="range"]::-moz-range-thumb {
 }
 .film-add:disabled { opacity: 0.3; cursor: default; }
 
-.tray-item {
-  position: relative;
-  flex: none;
-  width: 50px;
-  height: 50px;
-  border-radius: 9px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  cursor: pointer;
-  opacity: 0.55;
-}
-.tray-item.is-used { opacity: 1; border-color: #3a3a48; }
-.tray-item:hover { border-color: var(--accent); }
-.tray-item img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 
-.tray-badge {
-  position: absolute;
-  left: 3px;
-  bottom: 3px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 15px;
-  text-align: center;
-}
 
-.tray-x {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(10, 10, 14, 0.75);
-  color: #fff;
-  font-size: 12px;
-  line-height: 15px;
-  cursor: pointer;
-  opacity: 0;
-}
-.tray-item:hover .tray-x { opacity: 1; }
 
-.tray-add {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 50px;
-  padding: 0 13px;
-  border: 1px dashed var(--line);
-  border-radius: 9px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-@media (hover: hover) {
-  .tray-add:hover { border-color: var(--accent); color: var(--text); }
-}
-.tray-add-plus { font-size: 17px; }
 
 /* ------------------------------------------------------------- a11y */
 :focus-visible {
@@ -1014,6 +1138,14 @@ input[type="range"]::-moz-range-thumb {
 }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
+/* The library covers the stage, so while it's open the toast has to leave the
+   stage with it — otherwise "this page is full" is announced behind a card. */
+body.is-library .toast {
+  position: fixed;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+}
+
 /* ------------------------------------------------------------- mobile */
 @media (max-width: 860px) {
   .topbar { padding: 10px 12px; }
@@ -1022,7 +1154,6 @@ input[type="range"]::-moz-range-thumb {
   #canvas { box-shadow: none; }
   .dock { height: 76px; }
   .dock-item { min-width: 66px; font-size: 11px; }
-  .tray-x { opacity: 1; }
 }
 
 /* --------------------------------------------- short and wide (landscape)
