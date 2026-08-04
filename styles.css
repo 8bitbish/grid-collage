@@ -179,6 +179,10 @@ body {
 .btn:hover { background: #262632; border-color: #3a3a48; }
 .btn:active { transform: translateY(1px); }
 .btn-sm { padding: 7px 8px; font-size: 12.5px; }
+.btn-icon { padding: 6px 11px; font-size: 17px; line-height: 1.1; }
+.btn:disabled { opacity: 0.32; cursor: default; }
+.btn:disabled:hover { background: var(--surface-2); border-color: var(--line); }
+.btn-ghost:disabled:hover { background: transparent; }
 .btn-ghost { background: transparent; }
 .btn-danger:hover { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
 

@@ -297,12 +297,14 @@
       toast(`A carousel tops out at ${MAX_PAGES} pages`);
       return false;
     }
+    snapshot();
     state.pages.push(newPage(layout));
     goTo(state.pages.length - 1);
     return true;
   }
 
   function deletePage(i) {
+    snapshot();
     if (state.pages.length === 1) {
       state.pages[0] = newPage();
     } else {
@@ -312,6 +314,7 @@
   }
 
   function setLayout(layout) {
+    snapshot();
     const pg = page();
     // Keep the photos that were already placed, in order.
     const kept = pg.cells.filter(Boolean);
@@ -426,6 +429,7 @@
     await Promise.all([worker(), worker(), worker()]);
 
     // Added in the order they were chosen, whatever order they finished in.
+    if (results.some(Boolean)) snapshot();
     results.filter(Boolean).forEach((photo) => {
       state.photos.push(photo);
       savePhoto(photo);
@@ -472,6 +476,7 @@
   }
 
   function assign(cellIndex, photoId, keepSelection = true) {
+    snapshot();
     const pg = page();
     pg.cells[cellIndex] = emptyCell(photoId);
     if (keepSelection) state.selected = cellIndex;
@@ -494,15 +499,15 @@
   }
 
   function removePhoto(photoId) {
+    snapshot();
     const uses = usageCount(photoId);
     state.pages.forEach((pg) => {
       pg.cells.forEach((c, i) => { if (c && c.photo === photoId) { pg.cells[i] = null; pg.rev = (pg.rev || 0) + 1; } });
     });
-    const photo = photoById(photoId);
-    if (photo) {
-      URL.revokeObjectURL(photo.thumbUrl);
-      if (photo.bitmap) photo.bitmap.close();
-    }
+    // Deliberately not closing the bitmap or revoking the thumbnail URL: undo
+    // hands this exact object back, and a closed bitmap throws when drawn.
+    // The snapshot holding it is what keeps it alive; once that falls off the
+    // history the whole record becomes collectable.
     state.photos = state.photos.filter((p) => p.id !== photoId);
     dropPhoto(photoId);
     if (uses) toast(`Removed from ${uses} tile${uses > 1 ? 's' : ''}`);
@@ -561,6 +566,7 @@
         if (filmDragFrom === null) return;
         e.preventDefault();
         e.stopPropagation();
+        snapshot();
         const [moved] = state.pages.splice(filmDragFrom, 1);
         state.pages.splice(i, 0, moved);
         filmDragFrom = null;
@@ -655,6 +661,7 @@
   function resetCell(i) {
     const cell = page().cells[i];
     if (!cell) return;
+    snapshot();
     cell.zoom = 1; cell.rot = 0; cell.ox = 0; cell.oy = 0;
     render();
     syncPanel();
@@ -723,6 +730,7 @@
       return;
     }
 
+    if (pointers.size === 0) { endRun(); snapshot(); }
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
@@ -826,6 +834,7 @@
 
     const s = canvas.width / BASE_WIDTH;
     const rect = cellRects()[i];
+    snapshot('wheel');
     const before = place(cell, photo, rect, s);
     const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     cell.zoom = clamp(before.zoom * scale, 1, 8);
@@ -1028,6 +1037,7 @@
       btn.textContent = ratio.label;
       btn.dataset.id = ratio.id;
       btn.addEventListener('click', () => {
+        snapshot();
         state.ratio = ratio;
         markActive(wrap, btn);
         restyle();
@@ -1052,14 +1062,31 @@
     });
   }
 
-  function setBg(colour) {
-    state.bg = colour;
+  function setBgInputs(colour) {
     $('bg').value = colour;
     $('bg-hex').textContent = colour.toUpperCase();
     markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour}"]`));
+  }
+
+  function setBg(colour) {
+    snapshot('bg');
+    state.bg = colour;
+    setBgInputs(colour);
     restyle();
     refresh();
     saveDeck();
+  }
+
+  // Pull the Style tab's controls back in line with state — needed after an
+  // undo, which can change any of them.
+  function syncStyleInputs() {
+    markActive($('ratios'), $('ratios').querySelector(`[data-id="${state.ratio.id}"]`));
+    ['gap', 'padding', 'radius'].forEach((key) => {
+      $(key).value = state[key];
+      $(`${key}-val`).textContent = state[key];
+    });
+    $('quality').value = String(state.quality);
+    $('format').value = state.format;
   }
 
   function markActive(wrap, btn) {
@@ -1072,7 +1099,10 @@
     const label = $(`${id}-val`);
     input.value = state[key];
     label.textContent = state[key];
+    input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
+    input.addEventListener('pointerup', endRun);
     input.addEventListener('input', () => {
+      snapshot(`slider:${key}`);
       state[key] = Number(input.value);
       label.textContent = input.value;
       restyle();
@@ -1151,6 +1181,7 @@
   }
 
   function savePhoto(photo) {
+    persisted.add(photo.id);
     put(STORE_PHOTOS, {
       id: photo.id, name: photo.name, blob: photo.blob, thumb: photo.thumbBlob, w: photo.w, h: photo.h,
     });
@@ -1162,26 +1193,61 @@
     d.transaction(STORE_PHOTOS, 'readwrite').objectStore(STORE_PHOTOS).delete(id);
   }
 
+  // One description of the deck, shared by persistence and the undo stack.
+  function serialiseDeck() {
+    return {
+      ratio: state.ratio.id,
+      gap: state.gap,
+      padding: state.padding,
+      radius: state.radius,
+      bg: state.bg,
+      quality: state.quality,
+      format: state.format,
+      current: state.current,
+      pages: state.pages.map((pg) => ({
+        layout: pg.layout.id,
+        cells: pg.cells.map((c) => (c ? { photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy } : null)),
+      })),
+    };
+  }
+
+  function applyDeck(data) {
+    state.ratio = RATIOS.find((r) => r.id === data.ratio) || state.ratio;
+    ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
+      if (typeof data[k] === 'number') state[k] = data[k];
+    });
+    if (data.bg) state.bg = data.bg;
+    if (data.format) state.format = data.format;
+
+    if (data.pages && data.pages.length) {
+      state.pages = data.pages.map((p) => {
+        const layout = LAYOUTS.find((l) => l.id === p.layout) || LAYOUTS[0];
+        const pg = newPage(layout);
+        pg.cells = blankCells(layout).map((_, i) => {
+          const c = p.cells[i];
+          // Drop references to photos that are no longer in the tray.
+          return c && photoById(c.photo) ? { ...c } : null;
+        });
+        return pg;
+      });
+      state.current = clamp(data.current || 0, 0, state.pages.length - 1);
+    }
+  }
+
   let saveTimer;
   function saveDeck() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      put(STORE_META, {
-        key: 'deck',
-        ratio: state.ratio.id,
-        gap: state.gap,
-        padding: state.padding,
-        radius: state.radius,
-        bg: state.bg,
-        quality: state.quality,
-        format: state.format,
-        current: state.current,
-        pages: state.pages.map((pg) => ({
-          layout: pg.layout.id,
-          cells: pg.cells.map((c) => (c ? { photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy } : null)),
-        })),
-      });
-    }, 400);
+    saveTimer = setTimeout(() => put(STORE_META, { key: 'deck', ...serialiseDeck() }), 400);
+  }
+
+  // Which photo blobs are actually in the database, so undoing a tray removal
+  // can put one back and redoing can take it out again.
+  const persisted = new Set();
+
+  function reconcilePhotos() {
+    const live = new Set(state.photos.map((p) => p.id));
+    state.photos.forEach((p) => { if (!persisted.has(p.id)) savePhoto(p); });
+    [...persisted].forEach((id) => { if (!live.has(id)) { dropPhoto(id); persisted.delete(id); } });
   }
 
   async function restoreAll() {
@@ -1205,6 +1271,7 @@
           id: row.id, name: row.name, bitmap, w: row.w || bitmap.width, h: row.h || bitmap.height,
           blob: row.blob, thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         });
+        persisted.add(row.id);
         // Keep the id counter clear of anything we just restored.
         const n = Number(String(row.id).replace(/\D/g, ''));
         if (n >= nextId) nextId = n + 1;
@@ -1228,7 +1295,83 @@
     const placed = state.pages.filter((pg) => pg.cells.some(Boolean)).length;
     if (placed) toast(`Picked up where you left off — ${placed} page${placed > 1 ? 's' : ''}`);
     restyle();
+    setBgInputs(state.bg);
+    syncStyleInputs();
     refresh();
+    // A restore isn't an edit, so it starts with a clean history.
+    undoStack.length = 0;
+    redoStack.length = 0;
+    syncHistoryButtons();
+  }
+
+  /* ------------------------------------------------------------ undo/redo */
+  //
+  // Snapshots rather than commands: the deck serialises to a few kilobytes of
+  // JSON, so keeping whole states is simpler than describing every edit and
+  // its inverse — and it can't drift out of sync with the real state.
+  //
+  // Photos are held by reference, not copied. A snapshot keeps a removed
+  // photo's bitmap alive so undo can put it back, and it falls out of memory
+  // once the last snapshot mentioning it drops off the stack.
+
+  const UNDO_LIMIT = 50;
+  const undoStack = [];
+  const redoStack = [];
+  let coalesceKey = null;
+  let coalesceAt = 0;
+
+  const takeSnapshot = () => ({ deck: serialiseDeck(), photos: state.photos.slice() });
+
+  // `key` groups a continuous interaction — a slider drag or a pinch — into
+  // one undo step instead of one per frame.
+  function snapshot(key = null) {
+    const now = performance.now();
+    if (key && key === coalesceKey && now - coalesceAt < 700) {
+      coalesceAt = now;
+      return;
+    }
+    coalesceKey = key;
+    coalesceAt = now;
+
+    undoStack.push(takeSnapshot());
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    syncHistoryButtons();
+  }
+
+  // Ends a run so the next interaction of the same kind starts a fresh step.
+  const endRun = () => { coalesceKey = null; };
+
+  function applySnapshot(snap) {
+    state.photos = snap.photos.slice();
+    applyDeck(snap.deck);
+    state.selected = -1;
+    styleRev += 1;
+    reconcilePhotos();
+    setBgInputs(state.bg);
+    syncStyleInputs();
+    refresh();
+  }
+
+  function undo() {
+    if (!undoStack.length) { toast('Nothing to undo'); return; }
+    redoStack.push(takeSnapshot());
+    applySnapshot(undoStack.pop());
+    endRun();
+    syncHistoryButtons();
+  }
+
+  function redo() {
+    if (!redoStack.length) { toast('Nothing to redo'); return; }
+    undoStack.push(takeSnapshot());
+    applySnapshot(redoStack.pop());
+    endRun();
+    syncHistoryButtons();
+  }
+
+  function syncHistoryButtons() {
+    $('btn-undo').disabled = !undoStack.length;
+    $('btn-redo').disabled = !redoStack.length;
   }
 
   // Without this the browser may evict the deck under storage pressure.
@@ -1249,7 +1392,7 @@
   buildLayouts();
   buildRatios();
   buildSwatches();
-  setBg(state.bg);
+  setBgInputs(state.bg);
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
@@ -1257,7 +1400,7 @@
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
-  $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
+  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
   $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
 
@@ -1270,6 +1413,7 @@
   $('btn-next').addEventListener('click', () => goTo(state.current + 1));
   $('btn-duplicate').addEventListener('click', () => {
     if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
+    snapshot();
     const copy = JSON.parse(JSON.stringify({ layout: page().layout.id, cells: page().cells }));
     const pg = newPage(LAYOUTS.find((l) => l.id === copy.layout));
     pg.cells = copy.cells;
@@ -1278,14 +1422,18 @@
   });
   $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
+  $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
+  $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    snapshot('zoom');
     cell.zoom = Number(e.target.value) / 100;
     settle(state.selected);
     render();
   });
   $('btn-remove').addEventListener('click', () => {
+    snapshot();
     page().cells[state.selected] = null;
     select(-1);
     refresh();
@@ -1297,7 +1445,18 @@
   $('sheet-copy').addEventListener('click', copyImage);
   $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
 
+  $('btn-undo').addEventListener('click', undo);
+  $('btn-redo').addEventListener('click', redo);
+
   window.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+
     if (e.target.matches('input, select, textarea')) return;
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
@@ -1305,6 +1464,7 @@
     if (e.key === 'ArrowRight' && state.selected === -1) goTo(state.current + 1);
     if ((e.key === 'Backspace' || e.key === 'Delete') && state.selected !== -1) {
       e.preventDefault();
+      snapshot();
       page().cells[state.selected] = null;
       select(-1);
       refresh();
