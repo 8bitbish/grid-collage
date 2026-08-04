@@ -114,14 +114,30 @@
     return { w, h: Math.round(w * state.ratio.h / state.ratio.w) };
   }
 
+  // Hands the post's shape to CSS so the preview container can hold it.
+  function publishRatio() {
+    document.documentElement.style.setProperty(
+      '--post-ratio', `${state.ratio.w} / ${state.ratio.h}`,
+    );
+  }
+
   // The preview only needs enough pixels to look sharp on screen; rendering it
   // at export size cost 33ms a frame at 2160px.
+  //
+  // Measured against the container, never the canvas. A canvas can't display
+  // larger than its own backing store, so sizing the backing store from the
+  // canvas's own width is a loop that only ever ratchets the preview smaller —
+  // it had shrunk to 31% of the available width on a phone.
   function previewSize() {
     const out = outputSize();
-    const css = canvas.clientWidth;
-    if (!css) return out;
+    const box = $('canvas-wrap');
+    const bw = box.clientWidth;
+    const bh = box.clientHeight;
+    if (!bw || !bh) return out;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.max(360, Math.min(out.w, Math.round(css * dpr)));
+    // The largest post-shaped box that fits the container.
+    const fit = Math.min(bw / out.w, bh / out.h);
+    const w = clamp(Math.round(out.w * fit * dpr), 360, out.w);
     return { w, h: Math.round(w * out.h / out.w) };
   }
 
@@ -332,6 +348,7 @@
 
   function refresh() {
     saveDeck();
+    publishRatio();
     render();
     renderFilmstrip();
     renderTray();
@@ -1451,6 +1468,7 @@
   buildRatios();
   buildSwatches();
   setBgInputs(state.bg);
+  publishRatio();
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
@@ -1536,7 +1554,7 @@
   if (window.ResizeObserver) {
     let last = 0;
     new ResizeObserver(() => {
-      const w = canvas.clientWidth;
+      const w = $('canvas-wrap').clientWidth;
       if (!w || Math.abs(w - last) < 8) return;
       last = w;
       render();
