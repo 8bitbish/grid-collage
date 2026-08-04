@@ -1423,43 +1423,106 @@
     document.querySelector('.app').classList.toggle('is-choosing', choosing);
     $('dock').classList.toggle('is-choosing', choosing);
     if (choosing) renderChooser();
+    // Page thumbnails aren't visible while choosing, so they catch up on the
+    // way out rather than being redrawn for every photo scrolled past.
+    else if (centred !== -1) { centred = -1; renderFilmstrip(); }
     setBackIcon();
   }
 
-  // The photos already imported, offered for the selected tile. Tapping one
-  // applies it there and then, so the preview above answers the question.
+  // The photos already imported, run past a fixed marker: whichever sits in
+  // the middle is the one in the tile. Scrolling is the choosing.
+  let centred = -1;
+  let settlingScroll = false;
+
   function renderChooser() {
     const strip = $('choose-strip');
     strip.innerHTML = '';
     const cell = page().cells[state.selected];
+    $('choose-focus').hidden = !state.photos.length;
 
     if (!state.photos.length) {
       strip.innerHTML = '<p class="choose-empty">No photos yet — add some with the button above.</p>';
       return;
     }
 
-    state.photos.forEach((photo) => {
+    state.photos.forEach((photo, i) => {
       const el = document.createElement('button');
       el.type = 'button';
-      el.className = 'choose-item' + (cell && cell.photo === photo.id ? ' is-current' : '');
+      el.className = 'choose-item';
       el.title = photo.name || 'Photo';
       el.innerHTML = `<img src="${photo.thumbUrl}" alt="">`;
-      el.addEventListener('click', () => choosePhoto(photo.id));
+      // Tapping doesn't apply directly — it brings that photo to the middle,
+      // and the middle is what counts.
+      el.addEventListener('click', () => scrollChooserTo(i, true));
       strip.appendChild(el);
+    });
+
+    // Open on whatever the tile already holds.
+    const start = Math.max(0, state.photos.findIndex((p) => cell && p.id === cell.photo));
+    centred = start;
+    markCentred(start);
+    requestAnimationFrame(() => scrollChooserTo(start, false));
+  }
+
+  function markCentred(index) {
+    [...$('choose-strip').children].forEach((el, i) => {
+      el.classList.toggle('is-current', i === index);
     });
   }
 
-  function choosePhoto(photoId) {
+  function scrollChooserTo(index, smooth) {
+    const strip = $('choose-strip');
+    const el = strip.children[index];
+    if (!el) return;
+    settlingScroll = true;
+    strip.scrollTo({
+      left: el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2,
+      behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
+    });
+    // Let the programmatic scroll finish before reading positions again,
+    // otherwise it reports its own intermediate frames as a choice.
+    setTimeout(() => { settlingScroll = false; onChooserScroll(); }, smooth ? 340 : 60);
+  }
+
+  function nearestToCentre() {
+    const strip = $('choose-strip');
+    const mid = strip.getBoundingClientRect().left + strip.clientWidth / 2;
+    let best = -1;
+    let closest = Infinity;
+    [...strip.children].forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const d = Math.abs(r.left + r.width / 2 - mid);
+      if (d < closest) { closest = d; best = i; }
+    });
+    return best;
+  }
+
+  let scrollFrame = 0;
+  function onChooserScroll() {
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0;
+      if (tileSub !== 'replace' || settlingScroll) return;
+      const index = nearestToCentre();
+      if (index < 0 || index === centred) return;
+      centred = index;
+      markCentred(index);
+      buzz('snap');
+      applyCentred();
+    });
+  }
+
+  function applyCentred() {
+    const photo = state.photos[centred];
     const i = state.selected;
     const cell = page().cells[i];
-    if (!cell || cell.photo === photoId) return;
-    snapshot();
+    if (!photo || !cell || cell.photo === photo.id) return;
+    // One undo step for a run through the reel, not one per photo passed.
+    snapshot('choose');
     // A fresh crop each time, so flicking between options compares like
     // with like rather than inheriting the last photo's framing.
-    page().cells[i] = emptyCell(photoId);
+    page().cells[i] = emptyCell(photo.id);
     render();
-    renderChooser();
-    renderFilmstrip();
     saveDeck();
   }
 
@@ -1900,6 +1963,7 @@
     btn.addEventListener('click', () => tileAction(btn.dataset.tile));
   });
   $('choose-back').addEventListener('click', () => showTileSub(null));
+  $('choose-strip').addEventListener('scroll', onChooserScroll, { passive: true });
   $('choose-add').addEventListener('click', () => {
     pendingCell = null;
     importForChooser = true;
