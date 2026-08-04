@@ -81,6 +81,23 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return;
 
+  // The manifest decides whether the browser rebuilds the installed app, so
+  // it must never be answered from a stale cache: serving the old one is how
+  // an installed app keeps missing a newly declared share target. Network
+  // first, cache only as an offline fallback.
+  if (request.destination === 'manifest' || new URL(request.url).pathname.endsWith('.webmanifest')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request)),
+    );
+    return;
+  }
+
   // Page loads go to the network first so a new deploy is picked up straight
   // away, and fall back to the cached shell when there's no connection.
   if (request.mode === 'navigate') {
