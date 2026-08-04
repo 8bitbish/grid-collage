@@ -113,6 +113,7 @@
   }
 
   let pendingCell = null;
+  let importForChooser = false;
   const pointers = new Map();
   let gesture = null;
   let swipe = null;
@@ -469,6 +470,13 @@
     });
     renderTray();
     requestPersistence();
+    if (importForChooser) {
+      // Added to choose between, so don't go dropping them into other tiles.
+      importForChooser = false;
+      renderChooser();
+      refresh();
+      return;
+    }
     afterImport(wasEmpty);
   }
 
@@ -1407,8 +1415,52 @@
   function showTileSub(name) {
     tileSub = name;
     $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    ['zoom', 'rotate', 'flip', 'replace'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+
+    // Choosing a photo wants room: the pages bar steps aside and the dock
+    // takes two rows, so the options are large enough to judge at a glance.
+    const choosing = name === 'replace';
+    document.querySelector('.app').classList.toggle('is-choosing', choosing);
+    $('dock').classList.toggle('is-choosing', choosing);
+    if (choosing) renderChooser();
     setBackIcon();
+  }
+
+  // The photos already imported, offered for the selected tile. Tapping one
+  // applies it there and then, so the preview above answers the question.
+  function renderChooser() {
+    const strip = $('choose-strip');
+    strip.innerHTML = '';
+    const cell = page().cells[state.selected];
+
+    if (!state.photos.length) {
+      strip.innerHTML = '<p class="choose-empty">No photos yet — add some with the button above.</p>';
+      return;
+    }
+
+    state.photos.forEach((photo) => {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'choose-item' + (cell && cell.photo === photo.id ? ' is-current' : '');
+      el.title = photo.name || 'Photo';
+      el.innerHTML = `<img src="${photo.thumbUrl}" alt="">`;
+      el.addEventListener('click', () => choosePhoto(photo.id));
+      strip.appendChild(el);
+    });
+  }
+
+  function choosePhoto(photoId) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    if (!cell || cell.photo === photoId) return;
+    snapshot();
+    // A fresh crop each time, so flicking between options compares like
+    // with like rather than inheriting the last photo's framing.
+    page().cells[i] = emptyCell(photoId);
+    render();
+    renderChooser();
+    renderFilmstrip();
+    saveDeck();
   }
 
   // The tile bar drops the tile with a cross, as sketched; everything else
@@ -1440,7 +1492,12 @@
       toast('Tap another tile to swap them over');
       return;
     }
-    if (action === 'replace') { pendingCell = i; fileInput.click(); return; }
+    if (action === 'replace') {
+      // Straight to the device picker when there's nothing to choose between.
+      if (!state.photos.length) { pendingCell = i; fileInput.click(); return; }
+      showTileSub('replace');
+      return;
+    }
     if (action === 'delete') {
       snapshot();
       page().cells[i] = null;
@@ -1473,6 +1530,8 @@
   function closeDrawer() {
     drawer = null;
     tileSub = null;
+    document.querySelector('.app').classList.remove('is-choosing');
+    $('dock').classList.remove('is-choosing');
     cancelSwap();
     setBackIcon();
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
@@ -1840,6 +1899,12 @@
   [...$('tile-actions').children].forEach((btn) => {
     btn.addEventListener('click', () => tileAction(btn.dataset.tile));
   });
+  $('choose-back').addEventListener('click', () => showTileSub(null));
+  $('choose-add').addEventListener('click', () => {
+    pendingCell = null;
+    importForChooser = true;
+    fileInput.click();
+  });
   $('btn-flip-h').addEventListener('click', () => flipCell('x'));
   $('btn-flip-v').addEventListener('click', () => flipCell('y'));
   $('btn-rot90').addEventListener('click', () => {
@@ -1925,11 +1990,16 @@
   restoreAll().then(collectShared);
 
   if (window.ResizeObserver) {
-    let last = 0;
+    let lastW = 0;
+    let lastH = 0;
     new ResizeObserver(() => {
-      const w = $('canvas-wrap').clientWidth;
-      if (!w || Math.abs(w - last) < 8) return;
-      last = w;
+      const box = $('canvas-wrap');
+      const w = box.clientWidth;
+      const h = box.clientHeight;
+      if (!w || !h) return;
+      if (Math.abs(w - lastW) < 8 && Math.abs(h - lastH) < 8) return;
+      lastW = w;
+      lastH = h;
       render();
     }).observe($('canvas-wrap'));
   }
