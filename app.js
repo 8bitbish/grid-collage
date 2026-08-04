@@ -1,15 +1,22 @@
-/* Grid Collage — drop photos into a grid, export one image for Instagram.
-   No build step, no dependencies: everything renders into a single canvas at
-   export resolution, so what you see is exactly what downloads. */
+/* Grid Collage — build an Instagram carousel.
+ *
+ * A deck is up to 20 pages. Each page has a layout and a set of tiles. Tiles
+ * don't own photos: they reference one from a shared tray, so the same photo
+ * can be a full-bleed page and part of a collage elsewhere without being
+ * imported or held in memory twice.
+ *
+ * Styling (shape, gap, border, corners, background) belongs to the deck, not
+ * the page — Instagram crops a carousel to one shape, and slides that change
+ * colour or spacing read as a mistake.
+ */
 
 (() => {
   'use strict';
 
   /* ---------------------------------------------------------- definitions */
 
-  // Layouts are described in grid units. `cells` is optional — without it we
-  // generate a plain cols × rows grid.
   const LAYOUTS = [
+    { id: '1x1', cols: 1, rows: 1 },
     { id: '2x1', cols: 2, rows: 1 },
     { id: '1x2', cols: 1, rows: 2 },
     { id: '2x2', cols: 2, rows: 2 },
@@ -43,13 +50,14 @@
 
   const SWATCHES = ['#ffffff', '#000000', '#f2efe9', '#e8d9c5', '#1e2a3a', '#ff4d8d', '#a8c7a0', '#c9c9d4'];
 
-  // Slider values are authored against a 1080px-wide post and scaled from there.
-  const BASE_WIDTH = 1080;
+  const BASE_WIDTH = 1080;   // slider values are authored against a 1080px post
+  const MAX_PAGES = 20;      // Instagram's carousel limit
+  const DRAG_TYPE = 'application/x-collage-photo';
 
   /* --------------------------------------------------------------- state */
 
   const state = {
-    layout: LAYOUTS[2],
+    // deck-wide
     ratio: RATIOS[0],
     gap: 24,
     padding: 24,
@@ -57,19 +65,31 @@
     bg: '#ffffff',
     quality: 1080,
     format: 'image/jpeg',
-    cells: [],
+    // contents
+    photos: [],
+    pages: [],
+    current: 0,
     selected: -1,
   };
+
+  let nextId = 1;
+  const uid = () => `id${nextId++}`;
 
   const $ = (id) => document.getElementById(id);
   const canvas = $('canvas');
   const ctx = canvas.getContext('2d');
   const fileInput = $('file-input');
 
-  let pendingCell = null;         // cell index a file picker was opened for
-  const pointers = new Map();     // pointerId -> canvas-space position
-  let gesture = null;             // baseline for the in-flight pan/pinch/twist
-  let thumbDragFrom = null;       // index within the filled-cell list
+  const page = () => state.pages[state.current];
+  const photoById = (id) => state.photos.find((p) => p.id === id);
+  const imageFor = (cell) => (cell && cell.photo ? (photoById(cell.photo) || {}).img : null);
+
+  let pendingCell = null;
+  const pointers = new Map();
+  let gesture = null;
+  let swipe = null;
+  let sheetUrl = null;
+  let filmDragFrom = null;
 
   /* ------------------------------------------------------------ geometry */
 
@@ -83,9 +103,8 @@
     return { w, h: Math.round(w * state.ratio.h / state.ratio.w) };
   }
 
-  // The preview only needs enough pixels to look sharp on screen. Rendering it
-  // at the full export size made every drag frame cost 33ms at 2160px; there's
-  // no point pushing 4.6M pixels to fill an 800px box.
+  // The preview only needs enough pixels to look sharp on screen; rendering it
+  // at export size cost 33ms a frame at 2160px.
   function previewSize() {
     const out = outputSize();
     const css = canvas.clientWidth;
@@ -95,20 +114,15 @@
     return { w, h: Math.round(w * out.h / out.w) };
   }
 
-  // Pixel rect of every cell, in whatever resolution the canvas is currently
-  // sized to — preview while editing, full size during an export render.
-  function cellRects() {
-    const W = canvas.width;
-    const H = canvas.height;
+  function cellRectsFor(layout, W, H) {
     const s = W / BASE_WIDTH;
     const gap = state.gap * s;
     const pad = state.padding * s;
-    const { cols, rows } = state.layout;
-
+    const { cols, rows } = layout;
     const cw = (W - pad * 2 - gap * (cols - 1)) / cols;
     const ch = (H - pad * 2 - gap * (rows - 1)) / rows;
 
-    return layoutCells(state.layout).map((c) => ({
+    return layoutCells(layout).map((c) => ({
       x: pad + c.x * (cw + gap),
       y: pad + c.y * (ch + gap),
       w: c.w * cw + (c.w - 1) * gap,
@@ -116,26 +130,28 @@
     }));
   }
 
+  const cellRects = () => cellRectsFor(page().layout, canvas.width, canvas.height);
+
   function cellAt(px, py) {
     return cellRects().findIndex(
       (r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h,
     );
   }
 
-  // Where the photo lands inside its cell, honouring zoom, rotation and pan but
-  // never letting the background show through at the edges.
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // Where a photo lands inside its tile, honouring zoom, rotation and pan but
+  // never letting the background show through.
   //
-  // Rotation is what makes this non-obvious. An axis-aligned clamp is wrong the
-  // moment the photo is turned: the cell's corners escape it. So measure the
-  // cell's half-extents in the *photo's* frame (hx, hy) and clamp the pan there.
-  // That also tells us the smallest zoom the angle can be drawn at — 45° on a
-  // square needs 1.414x — so rotating pushes the zoom up rather than tearing a
-  // hole in the tile.
+  // Rotation is what makes this non-obvious: an axis-aligned clamp is wrong the
+  // moment the photo is turned, because the tile's corners escape it. So we
+  // measure the tile's half-extents in the *photo's* frame and clamp there.
+  // The same maths gives the smallest zoom an angle can be drawn at, so
+  // rotating zooms in rather than tearing a hole in the tile.
   //
-  // Offsets are stored in BASE_WIDTH units, like gap and padding, so framing
-  // survives a change of preview or export resolution.
-  function place(cell, rect, s) {
-    const img = cell.img;
+  // Offsets are stored in BASE_WIDTH units so framing survives a change of
+  // preview or export resolution.
+  function place(cell, img, rect, s) {
     const cos = Math.abs(Math.cos(cell.rot));
     const sin = Math.abs(Math.sin(cell.rot));
 
@@ -164,15 +180,13 @@
     return { dw, dh, zoom, minZoom, ox: vx * ca - vy * sa, oy: vx * sa + vy * ca };
   }
 
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
-  // Write the clamped result back, so the next gesture starts from what's on
-  // screen rather than from a value the clamp has been quietly overriding.
+  // Write the clamp back, so the next gesture starts from what's on screen.
   function settle(i) {
-    const cell = state.cells[i];
-    if (!cell || !cell.img) return;
+    const cell = page().cells[i];
+    const img = imageFor(cell);
+    if (!img) return;
     const s = canvas.width / BASE_WIDTH;
-    const p = place(cell, cellRects()[i], s);
+    const p = place(cell, img, cellRects()[i], s);
     cell.ox = p.ox / s;
     cell.oy = p.oy / s;
     cell.zoom = p.zoom;
@@ -180,128 +194,716 @@
 
   /* --------------------------------------------------------------- render */
 
-  function render(forExport = false) {
-    const { w: W, h: H } = forExport ? outputSize() : previewSize();
+  // One page into any context at any size — used by the preview, the export
+  // and the filmstrip thumbnails alike.
+  function drawPage(g, pg, W, H, opts = {}) {
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = state.bg;
+    g.fillRect(0, 0, W, H);
+
+    const s = W / BASE_WIDTH;
+    const radius = state.radius * s;
+    const rects = cellRectsFor(pg.layout, W, H);
+
+    rects.forEach((rect, i) => {
+      const cell = pg.cells[i];
+      const img = imageFor(cell);
+
+      g.save();
+      roundedPath(g, rect, radius);
+      g.clip();
+
+      if (img && img.complete && img.naturalWidth) {
+        const p = place(cell, img, rect, s);
+        g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
+        g.rotate(cell.rot);
+        g.drawImage(img, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+      } else if (opts.placeholders) {
+        g.fillStyle = 'rgba(125,125,145,0.16)';
+        g.fillRect(rect.x, rect.y, rect.w, rect.h);
+        plusSign(g, rect, s);
+      }
+      g.restore();
+
+      if (opts.selected === i) {
+        g.save();
+        g.strokeStyle = '#ff4d8d';
+        g.lineWidth = Math.max(2, 4 * s);
+        roundedPath(g, rect, radius);
+        g.stroke();
+        g.restore();
+      }
+    });
+  }
+
+  function render() {
+    const { w: W, h: H } = previewSize();
     if (canvas.width !== W || canvas.height !== H) {
       canvas.width = W;
       canvas.height = H;
     }
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = state.bg;
-    ctx.fillRect(0, 0, W, H);
-
-    const s = W / BASE_WIDTH;
-    const radius = state.radius * s;
-    const rects = cellRects();
-
-    rects.forEach((rect, i) => {
-      const cell = state.cells[i];
-      ctx.save();
-      roundedPath(rect, radius);
-      ctx.clip();
-
-      if (cell && cell.img) {
-        const p = place(cell, rect, s);
-        ctx.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
-        ctx.rotate(cell.rot);
-        ctx.drawImage(cell.img, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
-      } else if (!forExport) {
-        ctx.fillStyle = 'rgba(125,125,145,0.16)';
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        plusSign(rect, s);
-      }
-      ctx.restore();
-
-      if (!forExport && i === state.selected) {
-        ctx.save();
-        ctx.strokeStyle = '#ff4d8d';
-        ctx.lineWidth = Math.max(2, 4 * s);
-        roundedPath(rect, radius);
-        ctx.stroke();
-        ctx.restore();
-      }
-    });
+    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected });
+    page().dirty = true;
   }
 
-  function roundedPath(r, radius) {
+  function roundedPath(g, r, radius) {
     const rad = Math.min(radius, r.w / 2, r.h / 2);
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(r.x, r.y, r.w, r.h, rad);
-    else ctx.rect(r.x, r.y, r.w, r.h);
+    g.beginPath();
+    if (g.roundRect) g.roundRect(r.x, r.y, r.w, r.h, rad);
+    else g.rect(r.x, r.y, r.w, r.h);
   }
 
-  function plusSign(r, s) {
+  function plusSign(g, r, s) {
     const arm = Math.min(r.w, r.h) * 0.09;
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
-    ctx.strokeStyle = 'rgba(140,140,165,0.75)';
-    ctx.lineWidth = 3 * s;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
-    ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
-    ctx.stroke();
+    g.strokeStyle = 'rgba(140,140,165,0.75)';
+    g.lineWidth = 3 * s;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(cx - arm, cy); g.lineTo(cx + arm, cy);
+    g.moveTo(cx, cy - arm); g.lineTo(cx, cy + arm);
+    g.stroke();
   }
 
-  /* ----------------------------------------------------------- photo I/O */
+  /* ----------------------------------------------------------- deck edits */
 
-  function syncCellCount() {
-    const n = layoutCells(state.layout).length;
-    const kept = state.cells.filter(Boolean);
-    state.cells = Array.from({ length: n }, (_, i) => kept[i] || null);
-    if (state.selected >= n) state.selected = -1;
+  function blankCells(layout) {
+    return layoutCells(layout).map(() => null);
   }
 
-  function loadFiles(files, startIndex) {
+  const emptyCell = (photoId) => ({ photo: photoId, zoom: 1, rot: 0, ox: 0, oy: 0 });
+
+  function newPage(layout = LAYOUTS[0], photoId = null) {
+    const pg = { id: uid(), layout, cells: blankCells(layout), dirty: true };
+    if (photoId) pg.cells[0] = emptyCell(photoId);
+    return pg;
+  }
+
+  function addPage(layout) {
+    if (state.pages.length >= MAX_PAGES) {
+      toast(`A carousel tops out at ${MAX_PAGES} pages`);
+      return false;
+    }
+    state.pages.push(newPage(layout));
+    goTo(state.pages.length - 1);
+    return true;
+  }
+
+  function deletePage(i) {
+    if (state.pages.length === 1) {
+      state.pages[0] = newPage();
+    } else {
+      state.pages.splice(i, 1);
+    }
+    goTo(Math.min(state.current, state.pages.length - 1));
+  }
+
+  function setLayout(layout) {
+    const pg = page();
+    // Keep the photos that were already placed, in order.
+    const kept = pg.cells.filter(Boolean);
+    pg.layout = layout;
+    pg.cells = blankCells(layout).map((_, i) => kept[i] || null);
+    if (state.selected >= pg.cells.length) state.selected = -1;
+    refresh();
+  }
+
+  function goTo(i) {
+    state.current = clamp(i, 0, state.pages.length - 1);
+    state.selected = -1;
+    refresh();
+  }
+
+  function refresh() {
+    render();
+    renderFilmstrip();
+    renderTray();
+    syncPanel();
+    $('pager-count').textContent = `${state.current + 1} / ${state.pages.length}`;
+    $('page-count').textContent = state.pages.length;
+    $('btn-prev').disabled = state.current === 0;
+    $('btn-next').disabled = state.current === state.pages.length - 1;
+  }
+
+  /* ----------------------------------------------------------- photo tray */
+
+  function addPhotos(files) {
     const images = [...files].filter((f) => f.type.startsWith('image/'));
     if (!images.length) return;
 
-    // Work out a slot per file up front — the loads are async, so we can't
-    // rely on the array itself to tell us what's still free.
-    const taken = new Set(state.cells.reduce((acc, c, i) => (c ? [...acc, i] : acc), []));
-    const targets = images.map((_, n) => {
-      if (n === 0 && startIndex != null && startIndex < state.cells.length) {
-        taken.add(startIndex);
-        return startIndex;
-      }
-      for (let i = 0; i < state.cells.length; i++) {
-        if (!taken.has(i)) { taken.add(i); return i; }
-      }
-      return null;
-    });
+    const wasEmpty = state.photos.length === 0;
+    let pending = images.length;
 
-    const overflow = targets.filter((t) => t === null).length;
-    if (overflow) toast(`${overflow} photo${overflow > 1 ? 's' : ''} didn't fit — pick a bigger layout`);
-
-    images.forEach((file, i) => {
-      const index = targets[i];
-      if (index === null) return;
+    images.forEach((file) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const previous = state.cells[index];
-        if (previous && previous.url) URL.revokeObjectURL(previous.url);
-        state.cells[index] = { img, url, zoom: 1, rot: 0, ox: 0, oy: 0 };
-        if (state.selected === -1 || state.selected === index) select(index);
-        render();
-        renderStrip();
+        state.photos.push({ id: uid(), img, url, name: file.name });
+        if (--pending === 0) afterImport(wasEmpty);
+        renderTray();
       };
-      img.onerror = () => { URL.revokeObjectURL(url); toast(`Couldn't read ${file.name}`); };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        const heic = /\.hei[cf]$/i.test(file.name);
+        toast(heic ? `${file.name} is HEIC — this browser can't read it` : `Couldn't read ${file.name}`);
+        if (--pending === 0) afterImport(wasEmpty);
+      };
       img.src = url;
     });
   }
 
-  function removeCell(i) {
-    const cell = state.cells[i];
-    if (cell && cell.url) URL.revokeObjectURL(cell.url);
-    state.cells[i] = null;
-    if (state.selected === i) select(-1);
+  // Dropping a pile of photos into an empty deck almost always means "one page
+  // each" — that's what a multi-select does on Instagram. Merging a few into a
+  // collage afterwards is easier than building every page by hand.
+  function afterImport(wasEmpty) {
+    const deckIsBlank = state.pages.every((pg) => pg.cells.every((c) => !c));
+    if (wasEmpty && deckIsBlank && state.photos.length > 1) {
+      const take = state.photos.slice(0, MAX_PAGES);
+      state.pages = take.map((p) => newPage(LAYOUTS[0], p.id));
+      goTo(0);
+      toast(`${take.length} pages, one photo each — change any page's layout to make a collage`);
+      if (state.photos.length > MAX_PAGES) {
+        toast(`${state.photos.length - MAX_PAGES} photos are in the tray but not placed`);
+      }
+      return;
+    }
+    // Otherwise just fill whatever's empty on the current page.
+    fillEmpties();
+    refresh();
+  }
+
+  function fillEmpties() {
+    const pg = page();
+    const used = new Set(pg.cells.filter(Boolean).map((c) => c.photo));
+    const spare = state.photos.filter((p) => !used.has(p.id));
+    pg.cells.forEach((c, i) => {
+      if (!c && spare.length) pg.cells[i] = emptyCell(spare.shift().id);
+    });
+  }
+
+  function usageCount(photoId) {
+    return state.pages.reduce(
+      (n, pg) => n + pg.cells.filter((c) => c && c.photo === photoId).length,
+      0,
+    );
+  }
+
+  function assign(cellIndex, photoId, keepSelection = true) {
+    const pg = page();
+    pg.cells[cellIndex] = emptyCell(photoId);
+    if (keepSelection) state.selected = cellIndex;
+    refresh();
+  }
+
+  // Tapping a photo places it: into the selected tile if you aimed at one,
+  // otherwise the first gap. When you didn't aim, leave nothing selected so
+  // tapping photo after photo walks down the empty tiles instead of
+  // overwriting the same one.
+  function placePhoto(photoId) {
+    const pg = page();
+    const aimed = state.selected >= 0;
+    const target = aimed ? state.selected : pg.cells.findIndex((c) => !c);
+    if (target === -1) {
+      toast('This page is full — pick a tile to replace, or add a page');
+      return;
+    }
+    assign(target, photoId, aimed);
+  }
+
+  function removePhoto(photoId) {
+    const uses = usageCount(photoId);
+    state.pages.forEach((pg) => {
+      pg.cells.forEach((c, i) => { if (c && c.photo === photoId) { pg.cells[i] = null; pg.dirty = true; } });
+    });
+    const photo = photoById(photoId);
+    if (photo) URL.revokeObjectURL(photo.url);
+    state.photos = state.photos.filter((p) => p.id !== photoId);
+    if (uses) toast(`Removed from ${uses} tile${uses > 1 ? 's' : ''}`);
+    refresh();
+  }
+
+  /* ------------------------------------------------------------- filmstrip */
+
+  function renderFilmstrip() {
+    const strip = $('filmstrip');
+    strip.innerHTML = '';
+
+    state.pages.forEach((pg, i) => {
+      const el = document.createElement('div');
+      el.className = 'film' + (i === state.current ? ' is-current' : '');
+      el.draggable = true;
+      el.title = `Page ${i + 1}`;
+
+      const out = outputSize();
+      const tw = 96;
+      const th = Math.round(tw * out.h / out.w);
+      const thumb = document.createElement('canvas');
+      thumb.width = tw;
+      thumb.height = th;
+      // Placeholders on, or an empty page is indistinguishable from one
+      // holding a white photo.
+      drawPage(thumb.getContext('2d'), pg, tw, th, { placeholders: true });
+
+      const num = document.createElement('span');
+      num.className = 'film-num';
+      num.textContent = i + 1;
+
+      el.append(thumb, num);
+      el.addEventListener('click', () => goTo(i));
+      el.addEventListener('dragstart', (e) => {
+        filmDragFrom = i;
+        e.dataTransfer.effectAllowed = 'move';
+        el.classList.add('is-dragging');
+      });
+      el.addEventListener('dragend', () => { filmDragFrom = null; renderFilmstrip(); });
+      el.addEventListener('dragover', (e) => {
+        if (filmDragFrom === null) return;
+        e.preventDefault();
+        el.classList.add('is-over');
+      });
+      el.addEventListener('dragleave', () => el.classList.remove('is-over'));
+      el.addEventListener('drop', (e) => {
+        if (filmDragFrom === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const [moved] = state.pages.splice(filmDragFrom, 1);
+        state.pages.splice(i, 0, moved);
+        filmDragFrom = null;
+        goTo(i);
+      });
+
+      strip.appendChild(el);
+    });
+
+    const add = document.createElement('button');
+    add.className = 'film-add';
+    add.type = 'button';
+    add.textContent = '+';
+    add.title = 'Add a page';
+    add.disabled = state.pages.length >= MAX_PAGES;
+    add.addEventListener('click', () => addPage(LAYOUTS[0]) && refresh());
+    strip.appendChild(add);
+
+    $('page-note').textContent = state.pages.length >= MAX_PAGES
+      ? `${MAX_PAGES} of ${MAX_PAGES} — that's Instagram's limit`
+      : 'drag to reorder · max 20';
+  }
+
+  /* ------------------------------------------------------------ photo tray */
+
+  function renderTray() {
+    const tray = $('tray');
+    [...tray.querySelectorAll('.tray-item')].forEach((n) => n.remove());
+    $('photo-count').textContent = state.photos.length;
+
+    state.photos.forEach((photo) => {
+      const el = document.createElement('div');
+      const uses = usageCount(photo.id);
+      el.className = 'tray-item' + (uses ? ' is-used' : '');
+      el.draggable = true;
+      el.title = uses ? `Used ${uses}x — drag onto a tile` : 'Not placed yet — drag onto a tile';
+      el.innerHTML = `<img src="${photo.url}" alt="">`
+        + (uses ? `<span class="tray-badge">${uses}</span>` : '')
+        + '<button class="tray-x" type="button" aria-label="Remove photo">&times;</button>';
+
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.tray-x')) { removePhoto(photo.id); return; }
+        placePhoto(photo.id);
+      });
+      el.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData(DRAG_TYPE, photo.id);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+
+      tray.insertBefore(el, $('btn-add-photos'));
+    });
+
+    $('tray-note').textContent = state.photos.length
+      ? 'drag onto a tile, or tap to place'
+      : 'nothing imported yet';
+  }
+
+  /* ------------------------------------------------------------ tile panel */
+
+  function syncPanel() {
+    const i = state.selected;
+    const pg = page();
+    const cell = pg.cells[i];
+    const img = imageFor(cell);
+    const field = $('cell-field');
+
+    // The layout highlight belongs to the page, not the selection, so it has
+    // to be set before we bail out on there being no selected tile.
+    [...$('layouts').children].forEach((c) => c.classList.toggle(
+      'is-active', c.dataset.id === pg.layout.id,
+    ));
+
+    if (!img) { field.hidden = true; return; }
+    field.hidden = false;
+
+    const p = place(cell, img, cellRects()[i], canvas.width / BASE_WIDTH);
+    const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
+
+    $('cell-index').textContent = `#${i + 1}`;
+    $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
+    $('zoom').min = Math.ceil(p.minZoom * 100);
+    $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
+    $('zoom').value = Math.round(p.zoom * 100);
+  }
+
+  function select(i) {
+    state.selected = i;
     render();
-    renderStrip();
+    syncPanel();
+  }
+
+  function resetCell(i) {
+    const cell = page().cells[i];
+    if (!cell) return;
+    cell.zoom = 1; cell.rot = 0; cell.ox = 0; cell.oy = 0;
+    render();
+    syncPanel();
+  }
+
+  /* -------------------------------------------------------- canvas gestures */
+
+  function toCanvas(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  const mean = (pts, k) => pts.reduce((a, p) => a + p[k], 0) / pts.length;
+  const spread = (pts) => Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+  const tilt = (pts) => Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+
+  const SNAP = 5 * Math.PI / 180;
+  function snapAngle(a) {
+    const quarter = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    return Math.abs(a - quarter) < SNAP ? quarter : a;
+  }
+
+  function rebase() {
+    const i = state.selected;
+    const cell = page().cells[i];
+    const img = imageFor(cell);
+    if (!img || !pointers.size) { gesture = null; return; }
+
+    const s = canvas.width / BASE_WIDTH;
+    const rect = cellRects()[i];
+    const p = place(cell, img, rect, s);
+    const pts = [...pointers.values()];
+
+    gesture = {
+      i, s,
+      ids: [...pointers.keys()],
+      ax: mean(pts, 'x'),
+      ay: mean(pts, 'y'),
+      spread: pts.length > 1 ? spread(pts) : 0,
+      tilt: pts.length > 1 ? tilt(pts) : 0,
+      cx: rect.x + rect.w / 2 + p.ox,
+      cy: rect.y + rect.h / 2 + p.oy,
+      zoom: p.zoom,
+      rot: cell.rot,
+    };
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = toCanvas(e);
+
+    // Nothing selected: the canvas belongs to the carousel, so this is a swipe.
+    // Selection is the mode switch — it's visible, and one tap either way.
+    if (state.selected === -1) {
+      canvas.setPointerCapture(e.pointerId);
+      swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, cell: cellAt(p.x, p.y) };
+      return;
+    }
+
+    const i = cellAt(p.x, p.y);
+    if (pointers.size === 0) {
+      if (i !== state.selected) { select(-1); return; }
+    } else if (i !== state.selected) {
+      return;
+    }
+
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, p);
+    rebase();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (swipe && e.pointerId === swipe.id) {
+      const dx = e.clientX - swipe.x;
+      const dy = e.clientY - swipe.y;
+      swipe.moved = Math.max(swipe.moved, Math.abs(dx));
+      // Only follow the finger once it's clearly horizontal.
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+        const atEnd = (dx > 0 && state.current === 0)
+          || (dx < 0 && state.current === state.pages.length - 1);
+        canvas.style.transform = `translateX(${dx * (atEnd ? 0.25 : 1) * 0.4}px)`;
+      }
+      return;
+    }
+
+    if (!pointers.has(e.pointerId)) {
+      const p = toCanvas(e);
+      const over = imageFor(page().cells[cellAt(p.x, p.y)]);
+      canvas.style.cursor = state.selected === -1 ? 'grab' : (over ? 'grab' : 'pointer');
+      return;
+    }
+
+    pointers.set(e.pointerId, toCanvas(e));
+    if (!gesture) return;
+
+    const pts = gesture.ids.filter((id) => pointers.has(id)).map((id) => pointers.get(id));
+    if (pts.length !== gesture.ids.length) return;
+
+    let scale = 1;
+    let turn = 0;
+    if (pts.length > 1) {
+      scale = spread(pts) / (gesture.spread || 1);
+      turn = tilt(pts) - gesture.tilt;
+    }
+
+    const cell = page().cells[gesture.i];
+    cell.rot = snapAngle(gesture.rot + turn);
+    cell.zoom = clamp(gesture.zoom * scale, 1, 8);
+
+    // Carry the photo's centre through the same similarity transform the
+    // fingers described, so the image tracks the pinch.
+    const dx = gesture.cx - gesture.ax;
+    const dy = gesture.cy - gesture.ay;
+    const c = Math.cos(turn);
+    const sn = Math.sin(turn);
+    const nx = mean(pts, 'x') + (dx * c - dy * sn) * scale;
+    const ny = mean(pts, 'y') + (dx * sn + dy * c) * scale;
+
+    const rect = cellRects()[gesture.i];
+    cell.ox = (nx - (rect.x + rect.w / 2)) / gesture.s;
+    cell.oy = (ny - (rect.y + rect.h / 2)) / gesture.s;
+
+    canvas.style.cursor = 'grabbing';
+    render();
+    syncPanel();
+  }, { passive: false });
+
+  const liftPointer = (e) => {
+    if (swipe && e.pointerId === swipe.id) {
+      const dx = e.clientX - swipe.x;
+      canvas.style.transform = '';
+      if (Math.abs(dx) > 45) {
+        goTo(state.current + (dx < 0 ? 1 : -1));
+      } else if (swipe.moved < 8 && swipe.cell !== -1) {
+        // A tap, not a swipe: pick up the tile, or ask for a photo for it.
+        const cell = page().cells[swipe.cell];
+        if (imageFor(cell)) select(swipe.cell);
+        else { pendingCell = swipe.cell; fileInput.click(); }
+      }
+      swipe = null;
+      return;
+    }
+
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (gesture) settle(gesture.i);
+    if (pointers.size) {
+      rebase();
+    } else {
+      gesture = null;
+      canvas.style.cursor = 'grab';
+      refresh();
+    }
+  };
+  canvas.addEventListener('pointerup', liftPointer);
+  canvas.addEventListener('pointercancel', liftPointer);
+
+  canvas.addEventListener('wheel', (e) => {
+    if (state.selected === -1) return;
+    const p = toCanvas(e);
+    const i = cellAt(p.x, p.y);
+    if (i !== state.selected) return;
+    const cell = page().cells[i];
+    const img = imageFor(cell);
+    if (!img) return;
+    e.preventDefault();
+
+    const s = canvas.width / BASE_WIDTH;
+    const rect = cellRects()[i];
+    const before = place(cell, img, rect, s);
+    const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+    cell.zoom = clamp(before.zoom * scale, 1, 8);
+
+    const cx = rect.x + rect.w / 2 + before.ox;
+    const cy = rect.y + rect.h / 2 + before.oy;
+    cell.ox = (p.x + (cx - p.x) * scale - (rect.x + rect.w / 2)) / s;
+    cell.oy = (p.y + (cy - p.y) * scale - (rect.y + rect.h / 2)) / s;
+
+    settle(i);
+    render();
+    syncPanel();
+  }, { passive: false });
+
+  // iOS Safari zooms the page on a two-finger pinch unless told otherwise.
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => {
+    canvas.addEventListener(type, (e) => e.preventDefault());
+  });
+
+  canvas.addEventListener('dblclick', () => {
+    if (state.selected !== -1) resetCell(state.selected);
+  });
+
+  /* ------------------------------------------------------------ drag & drop */
+
+  canvas.addEventListener('dragover', (e) => {
+    if (![...e.dataTransfer.types].includes(DRAG_TYPE)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  canvas.addEventListener('drop', (e) => {
+    const id = e.dataTransfer.getData(DRAG_TYPE);
+    if (!id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const p = toCanvas(e);
+    const i = cellAt(p.x, p.y);
+    if (i !== -1) assign(i, id);
+  });
+
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    addPhotos(e.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', () => {
+    const files = [...fileInput.files];
+    const target = pendingCell;
+    pendingCell = null;
+    fileInput.value = '';
+    if (!files.length) return;
+
+    if (target !== null && files.length === 1) {
+      // Filling one specific tile.
+      const img = new Image();
+      const url = URL.createObjectURL(files[0]);
+      img.onload = () => {
+        const photo = { id: uid(), img, url, name: files[0].name };
+        state.photos.push(photo);
+        assign(target, photo.id);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); toast(`Couldn't read ${files[0].name}`); };
+      img.src = url;
+      return;
+    }
+    addPhotos(files);
+  });
+
+  /* ---------------------------------------------------------------- export */
+
+  function renderToBlob(pg, type) {
+    const { w, h } = outputSize();
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    drawPage(off.getContext('2d'), pg, w, h, {});
+    return new Promise((resolve) => off.toBlob(resolve, type, 0.92));
+  }
+
+  const FRAMED = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
+  async function exportDeck() {
+    const filled = state.pages.filter((pg) => pg.cells.some(Boolean));
+    if (!filled.length) { toast('Add a photo first'); return; }
+
+    const ext = state.format === 'image/png' ? 'png' : 'jpg';
+    const out = outputSize();
+    const skipped = state.pages.length - filled.length;
+    toast(skipped
+      ? `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''} — skipping ${skipped} empty`
+      : `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''}…`);
+
+    const files = [];
+    for (let i = 0; i < filled.length; i++) {
+      const blob = await renderToBlob(filled[i], state.format);
+      if (!blob) continue;
+      // Instagram imports by filename, so the order has to be in the name.
+      files.push(new File([blob], `${String(i + 1).padStart(2, '0')}.${ext}`, { type: state.format }));
+    }
+    if (!files.length) { toast("Couldn't render the pages"); return; }
+
+    // Share sheet takes the whole carousel at once and lands it in Photos.
+    if (navigator.canShare && navigator.canShare({ files })) {
+      try {
+        await navigator.share({ files, title: 'Carousel' });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    if (FRAMED) {
+      // Downloads are blocked in an embedded frame; offer the current page.
+      const url = URL.createObjectURL(files[Math.min(state.current, files.length - 1)]);
+      openSheet(url, files[0].name, `${out.w}×${out.h}`, ext.toUpperCase());
+      toast('Embedded preview can only save one page at a time');
+      return;
+    }
+
+    // No share sheet here (most desktop browsers): save them one by one,
+    // numbered, so they still import in order.
+    files.forEach((file, i) => {
+      setTimeout(() => {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }, i * 250);
+    });
+    toast(`Saving ${files.length} page${files.length > 1 ? 's' : ''} as ${out.w}×${out.h} ${ext.toUpperCase()}`);
+  }
+
+  function openSheet(url, name, size, ext) {
+    if (sheetUrl) URL.revokeObjectURL(sheetUrl);
+    sheetUrl = url;
+    $('sheet-img').src = url;
+    $('sheet-size').textContent = `${size} ${ext}`;
+    $('sheet-download').onclick = () => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+    $('sheet').hidden = false;
+  }
+
+  function closeSheet() {
+    $('sheet').hidden = true;
+    $('sheet-img').removeAttribute('src');
+    if (sheetUrl) { URL.revokeObjectURL(sheetUrl); sheetUrl = null; }
+  }
+
+  async function copyImage() {
+    if (!navigator.clipboard || !window.ClipboardItem) { toast('This browser can’t copy images'); return; }
+    try {
+      const png = await renderToBlob(page(), 'image/png');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      toast('Copied to clipboard');
+    } catch {
+      toast('Copying was blocked — save the image instead');
+    }
   }
 
   /* ------------------------------------------------------------- controls */
@@ -312,7 +914,8 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'layout-btn';
-      btn.title = layout.id;
+      btn.title = layout.id === '1x1' ? 'Single image' : layout.id;
+      btn.dataset.id = layout.id;
       btn.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
       btn.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
       layoutCells(layout).forEach((c) => {
@@ -320,18 +923,9 @@
         s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
         btn.appendChild(s);
       });
-      btn.addEventListener('click', () => {
-        state.layout = layout;
-        syncCellCount();
-        markActive(wrap, btn);
-        render();
-        renderStrip();
-        save();
-      });
-      btn.dataset.id = layout.id;
+      btn.addEventListener('click', () => setLayout(layout));
       wrap.appendChild(btn);
     });
-    markActive(wrap, wrap.querySelector(`[data-id="${state.layout.id}"]`));
   }
 
   function buildRatios() {
@@ -344,7 +938,8 @@
       btn.addEventListener('click', () => {
         state.ratio = ratio;
         markActive(wrap, btn);
-        render();
+        state.pages.forEach((pg) => { pg.dirty = true; });
+        refresh();
         save();
       });
       wrap.appendChild(btn);
@@ -369,9 +964,8 @@
     state.bg = colour;
     $('bg').value = colour;
     $('bg-hex').textContent = colour.toUpperCase();
-    const wrap = $('swatches');
-    markActive(wrap, wrap.querySelector(`[data-id="${colour}"]`));
-    render();
+    markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour}"]`));
+    refresh();
     save();
   }
 
@@ -388,383 +982,22 @@
     input.addEventListener('input', () => {
       state[key] = Number(input.value);
       label.textContent = input.value;
-      render();
+      refresh();
       save();
     });
   }
 
-  /* -------------------------------------------------------------- selection */
-
-  function select(i) {
-    state.selected = i;
-    syncCellPanel();
-    renderStrip();
+  function setTab(name) {
+    const isPage = name === 'page';
+    $('panel-page').hidden = !isPage;
+    $('panel-style').hidden = isPage;
+    $('tab-page').classList.toggle('is-active', isPage);
+    $('tab-style').classList.toggle('is-active', !isPage);
+    $('tab-page').setAttribute('aria-selected', String(isPage));
+    $('tab-style').setAttribute('aria-selected', String(!isPage));
   }
 
-  // Shows the effective transform — the zoom a rotation has forced is real, so
-  // the slider has to show it and can't be allowed below it.
-  function syncCellPanel() {
-    const i = state.selected;
-    const cell = state.cells[i];
-    const field = $('cell-field');
-    if (!cell || !cell.img) { field.hidden = true; return; }
-
-    field.hidden = false;
-    const p = place(cell, cellRects()[i], canvas.width / BASE_WIDTH);
-    const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
-
-    $('cell-index').textContent = `#${i + 1}`;
-    $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
-    $('zoom').min = Math.ceil(p.minZoom * 100);
-    $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
-    $('zoom').value = Math.round(p.zoom * 100);
-  }
-
-  function resetCell(i) {
-    const cell = state.cells[i];
-    if (!cell || !cell.img) return;
-    cell.zoom = 1;
-    cell.rot = 0;
-    cell.ox = 0;
-    cell.oy = 0;
-    render();
-    syncCellPanel();
-  }
-
-  /* ------------------------------------------------------------- thumbnails */
-
-  function renderStrip() {
-    const strip = $('strip');
-    strip.innerHTML = '';
-    const filled = state.cells
-      .map((cell, index) => ({ cell, index }))
-      .filter((c) => c.cell && c.cell.img);
-
-    $('photo-count').textContent = filled.length;
-
-    if (!filled.length) {
-      strip.innerHTML = '<p class="strip-empty">No photos yet — drop some anywhere on the page.</p>';
-      return;
-    }
-
-    filled.forEach(({ cell, index }, pos) => {
-      const el = document.createElement('div');
-      el.className = 'thumb' + (index === state.selected ? ' is-selected' : '');
-      el.draggable = true;
-      el.title = `Tile ${index + 1} — drag to reorder`;
-      el.innerHTML = `<img src="${cell.url}" alt=""><span class="thumb-num">${index + 1}</span>`;
-
-      el.addEventListener('click', () => { select(index); render(); });
-      el.addEventListener('dragstart', () => { thumbDragFrom = pos; el.classList.add('is-dragging'); });
-      el.addEventListener('dragend', () => { thumbDragFrom = null; renderStrip(); });
-      el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('is-over'); });
-      el.addEventListener('dragleave', () => el.classList.remove('is-over'));
-      el.addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (thumbDragFrom === null || thumbDragFrom === pos) return;
-        const order = filled.map((f) => f.cell);
-        const [moved] = order.splice(thumbDragFrom, 1);
-        order.splice(pos, 0, moved);
-        filled.forEach((f, i) => { state.cells[f.index] = order[i]; });
-        select(-1);
-        render();
-        renderStrip();
-      });
-
-      strip.appendChild(el);
-    });
-  }
-
-  /* --------------------------------------------------------- canvas input */
-
-  function toCanvas(e) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
-    };
-  }
-
-  const mean = (pts, k) => pts.reduce((a, p) => a + p[k], 0) / pts.length;
-  const spread = (pts) => Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-  const tilt = (pts) => Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
-
-  // Within 5° of square, take the square — free-rotating a photo to 89.6°
-  // is never what anyone meant.
-  const SNAP = 5 * Math.PI / 180;
-  function snapAngle(a) {
-    const quarter = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
-    return Math.abs(a - quarter) < SNAP ? quarter : a;
-  }
-
-  // Re-baseline the gesture against the fingers currently down. Called on every
-  // touch down and up, so adding or lifting a finger mid-gesture continues from
-  // where the photo actually is instead of jumping.
-  function rebase() {
-    const i = state.selected;
-    const cell = state.cells[i];
-    if (!cell || !cell.img || !pointers.size) { gesture = null; return; }
-
-    const s = canvas.width / BASE_WIDTH;
-    const rect = cellRects()[i];
-    const p = place(cell, rect, s);
-    const pts = [...pointers.values()];
-
-    gesture = {
-      i,
-      s,
-      ids: [...pointers.keys()],
-      ax: mean(pts, 'x'),
-      ay: mean(pts, 'y'),
-      spread: pts.length > 1 ? spread(pts) : 0,
-      tilt: pts.length > 1 ? tilt(pts) : 0,
-      // Where the photo's centre sits right now, and the transform behind it.
-      cx: rect.x + rect.w / 2 + p.ox,
-      cy: rect.y + rect.h / 2 + p.oy,
-      zoom: p.zoom,
-      rot: cell.rot,
-    };
-  }
-
-  canvas.addEventListener('pointerdown', (e) => {
-    const p = toCanvas(e);
-    const i = cellAt(p.x, p.y);
-
-    if (pointers.size === 0) {
-      if (i === -1) { select(-1); render(); return; }
-      const cell = state.cells[i];
-      select(i);
-      render();
-      if (!cell || !cell.img) {
-        pendingCell = i;
-        fileInput.click();
-        return;
-      }
-    } else if (i !== state.selected) {
-      // A second finger outside the tile being edited isn't part of the gesture.
-      return;
-    }
-
-    canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, p);
-    rebase();
-  });
-
-  canvas.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId)) {
-      const p = toCanvas(e);
-      const cell = state.cells[cellAt(p.x, p.y)];
-      canvas.style.cursor = cell && cell.img ? 'grab' : 'pointer';
-      return;
-    }
-
-    pointers.set(e.pointerId, toCanvas(e));
-    if (!gesture) return;
-
-    const pts = gesture.ids.filter((id) => pointers.has(id)).map((id) => pointers.get(id));
-    if (pts.length !== gesture.ids.length) return;
-
-    // One finger pans. Two also pinch and twist.
-    let scale = 1;
-    let turn = 0;
-    if (pts.length > 1) {
-      scale = spread(pts) / (gesture.spread || 1);
-      turn = tilt(pts) - gesture.tilt;
-    }
-
-    const cell = state.cells[gesture.i];
-    cell.rot = snapAngle(gesture.rot + turn);
-    cell.zoom = clamp(gesture.zoom * scale, 1, 8);
-
-    // Carry the photo's centre through the same similarity transform the
-    // fingers described, so the image tracks the pinch instead of the cell.
-    const dx = gesture.cx - gesture.ax;
-    const dy = gesture.cy - gesture.ay;
-    const c = Math.cos(turn);
-    const sn = Math.sin(turn);
-    const nx = mean(pts, 'x') + (dx * c - dy * sn) * scale;
-    const ny = mean(pts, 'y') + (dx * sn + dy * c) * scale;
-
-    const rect = cellRects()[gesture.i];
-    cell.ox = (nx - (rect.x + rect.w / 2)) / gesture.s;
-    cell.oy = (ny - (rect.y + rect.h / 2)) / gesture.s;
-
-    canvas.style.cursor = 'grabbing';
-    render();
-    syncCellPanel();
-  }, { passive: false });
-
-  const liftPointer = (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    pointers.delete(e.pointerId);
-    if (gesture) settle(gesture.i);
-    if (pointers.size) {
-      rebase();
-    } else {
-      gesture = null;
-      canvas.style.cursor = 'grab';
-      syncCellPanel();
-    }
-  };
-  canvas.addEventListener('pointerup', liftPointer);
-  canvas.addEventListener('pointercancel', liftPointer);
-
-  canvas.addEventListener('wheel', (e) => {
-    const p = toCanvas(e);
-    const i = cellAt(p.x, p.y);
-    const cell = state.cells[i];
-    if (!cell || !cell.img) return;
-    e.preventDefault();
-
-    const s = canvas.width / BASE_WIDTH;
-    const rect = cellRects()[i];
-    const before = place(cell, rect, s);
-    const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-    cell.zoom = clamp(before.zoom * scale, 1, 8);
-
-    // Zoom towards the cursor rather than the middle of the tile.
-    const cx = rect.x + rect.w / 2 + before.ox;
-    const cy = rect.y + rect.h / 2 + before.oy;
-    cell.ox = (p.x + (cx - p.x) * scale - (rect.x + rect.w / 2)) / s;
-    cell.oy = (p.y + (cy - p.y) * scale - (rect.y + rect.h / 2)) / s;
-
-    settle(i);
-    render();
-    if (state.selected === i) syncCellPanel();
-  }, { passive: false });
-
-  // Two-finger pinch on iOS Safari zooms the page unless we say otherwise —
-  // touch-action alone doesn't stop it.
-  ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => {
-    canvas.addEventListener(type, (e) => e.preventDefault());
-  });
-
-  canvas.addEventListener('dblclick', () => resetCell(state.selected));
-
-  /* ------------------------------------------------------------ drag & drop */
-
-  let dragDepth = 0;
-  window.addEventListener('dragenter', (e) => {
-    if (![...e.dataTransfer.types].includes('Files')) return;
-    dragDepth += 1;
-    $('dropzone').hidden = false;
-  });
-  window.addEventListener('dragover', (e) => e.preventDefault());
-  window.addEventListener('dragleave', () => {
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (!dragDepth) $('dropzone').hidden = true;
-  });
-  window.addEventListener('drop', (e) => {
-    if (!e.dataTransfer.files.length) return;
-    e.preventDefault();
-    dragDepth = 0;
-    $('dropzone').hidden = true;
-    let target = null;
-    if (e.target === canvas) {
-      const p = toCanvas(e);
-      const i = cellAt(p.x, p.y);
-      if (i !== -1) target = i;
-    }
-    loadFiles(e.dataTransfer.files, target);
-  });
-
-  fileInput.addEventListener('change', () => {
-    loadFiles(fileInput.files, pendingCell);
-    pendingCell = null;
-    fileInput.value = '';
-  });
-
-  /* ---------------------------------------------------------------- export */
-
-  // When the page is embedded, the frame is usually sandboxed without
-  // `allow-downloads` and a link click is silently swallowed — so we never
-  // claim a save we can't make, and fall back to a sheet you can save from.
-  const FRAMED = (() => { try { return window.self !== window.top; } catch { return true; } })();
-
-  // Renders without the selection outline, then restores the preview.
-  function exportBlob(type) {
-    render(true);
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => { render(); resolve(blob); }, type, 0.92);
-    });
-  }
-
-  let sheetUrl = null;
-
-  async function download() {
-    if (!state.cells.some((c) => c && c.img)) { toast('Add a photo first'); return; }
-
-    const blob = await exportBlob(state.format);
-    if (!blob) { toast("Couldn't render the image"); return; }
-
-    const ext = state.format === 'image/png' ? 'png' : 'jpg';
-    const name = `grid-collage-${state.layout.id}-${state.ratio.id.replace(':', 'x')}.${ext}`;
-    // From outputSize, not the canvas — by now it's been restored to preview size.
-    const out = outputSize();
-    const size = `${out.w}×${out.h}`;
-
-    // The share sheet is the only route to the camera roll on iOS, and it
-    // survives sandboxing when the frame allows web-share.
-    const file = new File([blob], name, { type: state.format });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: 'Grid collage' }); return; }
-      catch (err) { if (err.name === 'AbortError') return; }
-    }
-
-    const url = URL.createObjectURL(blob);
-    if (!FRAMED) {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      // Firefox only honours a click on an anchor that's in the document, and
-      // revoking straight away can cancel the download mid-flight.
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      toast(`Saved ${size} ${ext.toUpperCase()}`);
-      return;
-    }
-
-    openSheet(url, name, size, ext);
-  }
-
-  function openSheet(url, name, size, ext) {
-    if (sheetUrl) URL.revokeObjectURL(sheetUrl);
-    sheetUrl = url;
-    $('sheet-img').src = url;
-    $('sheet-size').textContent = `${size} ${ext.toUpperCase()}`;
-    $('sheet-download').onclick = () => {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    };
-    $('sheet').hidden = false;
-  }
-
-  function closeSheet() {
-    $('sheet').hidden = true;
-    $('sheet-img').removeAttribute('src');
-    if (sheetUrl) { URL.revokeObjectURL(sheetUrl); sheetUrl = null; }
-  }
-
-  async function copyImage() {
-    if (!navigator.clipboard || !window.ClipboardItem) { toast('This browser can’t copy images'); return; }
-    try {
-      // The clipboard only accepts PNG, whatever the chosen export format.
-      const png = await exportBlob('image/png');
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-      toast('Copied to clipboard');
-    } catch {
-      toast('Copying was blocked — save the image instead');
-    }
-  }
-
-  /* ---------------------------------------------------------------- misc UI */
+  /* ------------------------------------------------------------------ misc */
 
   let toastTimer;
   function toast(message) {
@@ -772,7 +1005,7 @@
     el.textContent = message;
     el.classList.add('is-visible');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('is-visible'), 2400);
+    toastTimer = setTimeout(() => el.classList.remove('is-visible'), 2600);
   }
 
   const SETTINGS_KEY = 'grid-collage:settings';
@@ -780,9 +1013,8 @@
   function save() {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-        layout: state.layout.id, ratio: state.ratio.id, gap: state.gap,
-        padding: state.padding, radius: state.radius, bg: state.bg,
-        quality: state.quality, format: state.format,
+        ratio: state.ratio.id, gap: state.gap, padding: state.padding,
+        radius: state.radius, bg: state.bg, quality: state.quality, format: state.format,
       }));
     } catch { /* private mode — settings just won't stick */ }
   }
@@ -791,7 +1023,6 @@
     let saved;
     try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch { /* ignore */ }
     if (!saved) return;
-    state.layout = LAYOUTS.find((l) => l.id === saved.layout) || state.layout;
     state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
     ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
       if (typeof saved[k] === 'number') state[k] = saved[k];
@@ -802,6 +1033,10 @@
 
   /* ------------------------------------------------------------------ wire */
 
+  // Before anything that can trigger a render — setBg and the sliders both
+  // refresh, and a refresh with no pages throws.
+  state.pages = [newPage()];
+
   restore();
   buildLayouts();
   buildRatios();
@@ -810,70 +1045,66 @@
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
-  syncCellCount();
+  setTab('page');
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
-
-  $('bg').addEventListener('input', (e) => setBg(e.target.value));
-  $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); render(); save(); });
+  $('quality').addEventListener('change', (e) => { state.quality = Number(e.target.value); save(); });
   $('format').addEventListener('change', (e) => { state.format = e.target.value; save(); });
-  $('btn-export').addEventListener('click', download);
-  $('sheet-close').addEventListener('click', closeSheet);
-  $('sheet-copy').addEventListener('click', copyImage);
-  $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
+  $('bg').addEventListener('input', (e) => setBg(e.target.value));
+
+  $('tab-page').addEventListener('click', () => setTab('page'));
+  $('tab-style').addEventListener('click', () => setTab('style'));
+
+  $('btn-export').addEventListener('click', exportDeck);
+  $('btn-add-photos').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
+  $('btn-prev').addEventListener('click', () => goTo(state.current - 1));
+  $('btn-next').addEventListener('click', () => goTo(state.current + 1));
+  $('btn-duplicate').addEventListener('click', () => {
+    if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
+    const copy = JSON.parse(JSON.stringify({ layout: page().layout.id, cells: page().cells }));
+    const pg = newPage(LAYOUTS.find((l) => l.id === copy.layout));
+    pg.cells = copy.cells;
+    state.pages.splice(state.current + 1, 0, pg);
+    goTo(state.current + 1);
+  });
+  $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
   $('zoom').addEventListener('input', (e) => {
-    const cell = state.cells[state.selected];
+    const cell = page().cells[state.selected];
     if (!cell) return;
     cell.zoom = Number(e.target.value) / 100;
     settle(state.selected);
     render();
   });
-
-  $('btn-remove').addEventListener('click', () => removeCell(state.selected));
+  $('btn-remove').addEventListener('click', () => {
+    page().cells[state.selected] = null;
+    select(-1);
+    refresh();
+  });
   $('btn-recenter').addEventListener('click', () => resetCell(state.selected));
   $('btn-replace').addEventListener('click', () => { pendingCell = state.selected; fileInput.click(); });
 
-  $('btn-clear').addEventListener('click', () => {
-    state.cells.forEach((c, i) => c && removeCell(i));
-    select(-1);
-    render();
-    renderStrip();
-  });
-
-  $('btn-shuffle').addEventListener('click', () => {
-    const filled = state.cells.map((c, i) => ({ c, i })).filter((x) => x.c && x.c.img);
-    const pool = filled.map((x) => x.c);
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    filled.forEach((x, i) => { state.cells[x.i] = pool[i]; });
-    select(-1);
-    render();
-    renderStrip();
-  });
+  $('sheet-close').addEventListener('click', closeSheet);
+  $('sheet-copy').addEventListener('click', copyImage);
+  $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
 
   window.addEventListener('keydown', (e) => {
     if (e.target.matches('input, select, textarea')) return;
+    if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
+    if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
+    if (e.key === 'ArrowLeft' && state.selected === -1) goTo(state.current - 1);
+    if (e.key === 'ArrowRight' && state.selected === -1) goTo(state.current + 1);
     if ((e.key === 'Backspace' || e.key === 'Delete') && state.selected !== -1) {
       e.preventDefault();
-      removeCell(state.selected);
-    }
-    if (e.key === 'Escape') {
-      if (!$('sheet').hidden) { closeSheet(); return; }
+      page().cells[state.selected] = null;
       select(-1);
-      render();
+      refresh();
     }
   });
 
-  render();
-  renderStrip();
+  refresh();
 
-  // The preview is sized from its box on screen, so it has to be redrawn when
-  // that box changes. Re-render once more after first layout, when the canvas
-  // finally has a measurable width.
   if (window.ResizeObserver) {
     let last = 0;
     new ResizeObserver(() => {
@@ -887,24 +1118,18 @@
 
   /* ------------------------------------------------------ install / offline */
 
-  // Skip when embedded — there's no sw.js alongside a bundled copy of the page.
   if ('serviceWorker' in navigator && !FRAMED && location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch(() => {
-        // Offline support just won't be available; the app still works.
-      });
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
     });
   }
 
-  // Chrome and Edge let us trigger the install prompt ourselves. Safari has no
-  // equivalent — there it's Share > Add to Home Screen.
   let installPrompt = null;
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     installPrompt = e;
     $('btn-install').hidden = false;
   });
-
   $('btn-install').addEventListener('click', async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
@@ -912,7 +1137,6 @@
     installPrompt = null;
     $('btn-install').hidden = true;
   });
-
   window.addEventListener('appinstalled', () => {
     installPrompt = null;
     $('btn-install').hidden = true;

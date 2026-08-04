@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Grid Collage — build a photo grid for Instagram</title>
-<meta name="description" content="Drop photos into a grid, tweak the gap, background and crop, then export one square image ready to post.">
+<title>Grid Collage — build an Instagram carousel</title>
+<meta name="description" content="Build a carousel up to 20 pages. Drop photos in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
 <meta name="theme-color" content="#0d0d10">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,90 +23,138 @@
   </div>
   <div class="topbar-actions">
     <button id="btn-install" class="btn btn-ghost" type="button" hidden>Install</button>
-    <button id="btn-shuffle" class="btn btn-ghost" type="button" title="Shuffle the photos between cells">Shuffle</button>
-    <button id="btn-clear" class="btn btn-ghost" type="button">Clear</button>
-    <button id="btn-export" class="btn btn-primary" type="button">Download</button>
+    <button id="btn-export" class="btn btn-primary" type="button">Export carousel</button>
   </div>
 </header>
 
 <main class="app">
 
-  <!-- ------------------------------------------------ stage -->
-  <section class="stage" id="stage">
-    <div class="canvas-wrap" id="canvas-wrap">
-      <canvas id="canvas" width="1080" height="1080" aria-label="Collage preview"></canvas>
-      <div class="dropzone" id="dropzone" hidden><span>Drop photos to add them</span></div>
+  <!-- ------------------------------------------------------------ stage -->
+  <section class="stage">
+
+    <div class="pager">
+      <button class="pager-arrow" id="btn-prev" type="button" aria-label="Previous page">&lsaquo;</button>
+      <span class="pager-count" id="pager-count">1 / 1</span>
+      <button class="pager-arrow" id="btn-next" type="button" aria-label="Next page">&rsaquo;</button>
     </div>
-    <p class="stage-hint" id="stage-hint">Click a tile to add a photo · drag to reposition · scroll to zoom · pinch and twist with two fingers</p>
+
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="canvas" width="1080" height="1080" aria-label="Current page"></canvas>
+    </div>
+
+    <p class="stage-hint" id="stage-hint">Swipe or use &larr; &rarr; to move between pages · tap a tile to edit it</p>
+
+    <!-- pages -->
+    <div class="tray-block">
+      <div class="tray-head">
+        <span class="tray-title">Pages <span class="val" id="page-count">1</span></span>
+        <span class="tray-note" id="page-note">drag to reorder · max 20</span>
+      </div>
+      <div class="filmstrip" id="filmstrip"></div>
+    </div>
+
+    <!-- photos -->
+    <div class="tray-block">
+      <div class="tray-head">
+        <span class="tray-title">Photos <span class="val" id="photo-count">0</span></span>
+        <span class="tray-note" id="tray-note">drag onto a tile, or tap to place</span>
+      </div>
+      <div class="tray" id="tray">
+        <button class="tray-add" id="btn-add-photos" type="button">
+          <span class="tray-add-plus">+</span>
+          <span>Add photos</span>
+        </button>
+      </div>
+    </div>
+
   </section>
 
-  <!-- ------------------------------------------------ controls -->
+  <!-- ---------------------------------------------------------- panel -->
   <aside class="panel">
-
-    <div class="field">
-      <label class="field-label">Layout</label>
-      <div class="layouts" id="layouts"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" id="tab-page" type="button" role="tab" aria-selected="true">Page</button>
+      <button class="tab" id="tab-style" type="button" role="tab" aria-selected="false">Style</button>
     </div>
 
-    <div class="field">
-      <label class="field-label">Post shape</label>
-      <div class="segmented" id="ratios"></div>
-    </div>
+    <!-- page scope --------------------------------------------------- -->
+    <div class="tab-panel" id="panel-page">
 
-    <div class="field">
-      <label class="field-label" for="gap">Gap <span class="val" id="gap-val">24</span></label>
-      <input type="range" id="gap" min="0" max="120" step="2" value="24">
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="padding">Border <span class="val" id="padding-val">24</span></label>
-      <input type="range" id="padding" min="0" max="160" step="2" value="24">
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="radius">Corners <span class="val" id="radius-val">0</span></label>
-      <input type="range" id="radius" min="0" max="120" step="2" value="0">
-    </div>
-
-    <div class="field">
-      <label class="field-label">Background</label>
-      <div class="swatches" id="swatches"></div>
-      <label class="colour-row">
-        <input type="color" id="bg" value="#ffffff">
-        <span id="bg-hex">#FFFFFF</span>
-      </label>
-    </div>
-
-    <div class="field" id="cell-field" hidden>
-      <label class="field-label">Selected tile <span class="val"><span id="cell-index"></span> <span id="cell-angle" class="angle"></span></span></label>
-      <input type="range" id="zoom" min="100" max="400" step="1" value="100">
-      <div class="row">
-        <button class="btn btn-ghost btn-sm" id="btn-replace" type="button">Replace</button>
-        <button class="btn btn-ghost btn-sm" id="btn-recenter" type="button">Recenter</button>
-        <button class="btn btn-ghost btn-sm btn-danger" id="btn-remove" type="button">Remove</button>
+      <div class="field">
+        <label class="field-label">Layout for this page</label>
+        <div class="layouts" id="layouts"></div>
       </div>
-    </div>
 
-    <div class="field">
-      <label class="field-label">Photos <span class="val" id="photo-count">0</span></label>
-      <div class="strip" id="strip"><p class="strip-empty">No photos yet — drop some anywhere on the page.</p></div>
-    </div>
-
-    <div class="field">
-      <label class="field-label">Export</label>
-      <div class="row">
-        <select id="quality" class="select">
-          <option value="1080">1080px (Instagram)</option>
-          <option value="1440">1440px</option>
-          <option value="2160">2160px</option>
-        </select>
-        <select id="format" class="select">
-          <option value="image/jpeg">JPG</option>
-          <option value="image/png">PNG</option>
-        </select>
+      <div class="field" id="cell-field" hidden>
+        <label class="field-label">Selected tile <span class="val"><span id="cell-index"></span> <span id="cell-angle" class="angle"></span></span></label>
+        <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" id="btn-replace" type="button">Replace</button>
+          <button class="btn btn-ghost btn-sm" id="btn-recenter" type="button">Recenter</button>
+          <button class="btn btn-ghost btn-sm btn-danger" id="btn-remove" type="button">Clear</button>
+        </div>
+        <p class="hint" id="tile-hint">Pinch to zoom, twist to rotate. Tap outside to go back to swiping.</p>
       </div>
+
+      <div class="field">
+        <label class="field-label">This page</label>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" id="btn-duplicate" type="button">Duplicate</button>
+          <button class="btn btn-ghost btn-sm btn-danger" id="btn-delete-page" type="button">Delete page</button>
+        </div>
+      </div>
+
     </div>
 
+    <!-- deck scope --------------------------------------------------- -->
+    <div class="tab-panel" id="panel-style" hidden>
+
+      <p class="hint">These apply to every page — a carousel that changes shape or colour between slides reads as a mistake.</p>
+
+      <div class="field">
+        <label class="field-label">Post shape</label>
+        <div class="segmented" id="ratios"></div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="gap">Gap <span class="val" id="gap-val">24</span></label>
+        <input type="range" id="gap" min="0" max="120" step="2" value="24">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="padding">Border <span class="val" id="padding-val">24</span></label>
+        <input type="range" id="padding" min="0" max="160" step="2" value="24">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="radius">Corners <span class="val" id="radius-val">0</span></label>
+        <input type="range" id="radius" min="0" max="120" step="2" value="0">
+      </div>
+
+      <div class="field">
+        <label class="field-label">Background</label>
+        <div class="swatches" id="swatches"></div>
+        <label class="colour-row">
+          <input type="color" id="bg" value="#ffffff">
+          <span id="bg-hex">#FFFFFF</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Export</label>
+        <div class="row">
+          <select id="quality" class="select">
+            <option value="1080">1080px (Instagram)</option>
+            <option value="1440">1440px</option>
+            <option value="2160">2160px</option>
+          </select>
+          <select id="format" class="select">
+            <option value="image/jpeg">JPG</option>
+            <option value="image/png">PNG</option>
+          </select>
+        </div>
+      </div>
+
+    </div>
   </aside>
 </main>
 
@@ -115,10 +163,10 @@
 <div class="sheet" id="sheet" hidden>
   <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
     <div class="sheet-head">
-      <h2 id="sheet-title">Your collage <span class="val" id="sheet-size"></span></h2>
+      <h2 id="sheet-title">Your page <span class="val" id="sheet-size"></span></h2>
       <button class="btn btn-ghost btn-sm" id="sheet-close" type="button" aria-label="Close">Close</button>
     </div>
-    <img id="sheet-img" alt="Finished collage">
+    <img id="sheet-img" alt="Finished page">
     <p class="sheet-note">
       This page is embedded, so the browser blocks direct downloads.
       <strong>Press and hold</strong> the image (or right-click &rarr; Save image as) to keep it.

@@ -309,39 +309,221 @@ input[type="range"]::-moz-range-thumb {
 .colour-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
 .colour-row input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
 
-/* -------------------------------------------------------------- strip */
-.strip {
+/* ---------------------------------------------------------------- tabs */
+.tabs {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-height: 30px;
-}
-
-.strip-empty { margin: 0; color: var(--muted); font-size: 12.5px; }
-
-.thumb {
-  position: relative;
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  cursor: grab;
+  gap: 4px;
+  padding: 4px;
   background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
-.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-.thumb.is-selected { outline: 2px solid var(--accent); outline-offset: 1px; }
-.thumb.is-dragging { opacity: 0.35; }
-.thumb.is-over { border-color: var(--accent); }
+.tab {
+  flex: 1;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 7px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.tab:hover { color: var(--text); }
+.tab.is-active { background: var(--text); color: #12121a; }
 
-.thumb-num {
+.tab-panel { display: flex; flex-direction: column; gap: 20px; }
+
+.hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------- pager */
+.pager {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pager-arrow {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pager-arrow:hover:not(:disabled) { background: #262632; }
+.pager-arrow:disabled { opacity: 0.3; cursor: default; }
+.pager-count { min-width: 54px; text-align: center; }
+
+/* ---------------------------------------------------- filmstrip + tray */
+.tray-block {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tray-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tray-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tray-note { font-size: 11.5px; color: var(--muted); }
+
+.filmstrip,
+.tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
+}
+
+.film {
+  position: relative;
+  flex: none;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--surface-2);
+  line-height: 0;
+}
+.film canvas { display: block; width: 62px; height: auto; }
+.film:hover { border-color: #4a4a5c; }
+.film.is-current { border-color: var(--accent); }
+.film.is-dragging { opacity: 0.35; }
+.film.is-over { border-color: var(--accent-2); }
+
+.film-num {
   position: absolute;
-  left: 3px;
-  bottom: 2px;
+  left: 4px;
+  bottom: 3px;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
   color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+.film-add {
+  flex: none;
+  width: 40px;
+  align-self: stretch;
+  min-height: 56px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+.film-add:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.film-add:disabled { opacity: 0.3; cursor: default; }
+
+.tray-item {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.tray-item.is-used { opacity: 1; border-color: #3a3a48; }
+.tray-item:hover { border-color: var(--accent); }
+.tray-item img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+
+.tray-badge {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.tray-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(10, 10, 14, 0.75);
+  color: #fff;
+  font-size: 12px;
+  line-height: 15px;
+  cursor: pointer;
+  opacity: 0;
+}
+.tray-item:hover .tray-x { opacity: 1; }
+
+.tray-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 56px;
+  padding: 0 14px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tray-add:hover { border-color: var(--accent); color: var(--text); }
+.tray-add-plus { font-size: 17px; }
+
+/* ------------------------------------------------------------- a11y */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* -------------------------------------------------------------- sheet */
@@ -401,11 +583,15 @@ input[type="range"]::-moz-range-thumb {
 .sheet-note strong { color: var(--text); font-weight: 650; }
 
 /* -------------------------------------------------------------- toast */
+/* Sits below the topbar rather than at the foot of the screen — the bottom of
+   the stage is now the filmstrip and the photo tray, and a toast parked over
+   the Add photos button is worse than one over the page counter. */
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 26px;
-  transform: translate(-50%, 14px);
+  top: 68px;
+  z-index: 25;
+  transform: translate(-50%, -14px);
   background: var(--surface-2);
   border: 1px solid var(--line);
   padding: 9px 16px;
@@ -422,8 +608,11 @@ input[type="range"]::-moz-range-thumb {
   body { overflow: auto; }
   .topbar { padding: 10px 12px; }
   .app { grid-template-columns: 1fr; }
-  .stage { padding: 16px; }
-  .canvas-wrap { max-height: 60vh; }
+  .stage { padding: 14px; gap: 12px; }
+  .canvas-wrap { max-height: 46vh; }
   .panel { border-left: none; border-top: 1px solid var(--line); }
   .stage-hint { display: none; }
+  .film canvas { width: 54px; }
+  .tray-item { width: 50px; height: 50px; }
+  .tray-x { opacity: 1; }
 }
