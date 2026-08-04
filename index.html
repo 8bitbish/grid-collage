@@ -41,7 +41,11 @@
     </div>
 
     <div class="canvas-wrap" id="canvas-wrap">
-      <canvas id="canvas" width="1080" height="1080" aria-label="Current page"></canvas>
+      <div class="track" id="track">
+        <canvas class="peek" id="canvas-prev" aria-hidden="true"></canvas>
+        <canvas id="canvas" width="1080" height="1080" aria-label="Current page"></canvas>
+        <canvas class="peek" id="canvas-next" aria-hidden="true"></canvas>
+      </div>
     </div>
 
     <p class="stage-hint" id="stage-hint">Swipe or use &larr; &rarr; to move between pages · tap a tile to edit it</p>

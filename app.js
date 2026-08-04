@@ -566,7 +566,10 @@
       num.textContent = i + 1;
 
       el.append(thumb, num);
-      el.addEventListener('click', () => goTo(i));
+      el.addEventListener('click', () => {
+        if (Math.abs(i - state.current) === 1) slidePage(i - state.current);
+        else goTo(i);
+      });
       el.addEventListener('dragstart', (e) => {
         filmDragFrom = i;
         e.dataTransfer.effectAllowed = 'move';
@@ -694,6 +697,71 @@
     };
   }
 
+  /* ------------------------------------------------------ carousel motion */
+
+  const PEEK_GAP = 20;
+  const SLIDE_MS = 280;
+  const reducedMotion = window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+
+  let sliding = false;
+
+  const slideStep = () => canvas.clientWidth + PEEK_GAP;
+
+  // Draw the pages either side so they can be seen coming in. Only done when
+  // a slide starts, and only for pages that exist.
+  function preparePeek() {
+    const { w, h } = previewSize();
+    const step = slideStep();
+    const cw = `${canvas.clientWidth}px`;
+    const ch = `${canvas.clientHeight}px`;
+
+    [[$('canvas-prev'), state.current - 1, -1], [$('canvas-next'), state.current + 1, 1]]
+      .forEach(([el, index, side]) => {
+        const pg = state.pages[index];
+        if (!pg) { el.hidden = true; return; }
+        el.hidden = false;
+        if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
+        drawPage(el.getContext('2d'), pg, w, h, { placeholders: true });
+        el.style.width = cw;
+        el.style.height = ch;
+        el.style.translate = `calc(-50% + ${side * step}px) -50%`;
+      });
+    $('canvas-wrap').classList.add('is-sliding');
+  }
+
+  function setTrack(px, animate) {
+    const track = $('track');
+    track.style.transition = animate && !reducedMotion
+      ? `transform ${SLIDE_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`
+      : 'none';
+    track.style.transform = `translateX(${px}px)`;
+  }
+
+  function endSlide() {
+    setTrack(0, false);
+    $('canvas-wrap').classList.remove('is-sliding');
+    sliding = false;
+  }
+
+  // delta: +1 for the next page, -1 for the previous.
+  function slidePage(delta) {
+    const target = state.current + delta;
+    if (sliding) return;
+    if (target < 0 || target >= state.pages.length) { setTrack(0, true); return; }
+
+    preparePeek();
+    sliding = true;
+    setTrack(-delta * slideStep(), true);
+    setTimeout(() => {
+      // Reset the track and paint the new page in the same frame, so the
+      // hand-off from the peek canvas to the real one isn't visible.
+      endSlide();
+      goTo(target);
+    }, reducedMotion ? 0 : SLIDE_MS);
+  }
+
   const mean = (pts, k) => pts.reduce((a, p) => a + p[k], 0) / pts.length;
   const spread = (pts) => Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
   const tilt = (pts) => Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
@@ -735,8 +803,18 @@
     // Nothing selected: the canvas belongs to the carousel, so this is a swipe.
     // Selection is the mode switch — it's visible, and one tap either way.
     if (state.selected === -1) {
+      if (sliding) return;
       canvas.setPointerCapture(e.pointerId);
-      swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, cell: cellAt(p.x, p.y) };
+      swipe = {
+        id: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        moved: 0,
+        dx: 0,
+        cell: cellAt(p.x, p.y),
+        locked: false,
+        samples: [{ t: performance.now(), x: e.clientX }],
+      };
       return;
     }
 
@@ -758,12 +836,23 @@
       const dx = e.clientX - swipe.x;
       const dy = e.clientY - swipe.y;
       swipe.moved = Math.max(swipe.moved, Math.abs(dx));
-      // Only follow the finger once it's clearly horizontal.
-      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
-        const atEnd = (dx > 0 && state.current === 0)
-          || (dx < 0 && state.current === state.pages.length - 1);
-        canvas.style.transform = `translateX(${dx * (atEnd ? 0.25 : 1) * 0.4}px)`;
+
+      // Commit to a horizontal swipe once it's clearly horizontal, then stay
+      // committed — otherwise a curved drag keeps dropping in and out of it.
+      if (!swipe.locked && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+        swipe.locked = true;
+        preparePeek();
       }
+      if (!swipe.locked) return;
+
+      swipe.samples.push({ t: performance.now(), x: e.clientX });
+      if (swipe.samples.length > 6) swipe.samples.shift();
+
+      // Follows the finger exactly, except past the ends where it drags back.
+      const atEnd = (dx > 0 && state.current === 0)
+        || (dx < 0 && state.current === state.pages.length - 1);
+      swipe.dx = atEnd ? dx * 0.3 : dx;
+      setTrack(swipe.dx, false);
       return;
     }
 
@@ -812,9 +901,21 @@
   const liftPointer = (e) => {
     if (swipe && e.pointerId === swipe.id) {
       const dx = e.clientX - swipe.x;
-      canvas.style.transform = '';
-      if (Math.abs(dx) > 45) {
-        goTo(state.current + (dx < 0 ? 1 : -1));
+
+      // A quick flick should turn the page even if it didn't travel far, so
+      // decide on velocity as well as distance.
+      const first = swipe.samples[0];
+      const last = swipe.samples[swipe.samples.length - 1];
+      const span = last.t - first.t;
+      const velocity = span > 0 ? (last.x - first.x) / span : 0;   // px per ms
+      const far = Math.abs(dx) > canvas.clientWidth * 0.22;
+      const flicked = Math.abs(velocity) > 0.45 && Math.abs(dx) > 12;
+
+      if (swipe.locked && (far || flicked)) {
+        slidePage(dx < 0 ? 1 : -1);
+      } else if (swipe.locked) {
+        setTrack(0, true);
+        setTimeout(() => { if (!sliding) $('canvas-wrap').classList.remove('is-sliding'); }, SLIDE_MS);
       } else if (swipe.moved < 8 && swipe.cell !== -1) {
         // A tap, not a swipe: pick up the tile, or ask for a photo for it.
         const cell = page().cells[swipe.cell];
@@ -1485,8 +1586,8 @@
 
   $('btn-export').addEventListener('click', exportDeck);
   $('btn-add-photos').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
-  $('btn-prev').addEventListener('click', () => goTo(state.current - 1));
-  $('btn-next').addEventListener('click', () => goTo(state.current + 1));
+  $('btn-prev').addEventListener('click', () => slidePage(-1));
+  $('btn-next').addEventListener('click', () => slidePage(1));
   $('btn-duplicate').addEventListener('click', () => {
     if (state.pages.length >= MAX_PAGES) { toast(`A carousel tops out at ${MAX_PAGES} pages`); return; }
     snapshot();
@@ -1536,8 +1637,8 @@
     if (e.target.matches('input, select, textarea')) return;
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
-    if (e.key === 'ArrowLeft' && state.selected === -1) goTo(state.current - 1);
-    if (e.key === 'ArrowRight' && state.selected === -1) goTo(state.current + 1);
+    if (e.key === 'ArrowLeft' && state.selected === -1) slidePage(-1);
+    if (e.key === 'ArrowRight' && state.selected === -1) slidePage(1);
     if ((e.key === 'Backspace' || e.key === 'Delete') && state.selected !== -1) {
       e.preventDefault();
       snapshot();

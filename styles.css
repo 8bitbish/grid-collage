@@ -91,6 +91,34 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+/* The carousel track. The neighbouring pages sit just outside the current one
+   and only become visible while it's moving, so nothing changes at rest. */
+.track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+
+/* Offset from the centre in JS — the track is as wide as the stage, so a
+   percentage here would place them far wider apart than one page. */
+.peek {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  visibility: hidden;
+  border-radius: 6px;
+}
+.canvas-wrap.is-sliding .peek { visibility: visible; }
+
+@media (prefers-reduced-motion: reduce) {
+  .track { transition: none !important; }
 }
 
 /* Sized by constraint, not by an explicit width: a replaced element with a
