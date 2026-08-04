@@ -6,6 +6,11 @@
 <title>Grid Collage — build a photo grid for Instagram</title>
 <meta name="description" content="Drop photos into a grid, tweak the gap, background and crop, then export one square image ready to post.">
 <meta name="theme-color" content="#0d0d10">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Collage">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d10'/%3E%3Cg fill='%23ff4d8d'%3E%3Crect x='6' y='6' width='8' height='8' rx='2'/%3E%3Crect x='18' y='6' width='8' height='8' rx='2'/%3E%3Crect x='6' y='18' width='8' height='8' rx='2'/%3E%3Crect x='18' y='18' width='8' height='8' rx='2' fill='%23ffb648'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -17,6 +22,7 @@
     <span class="brand-name">Grid Collage</span>
   </div>
   <div class="topbar-actions">
+    <button id="btn-install" class="btn btn-ghost" type="button" hidden>Install</button>
     <button id="btn-shuffle" class="btn btn-ghost" type="button" title="Shuffle the photos between cells">Shuffle</button>
     <button id="btn-clear" class="btn btn-ghost" type="button">Clear</button>
     <button id="btn-export" class="btn btn-primary" type="button">Download</button>

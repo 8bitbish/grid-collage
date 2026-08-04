@@ -8,11 +8,28 @@ never leave the machine.
 
 ## Use it
 
-Open `index.html`, or serve the folder:
+Live at **https://8bitbish.github.io/grid-collage/**, or serve the folder locally:
 
 ```sh
 python3 -m http.server 8000   # then visit http://localhost:8000
 ```
+
+Opening `index.html` straight off disk works too, but installing and offline
+support need it served over http(s).
+
+## Install it
+
+It's a PWA, so it installs to the home screen or dock and runs offline.
+
+- **iPhone / iPad** — open it in Safari, then Share → Add to Home Screen.
+- **Android** — Chrome shows an install prompt, or use the Install button in the header.
+- **Desktop** — Chrome and Edge show an install icon in the address bar; the header
+  button does the same thing. Safari on macOS: File → Add to Dock.
+
+Once installed there is nothing left to load, so it works with no connection at
+all — the app never talks to the network anyway. Updates arrive on the visit
+after a deploy: the service worker serves the cached copy immediately, refreshes
+it in the background, and the new version is live next time you open it.
 
 ## What it does
 

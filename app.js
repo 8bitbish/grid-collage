@@ -702,4 +702,37 @@
 
   render();
   renderStrip();
+
+  /* ------------------------------------------------------ install / offline */
+
+  // Skip when embedded — there's no sw.js alongside a bundled copy of the page.
+  if ('serviceWorker' in navigator && !FRAMED && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {
+        // Offline support just won't be available; the app still works.
+      });
+    });
+  }
+
+  // Chrome and Edge let us trigger the install prompt ourselves. Safari has no
+  // equivalent — there it's Share > Add to Home Screen.
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    $('btn-install').hidden = false;
+  });
+
+  $('btn-install').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    $('btn-install').hidden = true;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    $('btn-install').hidden = true;
+  });
 })();
