@@ -100,8 +100,10 @@
   // practice means Android: Safari has never shipped it, installed or not, so
   // every buzz here is a nicety and never something the app relies on to
   // communicate. Kept to moments that feel physical — picking a page up,
-  // dropping it, a page turning, an angle clicking square, hitting a limit.
+  // dropping it, a page turning, an angle clicking square, hitting a limit,
+  // and a control in the dock going down under the thumb.
   const BUZZ = {
+    tap: 7,
     pick: 10,
     drop: 14,
     snap: 6,
@@ -2085,6 +2087,32 @@
   $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
   $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
+
+  // One tick for every control in the dock — drilling into a setting, picking
+  // an option, stepping back out. Delegated rather than wired per button, so
+  // the whole bar feels the same and nothing added later is left silent.
+  //
+  // Buttons only: the sliders would buzz on every frame of a drag, and the
+  // reel's options already tick as they pass under the marker.
+  //
+  // On release rather than on touch, and only if the finger stayed put. Most
+  // of these rows scroll sideways, and a tick every time you push the dock
+  // along would be noise. Eighty milliseconds late is not something a thumb
+  // can feel; a buzz for a gesture that wasn't a tap is.
+  let dockTap = null;
+  $('dock').addEventListener('pointerdown', (e) => {
+    const btn = e.target.closest('button');
+    dockTap = btn && !btn.disabled && !btn.closest('.choose-strip')
+      ? { btn, x: e.clientX, y: e.clientY }
+      : null;
+  });
+  $('dock').addEventListener('pointerup', (e) => {
+    if (!dockTap) return;
+    const still = Math.hypot(e.clientX - dockTap.x, e.clientY - dockTap.y) < 8;
+    if (still && dockTap.btn.contains(e.target)) buzz('tap');
+    dockTap = null;
+  });
+  $('dock').addEventListener('pointercancel', () => { dockTap = null; });
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
