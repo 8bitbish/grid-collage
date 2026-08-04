@@ -100,7 +100,6 @@
   let gesture = null;
   let swipe = null;
   let sheetUrl = null;
-  let filmDragFrom = null;
 
   /* ------------------------------------------------------------ geometry */
 
@@ -528,6 +527,134 @@
   }
 
   /* ------------------------------------------------------------- filmstrip */
+  //
+  // Reordering uses pointer events rather than HTML5 drag and drop, which
+  // gives nothing to animate and doesn't fire on touch at all. The page being
+  // moved follows the finger while the others slide aside to open the gap it
+  // would drop into, so the result is visible before letting go.
+
+  const LIFT_MS = 200;
+  let reorder = null;
+
+  function armReorder(el, index) {
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button > 0 || reorder) return;
+      const touch = e.pointerType === 'touch';
+      const from = { x: e.clientX, y: e.clientY };
+      let held = null;
+      let picked = false;
+
+      const pickUp = () => {
+        picked = true;
+        beginReorder(el, index, from.x);
+      };
+      // A press on a phone is ambiguous — tap, scroll the strip, or reorder.
+      // Waiting a beat separates them; a mouse needs no delay because moving
+      // sideways already says which it is.
+      if (touch) held = setTimeout(pickUp, 170);
+
+      const move = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        const dx = ev.clientX - from.x;
+        const dy = ev.clientY - from.y;
+        if (!picked) {
+          if (touch) {
+            if (Math.hypot(dx, dy) > 8) { clearTimeout(held); stop(); }
+            return;
+          }
+          if (Math.abs(dx) < 5) return;
+          pickUp();
+        }
+        ev.preventDefault();
+        dragReorder(ev.clientX);
+      };
+
+      const up = (ev) => {
+        clearTimeout(held);
+        if (picked) {
+          endReorder();
+        } else if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 8) {
+          if (Math.abs(index - state.current) === 1) slidePage(index - state.current);
+          else if (index !== state.current) goTo(index);
+        }
+        stop();
+      };
+
+      const stop = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+
+      window.addEventListener('pointermove', move, { passive: false });
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+  }
+
+  function beginReorder(el, index, startX) {
+    const strip = $('filmstrip');
+    const items = [...strip.querySelectorAll('.film')];
+    // Every thumbnail is the same size — one deck, one shape — so a single
+    // step describes how far each one has to move.
+    const step = items.length > 1
+      ? items[1].getBoundingClientRect().left - items[0].getBoundingClientRect().left
+      : el.getBoundingClientRect().width + 8;
+
+    reorder = { el, index, target: index, startX, items, step, strip };
+    strip.classList.add('is-reordering');
+    el.classList.add('is-lifted');
+    el.style.transition = 'none';
+  }
+
+  function dragReorder(x) {
+    const { el, index, items, step, strip } = reorder;
+    const dx = x - reorder.startX;
+    el.style.transform = `translateX(${dx}px) scale(1.08)`;
+
+    // Nudge the strip along when dragging against either end of it.
+    const box = strip.getBoundingClientRect();
+    if (x > box.right - 44) strip.scrollLeft += 8;
+    else if (x < box.left + 44) strip.scrollLeft -= 8;
+
+    const target = clamp(index + Math.round(dx / step), 0, items.length - 1);
+    if (target === reorder.target) return;
+    reorder.target = target;
+
+    // Open the gap: everything between the old slot and the new one steps
+    // aside by exactly one place.
+    items.forEach((it, i) => {
+      if (it === el) return;
+      let shift = 0;
+      if (index < target && i > index && i <= target) shift = -step;
+      else if (index > target && i >= target && i < index) shift = step;
+      it.style.transform = shift ? `translateX(${shift}px)` : '';
+    });
+  }
+
+  function endReorder() {
+    const { el, index, target, step, items, strip } = reorder;
+    reorder = null;
+
+    // Settle into the gap rather than snapping back to the old slot.
+    el.style.transition = `transform ${LIFT_MS}ms cubic-bezier(0.2, 0.7, 0.3, 1)`;
+    el.style.transform = `translateX(${(target - index) * step}px) scale(1)`;
+    el.classList.remove('is-lifted');
+
+    setTimeout(() => {
+      strip.classList.remove('is-reordering');
+      items.forEach((it) => { it.style.transform = ''; it.style.transition = ''; });
+      if (target === index) return;
+
+      snapshot();
+      // Follow the page you were looking at, which may not be the one moved.
+      const viewing = state.pages[state.current];
+      const [moved] = state.pages.splice(index, 1);
+      state.pages.splice(target, 0, moved);
+      state.current = Math.max(0, state.pages.indexOf(viewing));
+      refresh();
+    }, LIFT_MS);
+  }
 
   function renderFilmstrip() {
     const strip = $('filmstrip');
@@ -562,32 +689,7 @@
       num.textContent = i + 1;
 
       el.append(thumb, num);
-      el.addEventListener('click', () => {
-        if (Math.abs(i - state.current) === 1) slidePage(i - state.current);
-        else goTo(i);
-      });
-      el.addEventListener('dragstart', (e) => {
-        filmDragFrom = i;
-        e.dataTransfer.effectAllowed = 'move';
-        el.classList.add('is-dragging');
-      });
-      el.addEventListener('dragend', () => { filmDragFrom = null; renderFilmstrip(); });
-      el.addEventListener('dragover', (e) => {
-        if (filmDragFrom === null) return;
-        e.preventDefault();
-        el.classList.add('is-over');
-      });
-      el.addEventListener('dragleave', () => el.classList.remove('is-over'));
-      el.addEventListener('drop', (e) => {
-        if (filmDragFrom === null) return;
-        e.preventDefault();
-        e.stopPropagation();
-        snapshot();
-        const [moved] = state.pages.splice(filmDragFrom, 1);
-        state.pages.splice(i, 0, moved);
-        filmDragFrom = null;
-        goTo(i);
-      });
+      armReorder(el, i);
 
       strip.appendChild(el);
     });

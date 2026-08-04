@@ -474,17 +474,38 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid transparent;
   border-radius: 9px;
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
   background: var(--surface-2);
   line-height: 0;
+  /* What makes the others glide aside instead of jumping. */
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 /* Fixed height, not fixed width: a 9:16 thumbnail 62px wide is 110px tall,
    and that row grows straight out of the preview's vertical budget. */
 .film canvas { display: block; height: 46px; width: auto; }
 .film:hover { border-color: #4a4a5c; }
 .film.is-current { border-color: var(--accent); }
-.film.is-dragging { opacity: 0.35; }
-.film.is-over { border-color: var(--accent-2); }
+/* The page being moved rides above the rest and tracks the finger exactly,
+   so it gets no transition of its own until it settles. */
+.film.is-lifted {
+  z-index: 5;
+  cursor: grabbing;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
+  border-color: var(--accent);
+}
+
+/* Freeze the strip's own scrolling for the duration, or the browser fights
+   the drag for the same finger. */
+.filmstrip.is-reordering {
+  touch-action: none;
+  overflow-x: hidden;
+  cursor: grabbing;
+}
+.filmstrip.is-reordering .film { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .film { transition: none; }
+}
 
 .film-num {
   position: absolute;
