@@ -1234,10 +1234,31 @@
     }
   }
 
-  let saveTimer;
+  // The deck is a few kilobytes of JSON, so it goes to localStorage: writing
+  // it is synchronous and finishes before the app can be swiped away. An
+  // IndexedDB write is async and can be abandoned mid-flight on close, which
+  // is how a share-then-close lost its pages while the photos survived.
+  // Photos stay in IndexedDB — blobs have no business in localStorage.
+  const DECK_KEY = 'grid-collage:deck';
+
+  // Nothing is written until the saved deck has been read back. The first
+  // refresh happens during start-up, and without this it would overwrite the
+  // stored deck with the blank one before restore ever got to look at it.
+  let restored = false;
+
   function saveDeck() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => put(STORE_META, { key: 'deck', ...serialiseDeck() }), 400);
+    if (!restored) return;
+    try {
+      localStorage.setItem(DECK_KEY, JSON.stringify(serialiseDeck()));
+    } catch { /* private mode or quota — the deck just won't come back */ }
+  }
+
+  function loadDeck() {
+    try {
+      const raw = localStorage.getItem(DECK_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return null;
   }
 
   // Which photo blobs are actually in the database, so undoing a tray removal
@@ -1251,9 +1272,9 @@
   }
 
   async function restoreAll() {
-    const [saved] = await Promise.all([
-      getAll(STORE_META).then((rows) => rows.find((r) => r.key === 'deck')),
-    ]);
+    // localStorage is where the deck lives now; the IndexedDB record is only
+    // read so a deck saved by the previous build isn't stranded.
+    const saved = loadDeck() || (await getAll(STORE_META)).find((r) => r.key === 'deck');
     if (saved) {
       state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
       ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
@@ -1292,6 +1313,7 @@
       state.current = clamp(saved.current || 0, 0, state.pages.length - 1);
     }
 
+    restored = true;
     const placed = state.pages.filter((pg) => pg.cells.some(Boolean)).length;
     if (placed) toast(`Picked up where you left off — ${placed} page${placed > 1 ? 's' : ''}`);
     restyle();
@@ -1372,6 +1394,42 @@
   function syncHistoryButtons() {
     $('btn-undo').disabled = !undoStack.length;
     $('btn-redo').disabled = !redoStack.length;
+  }
+
+  /* --------------------------------------------------------- share target */
+  //
+  // Sharing photos from the gallery into the installed app lands here: the
+  // service worker took the POST, put the files in a cache, and redirected
+  // with ?share=N. All that's left is to collect them.
+
+  const INBOX = 'grid-collage-share-inbox';
+
+  async function collectShared() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('share') || !window.caches) return;
+
+    // Clear the marker so a refresh doesn't look like a second share.
+    history.replaceState(null, '', location.pathname);
+
+    let cache;
+    try { cache = await caches.open(INBOX); } catch { return; }
+
+    const files = [];
+    for (const key of await cache.keys()) {
+      const res = await cache.match(key);
+      if (!res) continue;
+      const blob = await res.blob();
+      const name = decodeURIComponent(res.headers.get('x-filename') || 'shared');
+      files.push(new File([blob], name, { type: blob.type || 'image/jpeg' }));
+      await cache.delete(key);
+    }
+
+    if (!files.length) {
+      if (params.get('share') !== '0') toast("Shared photos didn't come through");
+      return;
+    }
+    toast(`${files.length} photo${files.length > 1 ? 's' : ''} shared in`);
+    await addPhotos(files);
   }
 
   // Without this the browser may evict the deck under storage pressure.
@@ -1472,7 +1530,8 @@
   });
 
   refresh();
-  restoreAll();
+  // Restore first, so anything shared in is added to the deck you left behind.
+  restoreAll().then(collectShared);
 
   if (window.ResizeObserver) {
     let last = 0;

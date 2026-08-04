@@ -5,6 +5,10 @@
 // is what evicts the previous version.
 const CACHE = 'grid-collage-v1';
 
+// Photos handed to us by the OS share sheet wait here until the page picks
+// them up. Kept out of CACHE so a shell update can't throw them away.
+const INBOX = 'grid-collage-share-inbox';
+
 const SHELL = [
   './',
   './index.html',
@@ -28,13 +32,53 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(
+        keys.filter((k) => k !== CACHE && k !== INBOX).map((k) => caches.delete(k)),
+      ))
       .then(() => self.clients.claim()),
   );
 });
 
+// Share target. The OS POSTs the chosen photos here as a form navigation.
+// There's no server behind this app, so the worker is what answers: stash the
+// files and bounce the browser to the app, which collects them on load.
+async function receiveShare(request) {
+  let count = 0;
+  try {
+    const form = await request.formData();
+    const files = form.getAll('photos').filter((f) => f && f.size);
+    const cache = await caches.open(INBOX);
+
+    // Drop anything a previous share left behind.
+    await Promise.all((await cache.keys()).map((k) => cache.delete(k)));
+
+    for (const file of files) {
+      await cache.put(
+        new Request(`./shared/${count}`),
+        new Response(file, {
+          headers: {
+            'content-type': file.type || 'application/octet-stream',
+            'x-filename': encodeURIComponent(file.name || `shared-${count + 1}`),
+          },
+        }),
+      );
+      count += 1;
+    }
+  } catch {
+    count = 0;
+  }
+  // 303 so the browser follows with a GET rather than re-POSTing.
+  return Response.redirect(`./?share=${count}`, 303);
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+
+  if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/share-target')) {
+    event.respondWith(receiveShare(request));
+    return;
+  }
+
   if (request.method !== 'GET') return;
 
   // Page loads go to the network first so a new deploy is picked up straight
