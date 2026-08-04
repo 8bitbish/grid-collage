@@ -536,6 +536,12 @@
   const LIFT_MS = 200;
   let reorder = null;
 
+  // Once a page has been picked up, the browser must not also scroll the
+  // strip with the same finger. touch-action can't be changed mid-gesture,
+  // but cancelling the first touchmove after the hold stops the scroll
+  // before it starts — the finger has been still, so nothing has begun.
+  const blockScroll = (e) => { if (reorder) e.preventDefault(); };
+
   function armReorder(el, index) {
     el.addEventListener('pointerdown', (e) => {
       if (e.button > 0 || reorder) return;
@@ -572,7 +578,9 @@
       const up = (ev) => {
         clearTimeout(held);
         if (picked) {
-          endReorder();
+          // Includes pointercancel: finish where it is rather than leaving a
+          // page stuck in the lifted state.
+          if (reorder) endReorder();
         } else if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 8) {
           if (Math.abs(index - state.current) === 1) slidePage(index - state.current);
           else if (index !== state.current) goTo(index);
@@ -594,6 +602,13 @@
 
   function beginReorder(el, index, startX) {
     const strip = $('filmstrip');
+    // A long press would otherwise start selecting the page number, and the
+    // selection takes the pointer stream with it.
+    const sel = window.getSelection && window.getSelection();
+    if (sel && sel.removeAllRanges) sel.removeAllRanges();
+    document.addEventListener('touchmove', blockScroll, { passive: false });
+    if (navigator.vibrate) navigator.vibrate(8);
+
     const items = [...strip.querySelectorAll('.film')];
     // Every thumbnail is the same size — one deck, one shape — so a single
     // step describes how far each one has to move.
@@ -635,6 +650,7 @@
   function endReorder() {
     const { el, index, target, step, items, strip } = reorder;
     reorder = null;
+    document.removeEventListener('touchmove', blockScroll);
 
     // Settle into the gap rather than snapping back to the old slot.
     el.style.transition = `transform ${LIFT_MS}ms cubic-bezier(0.2, 0.7, 0.3, 1)`;
@@ -689,6 +705,7 @@
       num.textContent = i + 1;
 
       el.append(thumb, num);
+      el.addEventListener('contextmenu', (e) => e.preventDefault());
       armReorder(el, i);
 
       strip.appendChild(el);
