@@ -157,6 +157,8 @@ body {
   font-weight: 600;
 }
 
+.angle { color: var(--muted); font-weight: 500; }
+
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; min-width: 0; }
 

@@ -66,9 +66,10 @@
   const ctx = canvas.getContext('2d');
   const fileInput = $('file-input');
 
-  let pendingCell = null;   // cell index a file picker was opened for
-  let drag = null;          // active pan gesture
-  let thumbDragFrom = null; // index within the filled-cell list
+  let pendingCell = null;         // cell index a file picker was opened for
+  const pointers = new Map();     // pointerId -> canvas-space position
+  let gesture = null;             // baseline for the in-flight pan/pinch/twist
+  let thumbDragFrom = null;       // index within the filled-cell list
 
   /* ------------------------------------------------------------ geometry */
 
@@ -82,9 +83,23 @@
     return { w, h: Math.round(w * state.ratio.h / state.ratio.w) };
   }
 
-  // Pixel rect of every cell in the current layout, at export resolution.
+  // The preview only needs enough pixels to look sharp on screen. Rendering it
+  // at the full export size made every drag frame cost 33ms at 2160px; there's
+  // no point pushing 4.6M pixels to fill an 800px box.
+  function previewSize() {
+    const out = outputSize();
+    const css = canvas.clientWidth;
+    if (!css) return out;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(360, Math.min(out.w, Math.round(css * dpr)));
+    return { w, h: Math.round(w * out.h / out.w) };
+  }
+
+  // Pixel rect of every cell, in whatever resolution the canvas is currently
+  // sized to — preview while editing, full size during an export render.
   function cellRects() {
-    const { w: W, h: H } = outputSize();
+    const W = canvas.width;
+    const H = canvas.height;
     const s = W / BASE_WIDTH;
     const gap = state.gap * s;
     const pad = state.padding * s;
@@ -107,36 +122,80 @@
     );
   }
 
-  // Where the photo lands inside its cell, honouring zoom and pan but never
-  // letting the cell show through at the edges.
-  function drawRect(cell, rect) {
-    const base = Math.max(rect.w / cell.img.naturalWidth, rect.h / cell.img.naturalHeight);
-    const scale = base * cell.zoom;
-    const dw = cell.img.naturalWidth * scale;
-    const dh = cell.img.naturalHeight * scale;
-    const limitX = Math.max(0, (dw - rect.w) / 2);
-    const limitY = Math.max(0, (dh - rect.h) / 2);
-    const ox = clamp(cell.ox, -limitX, limitX);
-    const oy = clamp(cell.oy, -limitY, limitY);
-    return { x: rect.x + (rect.w - dw) / 2 + ox, y: rect.y + (rect.h - dh) / 2 + oy, w: dw, h: dh, limitX, limitY };
+  // Where the photo lands inside its cell, honouring zoom, rotation and pan but
+  // never letting the background show through at the edges.
+  //
+  // Rotation is what makes this non-obvious. An axis-aligned clamp is wrong the
+  // moment the photo is turned: the cell's corners escape it. So measure the
+  // cell's half-extents in the *photo's* frame (hx, hy) and clamp the pan there.
+  // That also tells us the smallest zoom the angle can be drawn at — 45° on a
+  // square needs 1.414x — so rotating pushes the zoom up rather than tearing a
+  // hole in the tile.
+  //
+  // Offsets are stored in BASE_WIDTH units, like gap and padding, so framing
+  // survives a change of preview or export resolution.
+  function place(cell, rect, s) {
+    const img = cell.img;
+    const cos = Math.abs(Math.cos(cell.rot));
+    const sin = Math.abs(Math.sin(cell.rot));
+
+    const hx = (rect.w / 2) * cos + (rect.h / 2) * sin;
+    const hy = (rect.w / 2) * sin + (rect.h / 2) * cos;
+
+    const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight);
+    const minZoom = Math.max(
+      (2 * hx) / (img.naturalWidth * base),
+      (2 * hy) / (img.naturalHeight * base),
+    );
+    const zoom = Math.max(cell.zoom, minZoom);
+
+    const dw = img.naturalWidth * base * zoom;
+    const dh = img.naturalHeight * base * zoom;
+
+    const limX = Math.max(0, dw / 2 - hx);
+    const limY = Math.max(0, dh / 2 - hy);
+    const ca = Math.cos(cell.rot);
+    const sa = Math.sin(cell.rot);
+    const px = cell.ox * s;
+    const py = cell.oy * s;
+    const vx = clamp(px * ca + py * sa, -limX, limX);
+    const vy = clamp(-px * sa + py * ca, -limY, limY);
+
+    return { dw, dh, zoom, minZoom, ox: vx * ca - vy * sa, oy: vx * sa + vy * ca };
   }
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+  // Write the clamped result back, so the next gesture starts from what's on
+  // screen rather than from a value the clamp has been quietly overriding.
+  function settle(i) {
+    const cell = state.cells[i];
+    if (!cell || !cell.img) return;
+    const s = canvas.width / BASE_WIDTH;
+    const p = place(cell, cellRects()[i], s);
+    cell.ox = p.ox / s;
+    cell.oy = p.oy / s;
+    cell.zoom = p.zoom;
+  }
+
   /* --------------------------------------------------------------- render */
 
   function render(forExport = false) {
-    const { w: W, h: H } = outputSize();
+    const { w: W, h: H } = forExport ? outputSize() : previewSize();
     if (canvas.width !== W || canvas.height !== H) {
       canvas.width = W;
       canvas.height = H;
     }
 
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = state.bg;
     ctx.fillRect(0, 0, W, H);
 
-    const radius = state.radius * (W / BASE_WIDTH);
+    const s = W / BASE_WIDTH;
+    const radius = state.radius * s;
     const rects = cellRects();
 
     rects.forEach((rect, i) => {
@@ -146,19 +205,21 @@
       ctx.clip();
 
       if (cell && cell.img) {
-        const d = drawRect(cell, rect);
-        ctx.drawImage(cell.img, d.x, d.y, d.w, d.h);
+        const p = place(cell, rect, s);
+        ctx.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
+        ctx.rotate(cell.rot);
+        ctx.drawImage(cell.img, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (!forExport) {
         ctx.fillStyle = 'rgba(125,125,145,0.16)';
         ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        plusSign(rect, W / BASE_WIDTH);
+        plusSign(rect, s);
       }
       ctx.restore();
 
       if (!forExport && i === state.selected) {
         ctx.save();
         ctx.strokeStyle = '#ff4d8d';
-        ctx.lineWidth = Math.max(2, 4 * (W / BASE_WIDTH));
+        ctx.lineWidth = Math.max(2, 4 * s);
         roundedPath(rect, radius);
         ctx.stroke();
         ctx.restore();
@@ -224,7 +285,7 @@
       img.onload = () => {
         const previous = state.cells[index];
         if (previous && previous.url) URL.revokeObjectURL(previous.url);
-        state.cells[index] = { img, url, zoom: 1, ox: 0, oy: 0 };
+        state.cells[index] = { img, url, zoom: 1, rot: 0, ox: 0, oy: 0 };
         if (state.selected === -1 || state.selected === index) select(index);
         render();
         renderStrip();
@@ -336,16 +397,38 @@
 
   function select(i) {
     state.selected = i;
+    syncCellPanel();
+    renderStrip();
+  }
+
+  // Shows the effective transform — the zoom a rotation has forced is real, so
+  // the slider has to show it and can't be allowed below it.
+  function syncCellPanel() {
+    const i = state.selected;
     const cell = state.cells[i];
     const field = $('cell-field');
-    if (!cell || !cell.img) {
-      field.hidden = true;
-    } else {
-      field.hidden = false;
-      $('cell-index').textContent = `#${i + 1}`;
-      $('zoom').value = Math.round(cell.zoom * 100);
-    }
-    renderStrip();
+    if (!cell || !cell.img) { field.hidden = true; return; }
+
+    field.hidden = false;
+    const p = place(cell, cellRects()[i], canvas.width / BASE_WIDTH);
+    const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
+
+    $('cell-index').textContent = `#${i + 1}`;
+    $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
+    $('zoom').min = Math.ceil(p.minZoom * 100);
+    $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
+    $('zoom').value = Math.round(p.zoom * 100);
+  }
+
+  function resetCell(i) {
+    const cell = state.cells[i];
+    if (!cell || !cell.img) return;
+    cell.zoom = 1;
+    cell.rot = 0;
+    cell.ox = 0;
+    cell.oy = 0;
+    render();
+    syncCellPanel();
   }
 
   /* ------------------------------------------------------------- thumbnails */
@@ -403,54 +486,129 @@
     };
   }
 
+  const mean = (pts, k) => pts.reduce((a, p) => a + p[k], 0) / pts.length;
+  const spread = (pts) => Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+  const tilt = (pts) => Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+
+  // Within 5° of square, take the square — free-rotating a photo to 89.6°
+  // is never what anyone meant.
+  const SNAP = 5 * Math.PI / 180;
+  function snapAngle(a) {
+    const quarter = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    return Math.abs(a - quarter) < SNAP ? quarter : a;
+  }
+
+  // Re-baseline the gesture against the fingers currently down. Called on every
+  // touch down and up, so adding or lifting a finger mid-gesture continues from
+  // where the photo actually is instead of jumping.
+  function rebase() {
+    const i = state.selected;
+    const cell = state.cells[i];
+    if (!cell || !cell.img || !pointers.size) { gesture = null; return; }
+
+    const s = canvas.width / BASE_WIDTH;
+    const rect = cellRects()[i];
+    const p = place(cell, rect, s);
+    const pts = [...pointers.values()];
+
+    gesture = {
+      i,
+      s,
+      ids: [...pointers.keys()],
+      ax: mean(pts, 'x'),
+      ay: mean(pts, 'y'),
+      spread: pts.length > 1 ? spread(pts) : 0,
+      tilt: pts.length > 1 ? tilt(pts) : 0,
+      // Where the photo's centre sits right now, and the transform behind it.
+      cx: rect.x + rect.w / 2 + p.ox,
+      cy: rect.y + rect.h / 2 + p.oy,
+      zoom: p.zoom,
+      rot: cell.rot,
+    };
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     const p = toCanvas(e);
     const i = cellAt(p.x, p.y);
-    if (i === -1) { select(-1); render(); return; }
 
-    const cell = state.cells[i];
-    select(i);
-    render();
-
-    if (!cell || !cell.img) {
-      pendingCell = i;
-      fileInput.click();
+    if (pointers.size === 0) {
+      if (i === -1) { select(-1); render(); return; }
+      const cell = state.cells[i];
+      select(i);
+      render();
+      if (!cell || !cell.img) {
+        pendingCell = i;
+        fileInput.click();
+        return;
+      }
+    } else if (i !== state.selected) {
+      // A second finger outside the tile being edited isn't part of the gesture.
       return;
     }
 
     canvas.setPointerCapture(e.pointerId);
-    drag = { i, startX: p.x, startY: p.y, ox: cell.ox, oy: cell.oy };
+    pointers.set(e.pointerId, p);
+    rebase();
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!drag) {
+    if (!pointers.has(e.pointerId)) {
       const p = toCanvas(e);
-      const i = cellAt(p.x, p.y);
-      const cell = state.cells[i];
+      const cell = state.cells[cellAt(p.x, p.y)];
       canvas.style.cursor = cell && cell.img ? 'grab' : 'pointer';
       return;
     }
-    const p = toCanvas(e);
-    const cell = state.cells[drag.i];
-    cell.ox = drag.ox + (p.x - drag.startX);
-    cell.oy = drag.oy + (p.y - drag.startY);
+
+    pointers.set(e.pointerId, toCanvas(e));
+    if (!gesture) return;
+
+    const pts = gesture.ids.filter((id) => pointers.has(id)).map((id) => pointers.get(id));
+    if (pts.length !== gesture.ids.length) return;
+
+    // One finger pans. Two also pinch and twist.
+    let scale = 1;
+    let turn = 0;
+    if (pts.length > 1) {
+      scale = spread(pts) / (gesture.spread || 1);
+      turn = tilt(pts) - gesture.tilt;
+    }
+
+    const cell = state.cells[gesture.i];
+    cell.rot = snapAngle(gesture.rot + turn);
+    cell.zoom = clamp(gesture.zoom * scale, 1, 8);
+
+    // Carry the photo's centre through the same similarity transform the
+    // fingers described, so the image tracks the pinch instead of the cell.
+    const dx = gesture.cx - gesture.ax;
+    const dy = gesture.cy - gesture.ay;
+    const c = Math.cos(turn);
+    const sn = Math.sin(turn);
+    const nx = mean(pts, 'x') + (dx * c - dy * sn) * scale;
+    const ny = mean(pts, 'y') + (dx * sn + dy * c) * scale;
+
+    const rect = cellRects()[gesture.i];
+    cell.ox = (nx - (rect.x + rect.w / 2)) / gesture.s;
+    cell.oy = (ny - (rect.y + rect.h / 2)) / gesture.s;
+
     canvas.style.cursor = 'grabbing';
     render();
-  });
+    syncCellPanel();
+  }, { passive: false });
 
-  const endDrag = () => {
-    if (!drag) return;
-    // Persist the clamped values so the next drag starts from what's on screen.
-    const cell = state.cells[drag.i];
-    const rect = cellRects()[drag.i];
-    const d = drawRect(cell, rect);
-    cell.ox = clamp(cell.ox, -d.limitX, d.limitX);
-    cell.oy = clamp(cell.oy, -d.limitY, d.limitY);
-    drag = null;
-    canvas.style.cursor = 'grab';
+  const liftPointer = (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (gesture) settle(gesture.i);
+    if (pointers.size) {
+      rebase();
+    } else {
+      gesture = null;
+      canvas.style.cursor = 'grab';
+      syncCellPanel();
+    }
   };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerup', liftPointer);
+  canvas.addEventListener('pointercancel', liftPointer);
 
   canvas.addEventListener('wheel', (e) => {
     const p = toCanvas(e);
@@ -458,18 +616,31 @@
     const cell = state.cells[i];
     if (!cell || !cell.img) return;
     e.preventDefault();
-    cell.zoom = clamp(cell.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08), 1, 4);
-    if (state.selected === i) $('zoom').value = Math.round(cell.zoom * 100);
+
+    const s = canvas.width / BASE_WIDTH;
+    const rect = cellRects()[i];
+    const before = place(cell, rect, s);
+    const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+    cell.zoom = clamp(before.zoom * scale, 1, 8);
+
+    // Zoom towards the cursor rather than the middle of the tile.
+    const cx = rect.x + rect.w / 2 + before.ox;
+    const cy = rect.y + rect.h / 2 + before.oy;
+    cell.ox = (p.x + (cx - p.x) * scale - (rect.x + rect.w / 2)) / s;
+    cell.oy = (p.y + (cy - p.y) * scale - (rect.y + rect.h / 2)) / s;
+
+    settle(i);
     render();
+    if (state.selected === i) syncCellPanel();
   }, { passive: false });
 
-  canvas.addEventListener('dblclick', () => {
-    const cell = state.cells[state.selected];
-    if (!cell) return;
-    cell.zoom = 1; cell.ox = 0; cell.oy = 0;
-    $('zoom').value = 100;
-    render();
+  // Two-finger pinch on iOS Safari zooms the page unless we say otherwise —
+  // touch-action alone doesn't stop it.
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => {
+    canvas.addEventListener(type, (e) => e.preventDefault());
   });
+
+  canvas.addEventListener('dblclick', () => resetCell(state.selected));
 
   /* ------------------------------------------------------------ drag & drop */
 
@@ -529,7 +700,9 @@
 
     const ext = state.format === 'image/png' ? 'png' : 'jpg';
     const name = `grid-collage-${state.layout.id}-${state.ratio.id.replace(':', 'x')}.${ext}`;
-    const size = `${canvas.width}×${canvas.height}`;
+    // From outputSize, not the canvas — by now it's been restored to preview size.
+    const out = outputSize();
+    const size = `${out.w}×${out.h}`;
 
     // The share sheet is the only route to the camera roll on iOS, and it
     // survives sandboxing when the frame allows web-share.
@@ -654,17 +827,12 @@
     const cell = state.cells[state.selected];
     if (!cell) return;
     cell.zoom = Number(e.target.value) / 100;
+    settle(state.selected);
     render();
   });
 
   $('btn-remove').addEventListener('click', () => removeCell(state.selected));
-  $('btn-recenter').addEventListener('click', () => {
-    const cell = state.cells[state.selected];
-    if (!cell) return;
-    cell.zoom = 1; cell.ox = 0; cell.oy = 0;
-    $('zoom').value = 100;
-    render();
-  });
+  $('btn-recenter').addEventListener('click', () => resetCell(state.selected));
   $('btn-replace').addEventListener('click', () => { pendingCell = state.selected; fileInput.click(); });
 
   $('btn-clear').addEventListener('click', () => {
@@ -702,6 +870,20 @@
 
   render();
   renderStrip();
+
+  // The preview is sized from its box on screen, so it has to be redrawn when
+  // that box changes. Re-render once more after first layout, when the canvas
+  // finally has a measurable width.
+  if (window.ResizeObserver) {
+    let last = 0;
+    new ResizeObserver(() => {
+      const w = canvas.clientWidth;
+      if (!w || Math.abs(w - last) < 8) return;
+      last = w;
+      render();
+    }).observe($('canvas-wrap'));
+  }
+  requestAnimationFrame(() => render());
 
   /* ------------------------------------------------------ install / offline */
 

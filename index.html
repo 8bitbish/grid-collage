@@ -37,7 +37,7 @@
       <canvas id="canvas" width="1080" height="1080" aria-label="Collage preview"></canvas>
       <div class="dropzone" id="dropzone" hidden><span>Drop photos to add them</span></div>
     </div>
-    <p class="stage-hint" id="stage-hint">Click a tile to add a photo · drag inside a photo to reposition · scroll to zoom</p>
+    <p class="stage-hint" id="stage-hint">Click a tile to add a photo · drag to reposition · scroll to zoom · pinch and twist with two fingers</p>
   </section>
 
   <!-- ------------------------------------------------ controls -->
@@ -78,7 +78,7 @@
     </div>
 
     <div class="field" id="cell-field" hidden>
-      <label class="field-label">Selected tile <span class="val" id="cell-index"></span></label>
+      <label class="field-label">Selected tile <span class="val"><span id="cell-index"></span> <span id="cell-angle" class="angle"></span></span></label>
       <input type="range" id="zoom" min="100" max="400" step="1" value="100">
       <div class="row">
         <button class="btn btn-ghost btn-sm" id="btn-replace" type="button">Replace</button>
