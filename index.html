@@ -12,7 +12,16 @@
 <meta name="apple-mobile-web-app-title" content="Collage">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d10'/%3E%3Cg fill='%23ff4d8d'%3E%3Crect x='6' y='6' width='8' height='8' rx='2'/%3E%3Crect x='18' y='6' width='8' height='8' rx='2'/%3E%3Crect x='6' y='18' width='8' height='8' rx='2'/%3E%3Crect x='18' y='18' width='8' height='8' rx='2' fill='%23ffb648'/%3E%3C/g%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css">
+<!-- The ?v= is what makes a deploy land on the first launch rather than the
+     second. index.html is fetched from the network every time, but the files
+     it points at are answered from the cache, so an unstamped app.js meant
+     the first launch after a deploy ran the old code while quietly
+     downloading the new one for next time. Stamped, the fresh HTML asks for
+     a URL that isn't in the cache yet, so the new code loads there and then.
+     Nothing else changes: the URL stays the same until the next deploy, so
+     every other launch is still answered from the cache, offline included.
+     app.js reads its own stamp back off this, so the two cannot drift. -->
+<link rel="stylesheet" href="styles.css?v=2026.08.06a">
 </head>
 <body class="on-home">
 
@@ -385,6 +394,6 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=2026.08.06a"></script>
 </body>
 </html>

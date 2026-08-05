@@ -79,7 +79,18 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05g';
+  //
+  // Read off this file's own URL rather than written down twice. The stamp
+  // in index.html is what busts the cache after a deploy, and a version
+  // label that disagreed with it would be worse than none at all — it would
+  // say the new build was running when it wasn't. Embedded in a page with no
+  // stamp to read (the published artifact), data-v carries it instead.
+  const VERSION = (() => {
+    const el = document.currentScript;
+    if (!el) return 'dev';
+    if (el.dataset && el.dataset.v) return el.dataset.v;
+    try { return new URL(el.src, location.href).searchParams.get('v') || 'dev'; } catch { return 'dev'; }
+  })();
 
   /* --------------------------------------------------------------- state */
 
@@ -4429,24 +4440,70 @@
   let swReg = null;
   let updateDismissed = false;
 
+  // Letting the new worker in, if one is waiting, and reloading onto it.
+  let updating = false;
+  function applyUpdate() {
+    if (updating) return;
+    updating = true;
+    // A worker waiting its turn has to be let in first, and the reload goes
+    // once it has taken over. With nothing waiting, the new files are already
+    // in the cache and the reload is the whole of it.
+    const waiting = swReg && swReg.waiting;
+    if (!waiting) { location.reload(); return; }
+    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+    waiting.postMessage({ type: 'skip-waiting' });
+    // Don't sit there spinning if it never takes over.
+    setTimeout(() => location.reload(), 2500);
+  }
+
   function offerUpdate() {
-    if (updateDismissed) return;
+    if (updateDismissed || updating) return;
+
+    // On the homepage with no project open there is nothing to interrupt and
+    // nothing on screen worth keeping, so the update is simply taken — a
+    // reload from cache is under a tenth of a second and lands on the same
+    // grid. Asking would be a button to dismiss a question nobody had.
+    // Anywhere else, a reload would throw away where you were, so it asks.
+    if (!current && document.body.classList.contains('on-home')) { applyUpdate(); return; }
+
     // No buzz. Every other one answers something the user just did; this one
     // would arrive unasked, and the browser blocks vibration before a first
     // tap anyway, which only puts an error in the console.
     $('update-toast').hidden = false;
   }
 
+  // Is there actually a newer build than the one running, right now?
+  //
+  // index.html is what gets asked, because the stamp on its script tag is the
+  // deployed version, full stop. Four kilobytes, no-store so nothing in any
+  // cache can answer it, and the comparison is exact. Every route below goes
+  // through this rather than offering on the strength of a service worker
+  // event: a worker reinstalls whenever sw.js changes by a byte, which is not
+  // the same question, and answering the wrong one is how you get an app that
+  // reloads to tell you about the build it is already running.
+  let lastCheck = 0;
+  async function checkForNewBuild(force) {
+    const now = Date.now();
+    if (!force && now - lastCheck < 60 * 1000) return;
+    lastCheck = now;
+    try {
+      const res = await fetch('./index.html', { cache: 'no-store' });
+      if (!res.ok) return;
+      const found = (await res.text()).match(/app\.js\?v=([^"']+)/);
+      if (found && found[1] !== VERSION) offerUpdate();
+    } catch { /* offline, which is not news */ }
+  }
+
   function watchWorker(reg) {
     swReg = reg;
     // A new sw.js, installed and held back until it's asked in.
-    if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
+    if (reg.waiting && navigator.serviceWorker.controller) checkForNewBuild(true);
     reg.addEventListener('updatefound', () => {
       const fresh = reg.installing;
       if (!fresh) return;
       fresh.addEventListener('statechange', () => {
         // With no controller this is a first install, not an update.
-        if (fresh.state === 'installed' && navigator.serviceWorker.controller) offerUpdate();
+        if (fresh.state === 'installed' && navigator.serviceWorker.controller) checkForNewBuild(true);
       });
     });
   }
@@ -4456,23 +4513,19 @@
       navigator.serviceWorker.register('./sw.js').then(watchWorker).catch(() => {});
     });
 
-    // The worker's other way of saying so: it re-fetched app.js or the
-    // stylesheet in the background and what came back was a different file.
-    // That covers a deploy where sw.js itself is byte-identical, which is most
-    // of them — a browser only reinstalls a worker whose bytes changed, so
-    // nothing above would fire.
+    // The worker's other way of saying so: it re-fetched a core file in the
+    // background and what came back was a different file. Rarely fires now
+    // that those files are versioned — a stamped URL's contents never change
+    // — but it still covers anything served unstamped.
     navigator.serviceWorker.addEventListener('message', (e) => {
-      if (e.data && e.data.type === 'update-ready') offerUpdate();
+      if (e.data && e.data.type === 'update-ready') checkForNewBuild(true);
     });
 
-    // Coming back to a long-running installed app is the moment to look.
-    let lastCheck = 0;
+    // Coming back to a long-running installed app is the moment to look. An
+    // installed app on iOS can sit there for days without navigating again —
+    // switching back to it is not a launch, and nothing else would notice.
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden || !swReg) return;
-      const now = Date.now();
-      if (now - lastCheck < 15 * 60 * 1000) return;
-      lastCheck = now;
-      swReg.update().catch(() => {});
+      if (!document.hidden) checkForNewBuild(false);
     });
   }
 
@@ -4484,18 +4537,7 @@
   $('ut-now').addEventListener('click', () => {
     $('ut-now').disabled = true;
     $('ut-now').textContent = 'Updating…';
-    // A worker waiting its turn has to be let in first, and the reload goes
-    // once it has taken over. With nothing waiting, the new files are already
-    // in the cache and the reload is the whole of it.
-    const waiting = swReg && swReg.waiting;
-    if (waiting) {
-      navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
-      waiting.postMessage({ type: 'skip-waiting' });
-      // Don't leave the button spinning if it never takes over.
-      setTimeout(() => location.reload(), 2500);
-    } else {
-      location.reload();
-    }
+    applyUpdate();
   });
 
   /* --------------------------------------------------------- install banner */

@@ -25,12 +25,45 @@ const SHELL = [
 // update worth telling someone about; a new icon is not.
 const CORE = ['/app.js', '/styles.css', '/index.html', '/'];
 
+// index.html points at app.js and styles.css with a ?v= stamp on them, and
+// those are the URLs the page will actually ask for — so those are the ones
+// worth having in the cache before it does. Read out of the HTML rather than
+// written down here: this file has no idea what the current stamp is, and
+// should not have to be edited every deploy to find out.
+async function stampedShell() {
+  try {
+    const res = await fetch('./index.html', { cache: 'reload' });
+    const html = await res.text();
+    const found = [...html.matchAll(/(?:src|href)="\.?\/?((?:app\.js|styles\.css)\?v=[^"]+)"/g)];
+    return SHELL.concat(found.map((m) => `./${m[1]}`));
+  } catch {
+    // Unstamped is still a working app; it just costs the extra launch.
+    return SHELL;
+  }
+}
+
+// A stamped URL is a new URL every deploy, so without this the cache would
+// keep every build of app.js ever served. Anything at the same path under a
+// different stamp is a previous build, and goes.
+async function pruneOlder(cache, url) {
+  const here = new URL(url);
+  if (!here.search) return;
+  const keys = await cache.keys();
+  await Promise.all(keys.map((req) => {
+    const was = new URL(req.url);
+    if (was.pathname !== here.pathname || was.search === here.search) return null;
+    return cache.delete(req);
+  }));
+}
+
 // Deliberately no skipWaiting here. A worker that takes over mid-session
 // swaps the cached files under a page still running the old ones, which is
 // how you end up with a shell that only updates if you close the app. It
 // waits instead, and the page decides when to let it in.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil(
+    stampedShell().then((files) => caches.open(CACHE).then((cache) => cache.addAll(files))),
+  );
 });
 
 self.addEventListener('message', (event) => {
@@ -160,6 +193,11 @@ self.addEventListener('fetch', (event) => {
           // noticed the next time the app is opened from cold.
           const changed = hit && stamp(hit) && stamp(hit) !== stamp(response);
           cache.put(request, response.clone());
+          // Arriving here with nothing cached under this exact URL, for a
+          // file that is versioned, means a deploy just landed and this is
+          // the new build being read for the first time. The old one is now
+          // dead weight.
+          if (!hit && isCore(request.url)) pruneOlder(cache, request.url);
           if (changed && isCore(request.url)) announceUpdate();
         }
         return response;
