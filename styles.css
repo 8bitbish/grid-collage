@@ -1757,3 +1757,55 @@ body.is-library .toast {
   .dock-item svg { width: 18px; height: 18px; }
   .drawer-body { padding: 6px 10px; }
 }
+
+/* ------------------------------------------------------------ trimming */
+/* Two handles over one clip. They are stacked rather than side by side so
+   each spans the whole length — a half-width slider would mean the start and
+   the end were measured on different scales. */
+.tile-trim {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 14px;
+}
+.trim-read {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.trim-arrow { color: var(--muted); }
+.trim-span { margin-left: auto; color: var(--muted); }
+.trim-bars { display: flex; flex-direction: column; gap: 2px; }
+.trim-bars input[type="range"] { margin: 0; }
+/* The end handle reads as the closing edge, so it takes the second colour. */
+#trim-end { accent-color: var(--accent-2); }
+.tile-trim .btn { align-self: flex-start; }
+
+/* Present for a screen reader, out of the way of everyone else. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Present, playing, and impossible to see. The frames are read off these and
+   painted into the canvas; the elements themselves are never looked at. */
+.players {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}

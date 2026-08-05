@@ -245,6 +245,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17l5-5 4 4 3-2.5 4 3.5"/></svg>
             <span>Replace</span>
           </button>
+          <button class="dock-item" id="tile-trim-btn" type="button" data-tile="trim" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8 8.6L20 17M8 15.4L20 7"/></svg>
+            <span>Trim</span>
+          </button>
           <button class="dock-item" type="button" data-tile="zoom">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3M8 11h6M11 8v6"/></svg>
             <span>Zoom</span>
@@ -270,6 +274,25 @@
         <div class="tile-sub dock-slider" id="tile-zoom" hidden>
           <label class="dock-label" for="zoom">Zoom <span class="val" id="zoom-val">100%</span></label>
           <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+        </div>
+
+        <!-- Cutting a clip blind would be useless, so both handles seek the
+             preview as they move: the frame you are setting is the frame on
+             the slide. -->
+        <div class="tile-sub tile-trim" id="tile-trim" hidden>
+          <div class="trim-read">
+            <span class="val" id="trim-from">0:00</span>
+            <span class="trim-arrow" aria-hidden="true">→</span>
+            <span class="val" id="trim-to">0:00</span>
+            <span class="trim-span" id="trim-span"></span>
+          </div>
+          <div class="trim-bars">
+            <label class="sr" for="trim-start">Start</label>
+            <input type="range" id="trim-start" min="0" max="1000" step="1" value="0">
+            <label class="sr" for="trim-end">End</label>
+            <input type="range" id="trim-end" min="0" max="1000" step="1" value="1000">
+          </div>
+          <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
         </div>
 
         <div class="tile-sub" id="tile-rotate" hidden>
@@ -316,6 +339,12 @@
 <!-- Video is listed as well as images, or the system picker only offers
      photos and there is no way to get a clip in at all. -->
 <input type="file" id="file-input" accept="image/*,video/*" multiple hidden>
+
+<!-- The video elements driving the preview live here. Attached rather than
+     held loose in script: a detached media element is not required to play,
+     and some engines simply don't. Kept a pixel wide and invisible instead
+     of display:none, which can stop playback for the same reason. -->
+<div class="players" id="players" aria-hidden="true"></div>
 
 <!-- ------------------------------------------------------ the photo library -->
 <div class="photos-modal" id="photos-modal" hidden>

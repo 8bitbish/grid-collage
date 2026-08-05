@@ -79,7 +79,7 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05f';
+  const VERSION = '2026.08.05g';
 
   /* --------------------------------------------------------------- state */
 
@@ -306,11 +306,12 @@
         // About the photo's own centre, so the area covered is unchanged and
         // the cover clamp still holds.
         if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
-        // photo.frame is set only while an export is walking a video's
-        // frames; every other draw uses the poster. Both are things
-        // drawImage already takes, so composing a moving picture is the
-        // same code that composes a still one.
-        g.drawImage(photo.frame || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        // cell.frame is set while a video is playing in the preview, and
+        // while an export walks its frames. Everything else draws the
+        // poster. A video element, a decoded frame and an ImageBitmap are
+        // all things drawImage takes, so a moving picture composes through
+        // exactly the same code as a still one.
+        g.drawImage(cell.frame || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -390,7 +391,23 @@
     return layoutCells(layout).map(() => null);
   }
 
-  const emptyCell = (photoId) => ({ photo: photoId, zoom: 1, rot: 0, ox: 0, oy: 0, flipX: false, flipY: false });
+  // t0/t1 are the trim, in seconds, and they live on the cell rather than
+  // the photo for the same reason zoom does: the same clip can be on two
+  // slides cut two different ways. t1 of 0 means "to the end", so a cell
+  // made before trimming existed needs no migrating.
+  const emptyCell = (photoId) => ({
+    photo: photoId, zoom: 1, rot: 0, ox: 0, oy: 0, flipX: false, flipY: false, t0: 0, t1: 0,
+  });
+
+  // What this cell actually plays: the trim if it has one, the whole clip if
+  // not, clamped to what the file really contains.
+  function clipRange(cell) {
+    const photo = photoFor(cell);
+    const whole = (photo && photo.duration) || 0;
+    const from = clamp(cell && cell.t0 ? cell.t0 : 0, 0, Math.max(0, whole - 0.1));
+    const to = clamp(cell && cell.t1 ? cell.t1 : whole, from + 0.1, whole || from + 0.1);
+    return { from, to, span: Math.max(0.1, to - from), whole };
+  }
 
   function newPage(layout = LAYOUTS[0], photoId = null) {
     const pg = { id: uid(), layout, cells: blankCells(layout), dirty: true };
@@ -446,6 +463,7 @@
     syncEmpty();
     syncFades();
     armDwell();
+    syncPlayback();
   }
 
   // An untouched deck is one blank page and no photos: say so on the canvas
@@ -1026,6 +1044,109 @@
     dwellTimer = setTimeout(() => loadFullFor(pg), DWELL_MS);
   }
 
+  /* ------------------------------------------------------- video preview */
+  //
+  // The slide you are looking at plays. One hidden <video> per video cell —
+  // per cell, not per clip, because the same clip can be in two tiles cut
+  // differently and each has to be at its own moment. Each element hands its
+  // current frame to the cell, and the page redraws through the very same
+  // drawPage the export uses, so what moves on screen is composed exactly
+  // the way the file will be.
+
+  const players = new Map();          // cell index -> { el, url, cell }
+  let painting = 0;
+
+  const videoCells = (pg) => (pg ? pg.cells
+    .map((cell, i) => ({ cell, i, photo: photoFor(cell) }))
+    .filter((x) => x.photo && x.photo.kind === 'video') : []);
+
+  function stopPlayers() {
+    players.forEach(({ el, url, cell }) => {
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+      el.remove();
+      URL.revokeObjectURL(url);
+      if (cell) cell.frame = null;
+    });
+    players.clear();
+    if (painting) cancelAnimationFrame(painting);
+    painting = 0;
+  }
+
+  // Nothing plays on the homepage, behind the library, in another tab, or
+  // while a page is sliding past — all of them are either invisible or
+  // somewhere a redraw would fight with an animation.
+  const canPlay = () => !!current && !document.hidden && !libraryOpen
+    && !sliding && !document.body.classList.contains('on-home');
+
+  function syncPlayback() {
+    const wanted = canPlay() ? videoCells(page()) : [];
+    const keep = new Set(wanted.map((x) => x.i));
+
+    players.forEach((p, i) => {
+      if (keep.has(i)) return;
+      p.el.pause();
+      p.el.removeAttribute('src');
+      p.el.load();
+      p.el.remove();
+      URL.revokeObjectURL(p.url);
+      if (p.cell) p.cell.frame = null;
+      players.delete(i);
+    });
+
+    wanted.forEach(({ cell, i, photo }) => {
+      const had = players.get(i);
+      if (had && had.cell === cell && had.photoId === photo.id) return;
+      if (had) { had.el.pause(); had.el.remove(); URL.revokeObjectURL(had.url); }
+      const url = URL.createObjectURL(photo.blob);
+      const el = document.createElement('video');
+      // Muted is not a preference, it is the price of playing without being
+      // asked; playsinline stops iOS taking the video full screen.
+      el.muted = true;
+      el.playsInline = true;
+      el.preload = 'auto';
+      el.src = url;
+      $('players').appendChild(el);
+      const { from } = clipRange(cell);
+      el.currentTime = from;
+      el.play().catch(() => { /* a frame is still better than nothing */ });
+      players.set(i, { el, url, cell, photoId: photo.id });
+    });
+
+    if (players.size && !painting) painting = requestAnimationFrame(paintPlaying);
+    if (!players.size && painting) { cancelAnimationFrame(painting); painting = 0; }
+  }
+
+  function paintPlaying() {
+    painting = 0;
+    if (!players.size) return;
+    if (!canPlay()) { stopPlayers(); return; }
+
+    const pg = page();
+    let live = false;
+    players.forEach(({ el, cell }) => {
+      // Loop within the trim rather than the whole file, so what you watch
+      // is what the export will produce.
+      const { from, to } = clipRange(cell);
+      if (el.currentTime >= to - 0.02 || el.currentTime < from - 0.02) {
+        try { el.currentTime = from; } catch { /* not seekable yet */ }
+      }
+      if (el.readyState >= 2) { cell.frame = el; live = true; }
+    });
+
+    if (live) {
+      const { w: W, h: H } = previewSize();
+      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+      drawPage(ctx, pg, W, H, { placeholders: true, selected: state.selected });
+    }
+    players.forEach(({ cell }) => { cell.frame = null; });
+
+    painting = requestAnimationFrame(paintPlaying);
+  }
+
+  document.addEventListener('visibilitychange', syncPlayback);
+
   function usageCount(photoId) {
     return state.pages.reduce(
       (n, pg) => n + pg.cells.filter((c) => c && c.photo === photoId).length,
@@ -1498,6 +1619,7 @@
 
   function openLibrary() {
     libraryOpen = true;
+    stopPlayers();
     $('photos-modal').hidden = false;
     document.body.classList.add('is-library');
     $('btn-photos').setAttribute('aria-expanded', 'true');
@@ -1510,6 +1632,7 @@
   function closeLibrary() {
     if (!libraryOpen) return;
     libraryOpen = false;
+    setTimeout(syncPlayback, 0);
     $('photos-modal').hidden = true;
     document.body.classList.remove('is-library');
     $('btn-photos').setAttribute('aria-expanded', 'false');
@@ -1531,6 +1654,11 @@
       c.classList.toggle('is-active', on);
       c.setAttribute('aria-pressed', String(on));
     });
+
+    // Only a tile with a clip in it can be trimmed, so the action is only
+    // there when it means something.
+    $('tile-trim-btn').hidden = !(photo && photo.kind === 'video');
+    if (tileSub === 'trim' && !(photo && photo.kind === 'video')) showTileSub(null);
 
     if (!photo) {
       // The reel is how an empty tile gets filled, so don't shut it just
@@ -1643,6 +1771,10 @@
     setTrack(0, false);
     $('canvas-wrap').classList.remove('is-sliding');
     sliding = false;
+    // Nothing plays mid-slide — the peek layers sit over the canvas and a
+    // redraw would fight the animation — so whatever you landed on starts
+    // once the movement has stopped.
+    syncPlayback();
   }
 
   // A slide in flight, so a second swipe can land on top of the first rather
@@ -2044,8 +2176,7 @@
   const EXPORT_FPS = 30;
   const MAX_CLIP = 60;                     // a carousel slide tops out here
 
-  const pageVideos = (pg) => photosOn(pg).filter((p) => p.kind === 'video');
-  const hasVideo = (pg) => pageVideos(pg).length > 0;
+  const hasVideo = (pg) => videoCells(pg).length > 0;
 
   // Roughly a tenth of a bit per pixel per frame, which is where H.264 stops
   // looking like H.264 on flat colour and gradients — this app makes a lot of
@@ -2056,23 +2187,27 @@
     const MB = await loadMediabunny();
     const { w: W, h: H } = outputSize();
 
-    // Each distinct file is opened once, however many tiles are showing it.
+    // Each distinct file is opened once, however many tiles show it — but
+    // every tile gets its own reader, because two tiles can hold the same
+    // clip cut two different ways.
     const sources = new Map();
-    for (const photo of pageVideos(pg)) {
-      if (sources.has(photo.id)) continue;
-      const input = new MB.Input({ source: new MB.BlobSource(photo.blob), formats: MB.ALL_FORMATS });
-      const track = await input.getPrimaryVideoTrack();
-      if (!track) continue;
-      sources.set(photo.id, {
-        input, track, sink: new MB.VideoSampleSink(track),
-        duration: await input.computeDuration(),
-      });
+    const clips = [];
+    for (const { cell, photo } of videoCells(pg)) {
+      if (!sources.has(photo.id)) {
+        const input = new MB.Input({ source: new MB.BlobSource(photo.blob), formats: MB.ALL_FORMATS });
+        const track = await input.getPrimaryVideoTrack();
+        if (!track) continue;
+        sources.set(photo.id, { input, track, duration: await input.computeDuration() });
+      }
+      const src = sources.get(photo.id);
+      if (!src) continue;
+      clips.push({ cell, src, ...clipRange(cell) });
     }
-    if (!sources.size) return null;
+    if (!clips.length) return null;
 
     // Two clips on one page run together and the page lasts as long as the
     // longer of them; the shorter one holds its last frame.
-    const seconds = Math.min(MAX_CLIP, Math.max(...[...sources.values()].map((s) => s.duration || 0)));
+    const seconds = Math.min(MAX_CLIP, Math.max(...clips.map((c) => c.span)));
     const frames = Math.max(1, Math.round(seconds * EXPORT_FPS));
 
     const canvas = document.createElement('canvas');
@@ -2084,42 +2219,44 @@
     const output = new MB.Output({ format: new MB.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
     const videoOut = new MB.CanvasSource(canvas, { codec: 'avc', bitrate: bitrateFor(W, H) });
     output.addVideoTrack(videoOut, { frameRate: EXPORT_FPS });
-    const audio = await attachAudio(MB, output, sources);
+    const audio = await attachAudio(MB, output, clips);
 
     await output.start();
     if (audio) await audio.copy();
 
-    // Asked for in order, so each packet is decoded once however many frames
-    // come out of it.
-    const times = Array.from({ length: frames }, (_, i) => i / EXPORT_FPS);
-    const readers = new Map();
-    sources.forEach((src, id) => readers.set(id, src.sink.samplesAtTimestamps(times)));
+    // Each clip is asked for its own moments, in order, so a packet is
+    // decoded once however many frames come out of it. A clip shorter than
+    // the page holds on its last frame rather than disappearing.
+    clips.forEach((clip) => {
+      const times = Array.from({ length: frames },
+        (_, i) => Math.min(clip.to - 0.001, clip.from + i / EXPORT_FPS));
+      clip.reader = new MB.VideoSampleSink(clip.src.track).samplesAtTimestamps(times);
+    });
 
     try {
-      return await composeFrames(pg, g, W, H, frames, readers, videoOut, output, target, onProgress);
+      return await composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress);
     } finally {
       // Whatever happened, nothing is left holding a decoder open or a frame
       // undrained — abandoning an iterator mid-flight leaves both.
-      for (const reader of readers.values()) { try { await reader.return(); } catch { /* done already */ } }
+      for (const clip of clips) { try { await clip.reader?.return(); } catch { /* done already */ } }
       for (const src of sources.values()) { try { await src.input.dispose(); } catch { /* already gone */ } }
-      photosOn(pg).forEach((photo) => { photo.frame = null; });
+      pg.cells.forEach((cell) => { if (cell) cell.frame = null; });
     }
   }
 
-  async function composeFrames(pg, g, W, H, frames, readers, videoOut, output, target, onProgress) {
+  async function composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress) {
     for (let i = 0; i < frames; i += 1) {
       const open = [];
-      for (const [id, reader] of readers) {
-        const { value: sample } = await reader.next();
-        const photo = photoById(id);
-        if (!sample || !photo) continue;
+      for (const clip of clips) {
+        const { value: sample } = await clip.reader.next();
+        if (!sample) continue;
         // A frame is something drawImage already takes, so the page composes
         // itself with no idea that anything is moving.
-        photo.frame = sample.toCanvasImageSource();
-        open.push([photo, sample]);
+        clip.cell.frame = sample.toCanvasImageSource();
+        open.push([clip.cell, sample]);
       }
       drawPage(g, pg, W, H);
-      open.forEach(([photo, sample]) => { photo.frame = null; sample.close(); });
+      open.forEach(([cell, sample]) => { cell.frame = null; sample.close(); });
 
       await videoOut.add(i / EXPORT_FPS, 1 / EXPORT_FPS);
       if (onProgress) onProgress((i + 1) / frames);
@@ -2129,24 +2266,31 @@
     return new Blob([target.buffer], { type: 'video/mp4' });
   }
 
-  // The sound comes across untouched wherever it can: the packets in the
-  // source are already what an mp4 wants, so copying them costs nothing and
-  // loses nothing, where re-encoding would cost both.
-  async function attachAudio(MB, output, sources) {
-    // With more than one clip running at once there is no honest way to pick,
-    // so the one that lasts longest is the one you hear.
+  // The sound comes from the longest clip on the page — with more than one
+  // running at once there is no honest way to choose, so the one that lasts
+  // is the one you hear.
+  //
+  // Untrimmed, its packets are already exactly what an mp4 wants, so they
+  // are copied straight across: nothing lost, nothing spent. Trimmed, they
+  // are not — the cut lands mid-packet and the timestamps start in the wrong
+  // place — so that range is decoded and encoded again, which is the same
+  // shape as what the video does two functions up.
+  async function attachAudio(MB, output, clips) {
     let pick = null;
-    for (const src of sources.values()) if (!pick || (src.duration || 0) > (pick.duration || 0)) pick = src;
+    for (const clip of clips) if (!pick || clip.span > pick.span) pick = clip;
     if (!pick) return null;
+
     try {
-      const track = await pick.input.getPrimaryAudioTrack();
+      const track = await pick.src.input.getPrimaryAudioTrack();
       if (!track) return null;
-      const codec = await track.getCodec();
-      if (!codec || !output.format.getSupportedCodecs().includes(codec)) return null;
-      const source = new MB.EncodedAudioPacketSource(codec);
-      output.addAudioTrack(source);
-      return {
-        async copy() {
+      const whole = pick.from <= 0.01 && pick.to >= (pick.whole || 0) - 0.01;
+
+      if (whole) {
+        const codec = await track.getCodec();
+        if (!codec || !output.format.getSupportedCodecs().includes(codec)) return null;
+        const source = new MB.EncodedAudioPacketSource(codec);
+        output.addAudioTrack(source);
+        return { async copy() {
           const sink = new MB.EncodedPacketSink(track);
           const meta = { decoderConfig: await track.getDecoderConfig() };
           let first = true;
@@ -2154,15 +2298,39 @@
             await source.add(packet, first ? meta : undefined);
             first = false;
           }
-        },
-      };
+        } };
+      }
+
+      // Trimmed: decode the range and encode it again, rebasing each sample
+      // so the sound starts when the picture does rather than where it sat
+      // in the original.
+      const config = { codec: 'aac', bitrate: 128e3 };
+      if (MB.canEncodeAudio && !(await MB.canEncodeAudio('aac'))) return null;
+      const source = new MB.AudioSampleSource(config);
+      output.addAudioTrack(source);
+      return { async copy() {
+        const sink = new MB.AudioSampleSink(track);
+        for await (const sample of sink.samples(pick.from, pick.to)) {
+          sample.setTimestamp(Math.max(0, sample.timestamp - pick.from));
+          await source.add(sample);
+          sample.close();
+        }
+      } };
     } catch {
       // No sound is a far better answer than no file.
       return null;
     }
   }
 
+  // Nothing plays while an export is running. The preview and the export
+  // both hand a frame to the same cell and both want the decoder, and the
+  // preview is the one nobody is watching once the overlay is up.
   async function exportDeck() {
+    stopPlayers();
+    try { await runExport(); } finally { syncPlayback(); }
+  }
+
+  async function runExport() {
     const filled = state.pages.filter((pg) => pg.cells.some(Boolean));
     if (!filled.length) { toast('Add a photo first'); return; }
 
@@ -2425,7 +2593,8 @@
   function showTileSub(name) {
     tileSub = name;
     $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip', 'replace'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    ['zoom', 'rotate', 'flip', 'replace', 'trim'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    if (name === 'trim') syncTrim();
 
     // Choosing a photo wants room: the pages bar steps aside and the dock
     // takes two rows, so the options are large enough to judge at a glance.
@@ -2586,6 +2755,82 @@
     }
     if (action === 'reset') { resetCell(i); return; }
     showTileSub(action);
+  }
+
+  /* ------------------------------------------------------------- trimming */
+  //
+  // Both handles run the whole length of the clip, stacked, so start and end
+  // are measured on the same scale. Moving either one seeks the preview to
+  // that exact moment and holds it there — cutting a clip you cannot see
+  // would be guesswork.
+
+  const TRIM_STEPS = 1000;
+
+  function syncTrim() {
+    const cell = page().cells[state.selected];
+    const photo = photoFor(cell);
+    if (!cell || !photo || photo.kind !== 'video') return;
+    const { from, to, span, whole } = clipRange(cell);
+    const at = (t) => Math.round((t / (whole || 1)) * TRIM_STEPS);
+    $('trim-start').value = String(at(from));
+    $('trim-end').value = String(at(to));
+    $('trim-from').textContent = clockLabel(from);
+    $('trim-to').textContent = clockLabel(to);
+    $('trim-span').textContent = `${span.toFixed(1)}s of ${clockLabel(whole)}`;
+    $('trim-reset').disabled = from === 0 && Math.abs(to - whole) < 0.05;
+  }
+
+  // Seconds from a slider position, against the clip's own length.
+  const trimAt = (el, whole) => (Number(el.value) / TRIM_STEPS) * whole;
+
+  function dragTrim(which) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    const photo = photoFor(cell);
+    if (!cell || !photo || photo.kind !== 'video') return;
+    const whole = photo.duration || 0;
+
+    let from = trimAt($('trim-start'), whole);
+    let to = trimAt($('trim-end'), whole);
+    // Never let the handles cross, and never let a clip go to nothing.
+    const floor = 0.2;
+    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); }
+    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); }
+
+    snapshot('trim');
+    cell.t0 = from;
+    cell.t1 = to;
+    syncTrim();
+    saveDeck();
+
+    // Park the preview on the frame being set, so the handle is showing you
+    // the cut rather than describing it.
+    const player = players.get(i);
+    if (player) {
+      player.el.pause();
+      try { player.el.currentTime = which === 'start' ? from : Math.max(from, to - 0.05); } catch { /* not seekable */ }
+    }
+  }
+
+  // Let go and it runs the trimmed clip, from the top.
+  function endTrimDrag() {
+    endRun();
+    const player = players.get(state.selected);
+    if (!player) return;
+    const { from } = clipRange(page().cells[state.selected]);
+    try { player.el.currentTime = from; } catch { /* not seekable */ }
+    player.el.play().catch(() => {});
+  }
+
+  function resetTrim() {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    snapshot();
+    cell.t0 = 0;
+    cell.t1 = 0;
+    syncTrim();
+    saveDeck();
+    endTrimDrag();
   }
 
   function flipCell(axis) {
@@ -2796,7 +3041,7 @@
         layout: pg.layout.id,
         cells: pg.cells.map((c) => (c ? {
           photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy,
-          flipX: !!c.flipX, flipY: !!c.flipY,
+          flipX: !!c.flipX, flipY: !!c.flipY, t0: c.t0 || 0, t1: c.t1 || 0,
         } : null)),
       })),
     };
@@ -3026,6 +3271,7 @@
   // between projects would otherwise stack them up.
   function resetEditor() {
     clearTimeout(dwellTimer);
+    stopPlayers();
     loadingFull.clear();
     state.photos.forEach((p) => {
       try { URL.revokeObjectURL(p.thumbUrl); } catch { /* already gone */ }
@@ -4022,6 +4268,15 @@
     importForChooser = true;
     fileInput.click();
   });
+  ['start', 'end'].forEach((which) => {
+    const el = $(`trim-${which}`);
+    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); });
+    el.addEventListener('input', () => dragTrim(which));
+    el.addEventListener('pointerup', endTrimDrag);
+    el.addEventListener('change', endTrimDrag);
+  });
+  $('trim-reset').addEventListener('click', resetTrim);
+
   $('btn-flip-h').addEventListener('click', () => flipCell('x'));
   $('btn-flip-v').addEventListener('click', () => flipCell('y'));
   $('btn-rot90').addEventListener('click', () => {
