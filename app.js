@@ -64,6 +64,17 @@
   // thumbnail to decode on every launch for nothing.
   const THUMB_EDGE = 384;
 
+  // A stand-in for the photo, big enough that the preview can't tell: the
+  // preview canvas is capped at the export width, 1080 by default. Decoding
+  // one costs 14ms against 351ms for the 12MP original, which is the whole of
+  // why a deck opens in a moment rather than in seven seconds. The original
+  // is still there and gets decoded when something actually needs it.
+  const PROXY_EDGE = 1440;
+
+  // How long you have to stay on a page before its photos are worth decoding
+  // at full size. Long enough not to fire while you're flicking through.
+  const DWELL_MS = 700;
+
   /* --------------------------------------------------------------- state */
 
   const state = {
@@ -409,6 +420,7 @@
     syncPanel();
     syncEmpty();
     syncFades();
+    armDwell();
   }
 
   // An untouched deck is one blank page and no photos: say so on the canvas
@@ -545,6 +557,10 @@
     const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.82);
     if (thumbBitmap !== bitmap) thumbBitmap.close();
 
+    const proxyBitmap = await shrink(bitmap, PROXY_EDGE);
+    const proxyBlob = await encode(proxyBitmap, 'image/jpeg', 0.86);
+    if (proxyBitmap !== bitmap) proxyBitmap.close();
+
     // Only re-encode when we actually changed the pixels. Untouched, the file
     // is persisted exactly as it arrived — no second pass through a lossy
     // encoder, whatever format it came in.
@@ -557,9 +573,13 @@
       name,
       taken,
       bitmap,
+      // Just decoded it, so this one starts at full size. Only a restore
+      // begins on the proxy.
+      full: true,
       w: bitmap.width,
       h: bitmap.height,
       blob: stored,
+      proxyBlob,
       thumbUrl: URL.createObjectURL(thumbBlob),
       thumbBlob,
     };
@@ -637,6 +657,59 @@
     pg.cells.forEach((c, i) => {
       if (!c && spare.length) pg.cells[i] = emptyCell(spare.shift().id);
     });
+  }
+
+  /* ------------------------------------------------- reading the full photo */
+  //
+  // A restored deck is drawn from proxies, which the preview can't be told
+  // apart from the real thing. The original is read when it starts to matter:
+  // you've settled on a page, you've picked up a tile to zoom into, or you're
+  // exporting. Never closed once decoded — undo hands old photo records back
+  // and a closed bitmap throws when drawn.
+
+  const loadingFull = new Map();
+
+  function ensureFull(photo) {
+    if (!photo || photo.full) return Promise.resolve(false);
+    if (loadingFull.has(photo.id)) return loadingFull.get(photo.id);
+
+    const job = createImageBitmap(photo.blob).then((bitmap) => {
+      loadingFull.delete(photo.id);
+      // Gone from the library while it was decoding.
+      if (!state.photos.includes(photo)) { bitmap.close(); return false; }
+      photo.bitmap = bitmap;
+      photo.full = true;
+      photo.w = bitmap.width;
+      photo.h = bitmap.height;
+      return true;
+    }).catch(() => { loadingFull.delete(photo.id); return false; });
+
+    loadingFull.set(photo.id, job);
+    return job;
+  }
+
+  const photosOn = (pg) => (pg ? pg.cells.filter(Boolean).map((c) => photoById(c.photo)).filter(Boolean) : []);
+
+  // Everything on this page, then redraw once if anything actually changed.
+  async function loadFullFor(pg) {
+    const wanted = photosOn(pg).filter((p) => !p.full);
+    if (!wanted.length) return;
+    const done = await Promise.all(wanted.map(ensureFull));
+    if (done.some(Boolean) && state.pages[state.current] === pg) {
+      restyle();
+      render();
+      renderFilmstrip();
+    }
+  }
+
+  // Flicking through pages shouldn't drag 12MP decodes along behind it, so
+  // the page has to be the one you stopped on.
+  let dwellTimer = 0;
+  function armDwell() {
+    clearTimeout(dwellTimer);
+    const pg = state.pages[state.current];
+    if (!pg || photosOn(pg).every((p) => p.full)) return;
+    dwellTimer = setTimeout(() => loadFullFor(pg), DWELL_MS);
   }
 
   function usageCount(photoId) {
@@ -1153,6 +1226,12 @@
     state.selected = i;
     render();
     syncPanel();
+    // About to be zoomed or panned, which is where a proxy would start to
+    // show. Fetch the real thing now rather than waiting out the dwell.
+    if (i !== -1) {
+      const photo = photoFor(page().cells[i]);
+      if (photo && !photo.full) ensureFull(photo).then((got) => { if (got) render(); });
+    }
   }
 
   // An empty tile opens the same reel as Replace, rather than the device
@@ -1619,6 +1698,9 @@
 
     const files = [];
     for (let i = 0; i < filled.length; i++) {
+      // Never export a proxy. Whatever is on screen, the file that comes out
+      // is rendered from the photo as it arrived.
+      await Promise.all(photosOn(filled[i]).map(ensureFull));
       const blob = await renderToBlob(filled[i], state.format);
       if (!blob) continue;
       // Instagram imports by filename, so the order has to be in the name.
@@ -2113,6 +2195,7 @@
     put(STORE_PHOTOS, {
       id: photo.id, name: photo.name, taken: photo.taken,
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
+      proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
       w: photo.w, h: photo.h,
     });
   }
@@ -2219,17 +2302,30 @@
 
     const rows = await getAll(STORE_PHOTOS);
     const stale = [];
+    const noProxy = [];
     for (const row of rows) {
       try {
-        const bitmap = await createImageBitmap(row.blob);
+        // The proxy if there is one: a deck of twenty opens in a quarter of a
+        // second on those, against seven seconds decoding the originals. The
+        // full photo is read later, when something needs it.
+        const bitmap = await createImageBitmap(row.proxy || row.blob);
         const photo = {
-          id: row.id, name: row.name, bitmap, w: row.w || bitmap.width, h: row.h || bitmap.height,
+          id: row.id, name: row.name, bitmap,
+          w: row.w || bitmap.width, h: row.h || bitmap.height,
           // Photos stored by an earlier build have no date on them; the file's
           // own timestamp is long gone by then, so they group under today.
           taken: row.taken || Date.now(),
-          blob: row.blob, thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
+          // w/h are the real photo's, not the proxy's — the cover maths works
+          // in the photo's own proportions and must not change when the full
+          // one swaps in.
+          full: !row.proxy,
+          blob: row.blob, proxyBlob: row.proxy,
+          thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
         state.photos.push(photo);
+        // Stored before proxies existed: make one in the background so the
+        // next launch is the quick one.
+        if (!row.proxy) noProxy.push(photo);
         // A library imported by an earlier build has 160px thumbnails in it,
         // which the grid stretches. The full photo is in hand, so they can be
         // redrawn rather than waiting to be imported again.
@@ -2271,6 +2367,23 @@
     syncHistoryButtons();
 
     if (stale.length) upgradeThumbs(stale);
+    if (noProxy.length) backfillProxies(noProxy);
+  }
+
+  // A library stored before proxies existed has none, so it opened the slow
+  // way. Build them now, one per frame behind the first paint, and the next
+  // launch is the quick one.
+  async function backfillProxies(photos) {
+    for (const photo of photos) {
+      try {
+        await new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0)));
+        if (!state.photos.includes(photo) || photo.proxyBlob) continue;
+        const small = await shrink(photo.bitmap, PROXY_EDGE);
+        photo.proxyBlob = await encode(small, 'image/jpeg', 0.86);
+        if (small !== photo.bitmap) small.close();
+        savePhoto(photo);
+      } catch { /* it'll be tried again next launch */ }
+    }
   }
 
   // Redraw thumbnails an earlier build left too small. Behind the first paint
