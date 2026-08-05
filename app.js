@@ -664,6 +664,12 @@
     });
   }
 
+  // How close to an end of the strip starts it moving, and how fast at the
+  // very edge. Proportional in between, so easing towards the edge eases the
+  // scroll up rather than switching it on.
+  const EDGE_ZONE = 56;
+  const EDGE_SPEED = 15;
+
   function beginReorder(el, index, startX) {
     const strip = $('filmstrip');
     // A long press would otherwise start selecting the page number, and the
@@ -680,21 +686,56 @@
       ? items[1].getBoundingClientRect().left - items[0].getBoundingClientRect().left
       : el.getBoundingClientRect().width + 8;
 
-    reorder = { el, index, target: index, startX, items, step, strip };
+    reorder = {
+      el, index, target: index, items, step, strip,
+      startX, startScroll: strip.scrollLeft, x: startX, raf: 0,
+    };
     strip.classList.add('is-reordering');
+    // The library and the undo pair fold away, handing their width to the
+    // strip for as long as the drag lasts. Folding the left one would drag
+    // every page sideways with it — and a page that moves while your finger
+    // is still means the slot you are aiming at changes under you — so the
+    // strip takes on exactly that width as padding and the contents stay put.
+    const bar = document.querySelector('.pagesbar');
+    bar.style.setProperty('--fold-left', `${$('btn-photos').offsetWidth}px`);
+    bar.classList.add('is-reordering');
     el.classList.add('is-lifted');
     el.style.transition = 'none';
+    reorder.raf = requestAnimationFrame(edgeScroll);
   }
 
   function dragReorder(x) {
-    const { el, index, items, step, strip } = reorder;
-    const dx = x - reorder.startX;
-    el.style.transform = `translateX(${dx}px) scale(1.08)`;
+    if (!reorder) return;
+    reorder.x = x;
+    layoutReorder();
+  }
 
-    // Nudge the strip along when dragging against either end of it.
+  // Runs every frame for as long as the page is held, so resting against an
+  // end keeps the strip moving instead of stopping the moment the finger does.
+  function edgeScroll() {
+    if (!reorder) return;
+    const { strip, x } = reorder;
     const box = strip.getBoundingClientRect();
-    if (x > box.right - 44) strip.scrollLeft += 8;
-    else if (x < box.left + 44) strip.scrollLeft -= 8;
+    let v = 0;
+    if (x > box.right - EDGE_ZONE) v = EDGE_SPEED * Math.min(1, (x - box.right + EDGE_ZONE) / EDGE_ZONE);
+    else if (x < box.left + EDGE_ZONE) v = -EDGE_SPEED * Math.min(1, (box.left + EDGE_ZONE - x) / EDGE_ZONE);
+
+    if (v) strip.scrollLeft = clamp(strip.scrollLeft + v, 0, strip.scrollWidth - strip.clientWidth);
+
+    // Every frame, scrolled or not. The strip also moves and widens while the
+    // ends fold away, and a page only re-placed on a finger move would slide
+    // out from under a finger that is holding still.
+    layoutReorder();
+    reorder.raf = requestAnimationFrame(edgeScroll);
+  }
+
+  function layoutReorder() {
+    const { el, index, items, step, strip, startX, startScroll, x } = reorder;
+    // How far the page has come from its own slot: what the finger has moved,
+    // plus whatever the strip has scrolled underneath it. The padding above
+    // keeps the slot itself still, so nothing else needs accounting for.
+    const dx = (x - startX) + (strip.scrollLeft - startScroll);
+    el.style.transform = `translateX(${dx}px) scale(1.08)`;
 
     const target = clamp(index + Math.round(dx / step), 0, items.length - 1);
     if (target === reorder.target) return;
@@ -712,7 +753,8 @@
   }
 
   function endReorder() {
-    const { el, index, target, step, items, strip } = reorder;
+    const { el, index, target, step, items, strip, raf } = reorder;
+    cancelAnimationFrame(raf);
     reorder = null;
     document.removeEventListener('touchmove', blockScroll);
 
@@ -723,6 +765,10 @@
 
     setTimeout(() => {
       strip.classList.remove('is-reordering');
+      // The ends come back only once the page has landed. Unfolding them
+      // during the settle would widen the strip under the page mid-glide, so
+      // it would arrive somewhere other than where it was aimed.
+      document.querySelector('.pagesbar').classList.remove('is-reordering');
       items.forEach((it) => { it.style.transform = ''; it.style.transition = ''; });
       if (target === index) return;
 
