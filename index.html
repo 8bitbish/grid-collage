@@ -32,7 +32,11 @@
 <!-- ------------------------------------------------------------- the homepage -->
 <!-- Where a cold launch lands. Nothing here needs a photo decoded, so it can
      paint before the database has even been opened: names, counts and sizes
-     are kept alongside each deck as it is edited. Covers arrive after. -->
+     are kept alongside each deck as it is edited. Covers arrive after.
+
+     Laid out as a profile grid — three across, edge to edge, the first slide
+     of each carousel and nothing else. What a project is called and what it
+     costs is a press-and-hold away, which is also where deleting lives. -->
 <section class="home" id="home">
   <header class="home-head">
     <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -51,8 +55,28 @@
       <button class="btn btn-primary" id="home-first" type="button">Start one</button>
       <p class="home-sub-note">Each project keeps its own photos and pages.</p>
     </div>
+    <p class="home-hint" id="home-hint" hidden>Press and hold a carousel for its details</p>
   </div>
 </section>
+
+<!-- Press and hold a tile: what it is, what it holds, and the way to delete
+     it. The grid itself stays clean because all of this lives in here. -->
+<div class="detail" id="detail" hidden>
+  <div class="detail-card" role="dialog" aria-modal="true" aria-labelledby="detail-name">
+    <div class="detail-cover"><img id="detail-img" alt=""></div>
+    <strong class="detail-name" id="detail-name"></strong>
+    <dl class="detail-stats" id="detail-stats"></dl>
+    <div class="detail-row" id="detail-actions">
+      <button class="btn btn-sm btn-danger" id="detail-delete" type="button">Delete</button>
+      <button class="btn btn-primary btn-sm" id="detail-open" type="button">Open</button>
+    </div>
+    <div class="detail-row detail-ask" id="detail-ask" hidden>
+      <span>This deletes its photos too.</span>
+      <button class="btn btn-ghost btn-sm" id="detail-keep" type="button">Keep</button>
+      <button class="btn btn-sm btn-danger" id="detail-yes" type="button">Delete</button>
+    </div>
+  </div>
+</div>
 
 <!-- Shown over the homepage while a project's photos are read back. -->
 <div class="opening" id="opening" hidden role="status" aria-live="polite">

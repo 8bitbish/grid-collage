@@ -2703,105 +2703,179 @@
     const grid = $('home-grid');
     grid.innerHTML = '';
     $('home-empty').hidden = projects.length > 0;
+    $('home-hint').hidden = projects.length === 0;
 
     const bytes = projects.reduce((n, p) => n + (p.bytes || 0), 0);
     $('home-sub').textContent = projects.length
       ? `${plural(projects.length, 'project')} · ${fmtBytes(bytes)} stored`
       : 'Build a carousel, then come back to it whenever';
 
-    projects.forEach((rec) => grid.appendChild(projectCard(rec)));
+    projects.forEach((rec) => grid.appendChild(projectTile(rec)));
     paintCovers();
     loadCovers();
   }
 
-  function projectCard(rec) {
-    const card = document.createElement('div');
-    card.className = 'project';
-    card.dataset.id = rec.id;
+  // The mark a multi-photo post carries. Every project here is a carousel, so
+  // every tile has one — it says what the grid is, not which tile is special.
+  const CAROUSEL_MARK =
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    + '<rect x="7" y="2" width="15" height="15" rx="4.5"/>'
+    + '<path d="M4.2 5.9A1.2 1.2 0 0 0 2 6.6v10.2A5.2 5.2 0 0 0 7.2 22h10.2a1.2 1.2 0 0 0 .7-2.2'
+    + ' 1.3 1.3 0 0 0-.75-.24H8a3.8 3.8 0 0 1-3.8-3.8V6.65a1.3 1.3 0 0 0-.24-.75z"/></svg>';
 
-    const open = document.createElement('button');
-    open.className = 'project-open';
-    open.type = 'button';
-    open.setAttribute('aria-label', `Open ${rec.name}`);
+  function projectTile(rec) {
+    const tile = document.createElement('button');
+    tile.className = 'tile';
+    tile.type = 'button';
+    tile.dataset.id = rec.id;
+    // The tile shows no words, so the label has to carry all of them.
+    tile.setAttribute('aria-label',
+      `${rec.name} — ${plural(rec.photos || 0, 'photo')}, ${plural(rec.pages || 1, 'slide')}.`
+      + ' Tap to open, press and hold for details');
 
-    const cover = document.createElement('span');
-    cover.className = 'project-cover';
     const mark = document.createElement('span');
     mark.className = 'brand-mark';
     mark.setAttribute('aria-hidden', 'true');
     for (let i = 0; i < 4; i += 1) mark.appendChild(document.createElement('i'));
-    cover.appendChild(mark);
-    open.appendChild(cover);
+    tile.appendChild(mark);
 
-    const meta = document.createElement('span');
-    meta.className = 'project-meta';
-    // Built as nodes: a project name is user text and could hold anything.
-    const name = document.createElement('span');
-    name.className = 'project-name';
-    name.textContent = rec.name;
-    const counts = document.createElement('span');
-    counts.className = 'project-line';
-    counts.textContent = `${plural(rec.photos || 0, 'photo')} · ${plural(rec.pages || 1, 'slide')}`;
-    const size = document.createElement('span');
-    size.className = 'project-line';
-    size.textContent = `${fmtBytes(rec.bytes || 0)} · ${agoLabel(rec.updated || rec.created || Date.now())}`;
-    meta.append(name, counts, size);
-    open.appendChild(meta);
-    card.appendChild(open);
+    const badge = document.createElement('span');
+    badge.className = 'tile-mark';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.innerHTML = CAROUSEL_MARK;
+    tile.appendChild(badge);
 
-    const kill = document.createElement('button');
-    kill.className = 'project-x';
-    kill.type = 'button';
-    kill.setAttribute('aria-label', `Delete ${rec.name}`);
-    kill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    card.appendChild(kill);
+    armHold(tile, rec);
+    return tile;
+  }
 
-    const ask = document.createElement('div');
-    ask.className = 'project-confirm';
-    const question = document.createElement('p');
-    question.textContent = 'Delete this project?';
-    const detail = document.createElement('span');
-    detail.textContent = `${plural(rec.photos || 0, 'photo')} · ${fmtBytes(rec.bytes || 0)}`;
-    question.appendChild(detail);
-    const row = document.createElement('div');
-    row.className = 'row';
-    const no = document.createElement('button');
-    no.className = 'btn btn-ghost btn-sm';
-    no.type = 'button';
-    no.textContent = 'Keep';
-    const yes = document.createElement('button');
-    yes.className = 'btn btn-sm btn-danger';
-    yes.type = 'button';
-    yes.textContent = 'Delete';
-    row.append(no, yes);
-    ask.append(question, row);
-    card.appendChild(ask);
+  // Tap opens, hold shows what it is. The hold has to survive a finger that
+  // drifts a pixel or two, and must not fire when the finger is really
+  // scrolling the grid — so any real movement cancels it. Half a second is
+  // roughly where the platforms put the same gesture: long enough that
+  // starting a slow scroll doesn't trip it, short enough to feel like an
+  // answer rather than a wait.
+  const HOLD_MS = 450;
 
-    open.addEventListener('click', () => openProject(rec));
-    kill.addEventListener('click', () => {
-      buzz('pick');
-      // One card at a time asking, or the answer is ambiguous.
-      document.querySelectorAll('.project.is-asking').forEach((el) => el.classList.remove('is-asking'));
-      card.classList.add('is-asking');
+  function armHold(tile, rec) {
+    let timer = 0;
+    let from = null;
+    let held = false;
+
+    const stop = () => {
+      clearTimeout(timer);
+      from = null;
+      tile.classList.remove('is-holding');
+    };
+
+    tile.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      held = false;
+      from = { x: e.clientX, y: e.clientY };
+      tile.classList.add('is-holding');
+      timer = setTimeout(() => {
+        held = true;
+        stop();
+        buzz('pick');
+        openDetail(rec);
+      }, HOLD_MS);
     });
-    no.addEventListener('click', () => card.classList.remove('is-asking'));
-    yes.addEventListener('click', () => { buzz('drop'); deleteProject(rec); });
+    tile.addEventListener('pointermove', (e) => {
+      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 10) stop();
+    });
+    tile.addEventListener('pointerup', stop);
+    tile.addEventListener('pointercancel', stop);
+    tile.addEventListener('pointerleave', stop);
 
-    return card;
+    tile.addEventListener('click', (e) => {
+      // The hold already answered this press; the click that follows it is
+      // the same finger and must not also open the project.
+      if (held) { held = false; e.preventDefault(); return; }
+      openProject(rec);
+    });
+    // A right-click is the same intent on a desktop, and stops the browser's
+    // own menu covering the sheet on a long press.
+    tile.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      stop();
+      held = true;
+      openDetail(rec);
+    });
   }
 
   function paintCovers() {
-    $('home-grid').querySelectorAll('.project').forEach((el) => {
+    $('home-grid').querySelectorAll('.tile').forEach((el) => {
       const url = coverUrls.get(el.dataset.id);
-      const box = el.querySelector('.project-cover');
-      if (!url || box.querySelector('img')) return;
+      if (!url || el.querySelector('img')) return;
+      const mark = el.querySelector('.brand-mark');
+      if (mark) mark.remove();
       const img = document.createElement('img');
       img.src = url;
       img.alt = '';
-      box.textContent = '';
-      box.appendChild(img);
+      el.prepend(img);
     });
   }
+
+  /* --------------------------------------------------------- press and hold */
+
+  let detailOf = null;
+
+  function openDetail(rec) {
+    detailOf = rec;
+    const url = coverUrls.get(rec.id);
+    const img = $('detail-img');
+    // Nothing placed yet, so there is no slide to show — the sheet is just
+    // the numbers, rather than a grey rectangle pretending to be a picture.
+    img.closest('.detail-cover').hidden = !url;
+    if (url) img.src = url;
+
+    $('detail-name').textContent = rec.name;
+    const stats = $('detail-stats');
+    stats.innerHTML = '';
+    [
+      ['Photos', String(rec.photos || 0)],
+      ['Slides', String(rec.pages || 1)],
+      ['Storage', fmtBytes(rec.bytes || 0)],
+      ['Edited', agoLabel(rec.updated || rec.created || Date.now())],
+    ].forEach(([label, value]) => {
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      stats.append(dt, dd);
+    });
+
+    // The confirm row says what deleting does rather than how much there is
+    // of it: the counts are already listed a couple of lines above it.
+    $('detail-actions').hidden = false;
+    $('detail-ask').hidden = true;
+    $('detail').hidden = false;
+    $('detail-open').focus();
+  }
+
+  function closeDetail() {
+    detailOf = null;
+    $('detail').hidden = true;
+  }
+
+  $('detail').addEventListener('pointerdown', (e) => { if (e.target === $('detail')) closeDetail(); });
+  $('detail-open').addEventListener('click', () => { const rec = detailOf; closeDetail(); openProject(rec); });
+  $('detail-delete').addEventListener('click', () => {
+    $('detail-actions').hidden = true;
+    $('detail-ask').hidden = false;
+    $('detail-yes').focus();
+  });
+  $('detail-keep').addEventListener('click', () => {
+    $('detail-ask').hidden = true;
+    $('detail-actions').hidden = false;
+    $('detail-delete').focus();
+  });
+  $('detail-yes').addEventListener('click', () => {
+    const rec = detailOf;
+    buzz('drop');
+    closeDetail();
+    if (rec) deleteProject(rec);
+  });
 
   // After the list is on screen, never before it: this is the one thing on
   // the homepage that touches the database, and it is a handful of 384px
@@ -3105,7 +3179,10 @@
     let pending = null;
     root.addEventListener('pointerdown', (e) => {
       const btn = e.target.closest('button');
-      pending = btn && !btn.disabled && !btn.closest('.choose-strip')
+      // Tiles are left out: they have a hold as well as a tap, and the hold
+      // already buzzed when it fired. The pointerup that ends it would tick a
+      // second time for a gesture that wasn't a tap at all.
+      pending = btn && !btn.disabled && !btn.closest('.choose-strip') && !btn.classList.contains('tile')
         ? { btn, x: e.clientX, y: e.clientY }
         : null;
     });
@@ -3127,9 +3204,8 @@
   buzzTaps(document.querySelector('.pagesbar-end'));
   buzzTaps($('installbar'));
   buzzTaps($('update-toast'));
-  // Opening a project is the heaviest thing a tap can start, so it says so.
-  // Delete answers for itself — those two buzz on the press, in projectCard.
   buzzTaps($('home'));
+  buzzTaps($('detail'));
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
@@ -3183,11 +3259,6 @@
   $('btn-home').addEventListener('click', goHome);
   $('btn-new').addEventListener('click', () => openProject(createProject()));
   $('home-first').addEventListener('click', () => openProject(createProject()));
-  // A tap anywhere else on the homepage puts a card's delete question away.
-  $('home-body').addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.project.is-asking')) return;
-    document.querySelectorAll('.project.is-asking').forEach((el) => el.classList.remove('is-asking'));
-  });
   $('btn-photos').addEventListener('click', openLibrary);
   $('pm-close').addEventListener('click', closeLibrary);
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
@@ -3228,7 +3299,11 @@
   window.addEventListener('keydown', (e) => {
     // Every shortcut below acts on the open deck, and on the homepage there
     // isn't one — undo and the arrow keys would be editing a hidden project.
-    if (!current) return;
+    // The hold sheet is the exception: it only ever exists over the homepage.
+    if (!current) {
+      if (detailOf && e.key === 'Escape') closeDetail();
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
