@@ -58,7 +58,11 @@
   // downscale, so photos are resized once on the way in.
   // 0 means no cap: keep every photo at the size it arrived. See ingest().
   const MAX_EDGE = 0;
-  const THUMB_EDGE = 160;
+  // Big enough for the library grid on a 3x phone: a tile is about 128 CSS px
+  // there, so it wants ~384 real ones. At 160 they were being stretched 2.4x,
+  // which is exactly what a soft thumbnail looks like. Beside a full-size
+  // photo the extra 40KB or so is nothing.
+  const THUMB_EDGE = 512;
 
   /* --------------------------------------------------------------- state */
 
@@ -533,7 +537,7 @@
     if (resized) decoded.close();
 
     const thumbBitmap = await shrink(bitmap, THUMB_EDGE);
-    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.8);
+    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.86);
     if (thumbBitmap !== bitmap) thumbBitmap.close();
 
     // Only re-encode when we actually changed the pixels. Untouched, the file
@@ -906,7 +910,12 @@
       // the deck style actually changed. Redrawing all 20 on every refresh
       // cost 78ms per page change.
       const out = outputSize();
-      const tw = 96;
+      // The canvas is 46 CSS px tall, so on a 3x screen it wants 138 real
+      // pixels across the long edge and a flat 96 was being stretched. Capped
+      // at 3: past that the strip costs more to redraw than the sharpness is
+      // worth on a thumbnail this size.
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      const tw = Math.round(64 * dpr);
       const th = Math.round(tw * out.h / out.w);
       const key = `${styleRev}:${pg.rev || 0}:${tw}x${th}`;
       if (!pg.thumb || pg.thumbKey !== key) {
@@ -2063,7 +2072,8 @@
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
       id: photo.id, name: photo.name, taken: photo.taken,
-      blob: photo.blob, thumb: photo.thumbBlob, w: photo.w, h: photo.h,
+      blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
+      w: photo.w, h: photo.h,
     });
   }
 
@@ -2168,16 +2178,22 @@
     }
 
     const rows = await getAll(STORE_PHOTOS);
+    const stale = [];
     for (const row of rows) {
       try {
         const bitmap = await createImageBitmap(row.blob);
-        state.photos.push({
+        const photo = {
           id: row.id, name: row.name, bitmap, w: row.w || bitmap.width, h: row.h || bitmap.height,
           // Photos stored by an earlier build have no date on them; the file's
           // own timestamp is long gone by then, so they group under today.
           taken: row.taken || Date.now(),
           blob: row.blob, thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
-        });
+        };
+        state.photos.push(photo);
+        // A library imported by an earlier build has 160px thumbnails in it,
+        // which the grid stretches. The full photo is in hand, so they can be
+        // redrawn rather than waiting to be imported again.
+        if ((row.thumbEdge || 0) < THUMB_EDGE) stale.push(photo);
         persisted.add(row.id);
         // Keep the id counter clear of anything we just restored.
         const n = Number(String(row.id).replace(/\D/g, ''));
@@ -2210,6 +2226,28 @@
     undoStack.length = 0;
     redoStack.length = 0;
     syncHistoryButtons();
+
+    if (stale.length) upgradeThumbs(stale);
+  }
+
+  // Redraw thumbnails an earlier build left too small. Behind the first paint
+  // and one at a time: the app is already usable by now and this is only
+  // sharpening what is on screen, so it must not compete with it.
+  async function upgradeThumbs(photos) {
+    for (const photo of photos) {
+      try {
+        await new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0)));
+        if (!state.photos.includes(photo)) continue;     // removed meanwhile
+        const small = await shrink(photo.bitmap, THUMB_EDGE);
+        const blob = await encode(small, 'image/jpeg', 0.86);
+        if (small !== photo.bitmap) small.close();
+        URL.revokeObjectURL(photo.thumbUrl);
+        photo.thumbBlob = blob;
+        photo.thumbUrl = URL.createObjectURL(blob);
+        savePhoto(photo);
+      } catch { /* leave the old thumbnail in place */ }
+    }
+    renderPhotos();
   }
 
   /* ------------------------------------------------------------ undo/redo */
