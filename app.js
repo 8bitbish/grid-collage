@@ -1180,7 +1180,10 @@
   // drawPage the export uses, so what moves on screen is composed exactly
   // the way the file will be.
 
-  const players = new Map();          // cell index -> { el, url, cell }
+  // Keyed by the slot on the page. `cell` is the object currently in that
+  // slot, kept up to date every painted frame — it is there so a teardown
+  // can clear the frame off it, not as the source of truth.
+  const players = new Map();          // cell index -> { el, url, cell, photoId, ready }
   let painting = 0;
 
   function stopPlayers() {
@@ -1220,7 +1223,12 @@
 
     wanted.forEach(({ cell, i, photo }) => {
       const had = players.get(i);
-      if (had && had.cell === cell && had.photoId === photo.id) return;
+      // Matched on the clip and the slot it is in, not on the cell object.
+      // Plenty of things build a fresh cell for the same clip in the same
+      // place — the chooser does it for every photo you scroll past — and
+      // restarting the video for that would be wrong twice over: it would
+      // jump back to the beginning, and it would do it constantly.
+      if (had && had.photoId === photo.id) { had.cell = cell; return; }
       if (had) { had.el.pause(); had.el.remove(); URL.revokeObjectURL(had.url); }
       const url = URL.createObjectURL(photo.blob);
       const el = document.createElement('video');
@@ -1259,13 +1267,27 @@
 
     const pg = page();
     let live = false;
-    players.forEach((p) => {
-      const { el, cell } = p;
+    players.forEach((p, i) => {
+      // Read the cell out of the page every frame rather than holding the
+      // one it was made with. Anything that rebuilds a tile in place — the
+      // chooser, a layout change, an undo — leaves the old object behind,
+      // and frames written to that go nowhere: the element plays on, the
+      // picture on screen freezes, and it only ever came back because
+      // switching away and back rebuilt the players from scratch.
+      const cell = pg.cells[i];
+      if (!cell) return;
+      p.cell = cell;
+
+      const { el } = p;
       // Loop within the trim rather than the whole file, so what you watch
       // is what the export will produce.
       const { from, to } = clipRange(cell);
       if (el.currentTime >= to - 0.02 || el.currentTime < from - 0.02) {
         try { el.currentTime = from; } catch { /* not seekable yet */ }
+        // Reaching the end of the file stops the element, and seeking a
+        // stopped one does not start it again. Without this a clip trimmed
+        // to its own end plays once and sits there.
+        if (el.paused) el.play().catch(() => { /* the poster stands in */ });
       }
       // Mid-seek there is no frame to copy, so the poster holds the tile
       // rather than the picture dropping out on every loop round.
@@ -2845,6 +2867,10 @@
     // with like rather than inheriting the last photo's framing.
     page().cells[i] = emptyCell(photo.id);
     render();
+    // Scrolling onto a clip starts it, and scrolling off one stops it, so
+    // what you are choosing between is what you would get.
+    syncPlayback();
+    ensurePosters(page(), () => { render(); renderFilmstrip(); });
     saveDeck();
   }
 
