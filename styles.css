@@ -266,6 +266,10 @@ body.is-picking .tile::after {
   text-align: center;
   font-size: 11.5px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  /* Worth being able to read off the screen and repeat back. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .home-empty {

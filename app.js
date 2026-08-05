@@ -75,6 +75,12 @@
   // at full size. Long enough not to fire while you're flicking through.
   const DWELL_MS = 700;
 
+  // Shown at the foot of the homepage. The one thing it has to do is settle
+  // "is the copy on my phone the one that was just deployed", so it is the
+  // date of the deploy, with a letter after it if there is more than one in
+  // a day. Bump it in the same commit as the change it ships.
+  const VERSION = '2026.08.05';
+
   /* --------------------------------------------------------------- state */
 
   const state = {
@@ -2915,13 +2921,21 @@
 
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-  const HOME_HINT = 'Press and hold a carousel for its details';
+  // Dated rather than numbered, because the question it answers is "has my
+  // installed copy picked up the change yet" — and a date answers that
+  // without anyone having to remember what 1.7.2 meant. Bumped by hand on
+  // the way out; there is no build step to stamp it.
+  const HOME_HINT = `v${VERSION}`;
+  const SHARE_HINT = 'Tap a carousel to add them, or start a new one';
 
   function renderHome() {
     const grid = $('home-grid');
     grid.innerHTML = '';
     $('home-empty').hidden = projects.length > 0;
-    $('home-hint').hidden = projects.length === 0;
+    // Always there, empty grid or not — a version you have to have projects
+    // to read is no use for checking whether the app updated.
+    $('home-hint').hidden = false;
+    $('home-hint').textContent = pendingShare ? SHARE_HINT : HOME_HINT;
 
     const bytes = projects.reduce((n, p) => n + (p.bytes || 0), 0);
     $('home-sub').textContent = projects.length
@@ -3051,7 +3065,7 @@
     pendingShare = files;
     $('share-count').textContent = `Add ${plural(files.length, 'photo')} to…`;
     $('sharebar').hidden = false;
-    $('home-hint').textContent = 'Tap a carousel to add them, or start a new one';
+    $('home-hint').textContent = SHARE_HINT;
     document.body.classList.add('is-picking');
   }
 
