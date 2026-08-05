@@ -462,6 +462,9 @@ input, textarea, .val, #bg-hex {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* The swipe and pinch listeners live here rather than on the canvas, so
+     this is where the browser has to keep its hands off. */
+  touch-action: none;
 }
 
 /* The carousel track. The neighbouring pages sit right against the current
@@ -483,6 +486,9 @@ input, textarea, .val, #bg-hex {
   left: 50%;
   top: 50%;
   visibility: hidden;
+  /* Decoration only. They cover the canvas mid-slide, and a finger arriving
+     then belongs to the next page turn, not to them. */
+  pointer-events: none;
 }
 .canvas-wrap.is-sliding .peek { visibility: visible; }
 .canvas-wrap.is-sliding #canvas { box-shadow: none; }

@@ -58,11 +58,11 @@
   // downscale, so photos are resized once on the way in.
   // 0 means no cap: keep every photo at the size it arrived. See ingest().
   const MAX_EDGE = 0;
-  // Big enough for the library grid on a 3x phone: a tile is about 128 CSS px
-  // there, so it wants ~384 real ones. At 160 they were being stretched 2.4x,
-  // which is exactly what a soft thumbnail looks like. Beside a full-size
-  // photo the extra 40KB or so is nothing.
-  const THUMB_EDGE = 512;
+  // Exactly what the library grid asks for and no more: a tile is about 128
+  // CSS px, so a 3x phone wants 384 real pixels across it. 512 was sharp but
+  // half of it was never seen — at twenty photos that is a megabyte of
+  // thumbnail to decode on every launch for nothing.
+  const THUMB_EDGE = 384;
 
   /* --------------------------------------------------------------- state */
 
@@ -90,6 +90,11 @@
   const ctx = canvas.getContext('2d');
   const fileInput = $('file-input');
   const dropzone = $('dropzone');
+
+  // Everything the finger does to the deck is listened for here rather than on
+  // the canvas. The canvas moves during a page turn and the peek layers sit
+  // over it, so a second swipe arriving mid-slide would land on neither.
+  const stageInput = $('canvas-wrap');
 
   const page = () => state.pages[state.current];
   const photoById = (id) => state.photos.find((p) => p.id === id);
@@ -537,7 +542,7 @@
     if (resized) decoded.close();
 
     const thumbBitmap = await shrink(bitmap, THUMB_EDGE);
-    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.86);
+    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.82);
     if (thumbBitmap !== bitmap) thumbBitmap.close();
 
     // Only re-encode when we actually changed the pixels. Untouched, the file
@@ -1171,6 +1176,9 @@
 
   /* -------------------------------------------------------- canvas gestures */
 
+  // Canvas pixels from a pointer event. The listeners sit on the wrapper, not
+  // the canvas, so this has to measure the canvas itself — and mid-slide the
+  // canvas is translated, so it measures where it is now, not where it rests.
   function toCanvas(e) {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -1229,14 +1237,36 @@
     sliding = false;
   }
 
+  // A slide in flight, so a second swipe can land on top of the first rather
+  // than being turned away for the length of the animation.
+  let slideTimer = 0;
+  let slideTarget = -1;
+
+  // Cut the current slide short and commit it now. What the animation was
+  // going to do in another 200ms, done in this frame, so the next gesture
+  // starts from a settled deck instead of queueing behind one.
+  function finishSlide() {
+    if (!sliding) return;
+    clearTimeout(slideTimer);
+    slideTimer = 0;
+    const target = slideTarget;
+    slideTarget = -1;
+    endSlide();
+    goTo(target);
+  }
+
   // delta: +1 for the next page, -1 for the previous.
   function slidePage(delta) {
+    // Mid-slide, land the one in progress first: swiping four pages along
+    // should be four swipes, not swipe-wait-swipe-wait.
+    if (sliding) finishSlide();
+
     const target = state.current + delta;
-    if (sliding) return;
     if (target < 0 || target >= state.pages.length) { setTrack(0, true); return; }
 
     preparePeek();
     sliding = true;
+    slideTarget = target;
     placePageX();
     buzz('turn');
     // Straight away, not when the slide lands: state.current can't move until
@@ -1244,9 +1274,11 @@
     // where you're going, and waiting 280ms for it to admit that reads as lag.
     markCurrent(target);
     setTrack(-delta * slideStep(), true);
-    setTimeout(() => {
+    slideTimer = setTimeout(() => {
       // Reset the track and paint the new page in the same frame, so the
       // hand-off from the peek canvas to the real one isn't visible.
+      slideTimer = 0;
+      slideTarget = -1;
       endSlide();
       goTo(target);
     }, reducedMotion ? 0 : SLIDE_MS);
@@ -1289,14 +1321,22 @@
     };
   }
 
-  canvas.addEventListener('pointerdown', (e) => {
+  stageInput.addEventListener('pointerdown', (e) => {
+    // The delete-page button lives inside this wrapper. Now that the gesture
+    // listeners are here rather than on the canvas, a press on it would be
+    // read as the start of a swipe and the pointer capture would take the
+    // click away from it.
+    if (e.target.closest('button')) return;
+
     const p = toCanvas(e);
 
     // Nothing selected: the canvas belongs to the carousel, so this is a swipe.
     // Selection is the mode switch — it's visible, and one tap either way.
     if (state.selected === -1) {
-      if (sliding) return;
-      canvas.setPointerCapture(e.pointerId);
+      // A finger down during a slide takes it over: land the page that was
+      // moving and start this gesture from there.
+      if (sliding) finishSlide();
+      stageInput.setPointerCapture(e.pointerId);
       swipe = {
         id: e.pointerId,
         x: e.clientX,
@@ -1333,12 +1373,12 @@
     }
 
     if (pointers.size === 0) { endRun(); snapshot(); }
-    canvas.setPointerCapture(e.pointerId);
+    stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
   });
 
-  canvas.addEventListener('pointermove', (e) => {
+  stageInput.addEventListener('pointermove', (e) => {
     if (swipe && e.pointerId === swipe.id) {
       const dx = e.clientX - swipe.x;
       const dy = e.clientY - swipe.y;
@@ -1459,8 +1499,8 @@
       refresh();
     }
   };
-  canvas.addEventListener('pointerup', liftPointer);
-  canvas.addEventListener('pointercancel', liftPointer);
+  stageInput.addEventListener('pointerup', liftPointer);
+  stageInput.addEventListener('pointercancel', liftPointer);
 
   canvas.addEventListener('wheel', (e) => {
     if (state.selected === -1) return;
@@ -2193,7 +2233,10 @@
         // A library imported by an earlier build has 160px thumbnails in it,
         // which the grid stretches. The full photo is in hand, so they can be
         // redrawn rather than waiting to be imported again.
-        if ((row.thumbEdge || 0) < THUMB_EDGE) stale.push(photo);
+        // Any size but the current one, so the library converges whichever
+        // way the setting moved — too small to look at, or bigger than the
+        // grid can use and costing a decode on every launch.
+        if ((row.thumbEdge || 0) !== THUMB_EDGE) stale.push(photo);
         persisted.add(row.id);
         // Keep the id counter clear of anything we just restored.
         const n = Number(String(row.id).replace(/\D/g, ''));
@@ -2239,7 +2282,7 @@
         await new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0)));
         if (!state.photos.includes(photo)) continue;     // removed meanwhile
         const small = await shrink(photo.bitmap, THUMB_EDGE);
-        const blob = await encode(small, 'image/jpeg', 0.86);
+        const blob = await encode(small, 'image/jpeg', 0.82);
         if (small !== photo.bitmap) small.close();
         URL.revokeObjectURL(photo.thumbUrl);
         photo.thumbBlob = blob;
