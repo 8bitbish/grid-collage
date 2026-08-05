@@ -2188,6 +2188,7 @@
   buzzTaps($('photos-modal'));
   buzzTaps($('btn-photos'));
   buzzTaps(document.querySelector('.pagesbar-end'));
+  buzzTaps($('installbar'));
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
@@ -2332,21 +2333,59 @@
     });
   }
 
+  /* --------------------------------------------------------- install banner */
+  //
+  // The only thing above the pages is an offer to install, and it earns its
+  // row by not being there once it has been taken: installed, dismissed, or
+  // never offered in the first place, and the app starts at the pages.
+
+  const DISMISS_KEY = 'grid-collage:install-dismissed';
+
+  // Launched from the home screen rather than a browser tab. display-mode is
+  // the standard signal; navigator.standalone is the iOS one, which predates
+  // it and is still what Safari answers to.
+  const installed = () => window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: window-controls-overlay)').matches
+    || window.navigator.standalone === true;
+
   let installPrompt = null;
+
+  function syncInstallBar() {
+    let dismissed = false;
+    try { dismissed = localStorage.getItem(DISMISS_KEY) === '1'; } catch { /* private mode */ }
+    // Only offered when it can actually be accepted: no prompt in hand means
+    // the browser has nothing to install, and a banner would be a dead end.
+    $('installbar').hidden = !installPrompt || installed() || dismissed;
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     installPrompt = e;
-    $('btn-install').hidden = false;
+    syncInstallBar();
   });
+
   $('btn-install').addEventListener('click', async () => {
     if (!installPrompt) return;
     installPrompt.prompt();
     await installPrompt.userChoice;
     installPrompt = null;
-    $('btn-install').hidden = true;
+    syncInstallBar();
   });
+
+  $('btn-install-x').addEventListener('click', () => {
+    try { localStorage.setItem(DISMISS_KEY, '1'); } catch { /* private mode */ }
+    syncInstallBar();
+  });
+
   window.addEventListener('appinstalled', () => {
     installPrompt = null;
-    $('btn-install').hidden = true;
+    syncInstallBar();
   });
+
+  // Installing while the tab is open switches it to standalone without a
+  // reload on some browsers, so the bar has to notice.
+  const displayQuery = window.matchMedia('(display-mode: standalone)');
+  if (displayQuery.addEventListener) displayQuery.addEventListener('change', syncInstallBar);
+
+  syncInstallBar();
 })();

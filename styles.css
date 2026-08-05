@@ -46,34 +46,73 @@ input, textarea, .val, #bg-hex {
   user-select: text;
 }
 
-/* ------------------------------------------------------------- topbar */
-.topbar {
+/* -------------------------------------------------------- install banner */
+/* The one row above the pages, and only while it has something to offer. */
+.installbar {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
+  gap: 12px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background:
+    linear-gradient(90deg, rgba(255, 77, 141, 0.14), rgba(255, 182, 72, 0.08)),
+    var(--surface);
 }
-
-.brand { display: flex; align-items: center; gap: 10px; }
+.installbar[hidden] { display: none; }
 
 .brand-mark {
+  flex: none;
   display: grid;
-  grid-template-columns: repeat(2, 8px);
-  grid-template-rows: repeat(2, 8px);
+  grid-template-columns: repeat(2, 9px);
+  grid-template-rows: repeat(2, 9px);
   gap: 2px;
 }
 .brand-mark i { background: var(--accent); border-radius: 2px; }
 .brand-mark i:last-child { background: var(--accent-2); }
 
-.brand-name { font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
+.installbar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.installbar-text strong { font-size: 14px; font-weight: 650; }
+.installbar-text span {
+  font-size: 11.5px;
+  color: var(--muted);
+  /* One line: the banner must not grow taller than the row it was given. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-/* margin-left rather than space-between, so the actions stay on the right
-   even where the brand is hidden. */
-.topbar-actions { display: flex; gap: 8px; margin-left: auto; }
+.installbar-x {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.installbar-x svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+@media (hover: hover) {
+  .installbar-x:hover { background: var(--surface-2); color: var(--text); }
+}
 
 /* -------------------------------------------------------------- layout */
 /* An app shell: header, pages, preview, dock. Nothing scrolls the page, so
@@ -1227,8 +1266,6 @@ body.is-library .toast {
 
 /* ------------------------------------------------------------- mobile */
 @media (max-width: 860px) {
-  .topbar { padding: 10px 12px; }
-  .topbar .brand-name { display: none; }
   .stage { padding: 0; }
   #canvas { box-shadow: none; }
   .dock { height: 76px; }
@@ -1239,8 +1276,9 @@ body.is-library .toast {
    A phone on its side has barely any height to give the preview, so claw it
    back from the chrome: smaller page thumbnails, a shorter dock, no brand. */
 @media (max-height: 520px) and (orientation: landscape) {
-  .topbar { padding: 4px 10px; }
-  .topbar .brand { display: none; }
+  /* Nothing above the pages but the offer to install, and it gets one line. */
+  .installbar { padding: 6px 10px; }
+  .installbar-text span { display: none; }
   .filmstrip { padding: 5px 8px; gap: 6px; }
   .film canvas { height: 32px; }
   .film-add { width: 30px; min-height: 36px; }

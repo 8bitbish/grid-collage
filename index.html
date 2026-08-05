@@ -16,15 +16,17 @@
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-    <span class="brand-name">Grid Collage</span>
+<!-- Only shown when the app can still be installed; gone once it has been. -->
+<header class="installbar" id="installbar" hidden>
+  <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+  <div class="installbar-text">
+    <strong>Install Grid Collage</strong>
+    <span>Works offline, and in your share sheet</span>
   </div>
-  <div class="topbar-actions">
-    <button id="btn-install" class="btn btn-ghost" type="button" hidden>Install</button>
-    <button id="btn-export" class="btn btn-primary" type="button">Export</button>
-  </div>
+  <button id="btn-install" class="btn btn-primary btn-sm" type="button">Install</button>
+  <button id="btn-install-x" class="installbar-x" type="button" aria-label="Not now">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
 </header>
 
 <main class="app">
@@ -158,6 +160,7 @@
           <option value="image/jpeg">JPG</option>
           <option value="image/png">PNG</option>
         </select>
+        <button class="btn btn-primary" id="btn-export" type="button">Export</button>
       </div>
 
       <!-- opens by itself when a tile is selected -->
