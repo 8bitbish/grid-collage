@@ -198,11 +198,6 @@ input, textarea, .val, #bg-hex {
   padding-left: calc(12px + var(--fold-left, 0px));
   padding-right: calc(12px + var(--fold-right, 0px));
 }
-@media (prefers-reduced-motion: reduce) {
-  .photos-btn,
-  .pagesbar-end { transition: none; }
-}
-
 /* Undo and redo bracket the pages from the right, where the work they undo
    is. Pinned like the library button, so the strip between them still
    scrolls the full length of the deck. */
@@ -353,20 +348,37 @@ input, textarea, .val, #bg-hex {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 0 2px;
+  padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
 }
 
-.pm-grid {
+/* The day a run of photos was taken. Sticky, so scrolling through a long
+   library always says which day you are looking at. */
+.pm-day {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 12px 6px 8px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  background: linear-gradient(var(--bg) 72%, rgba(13, 13, 16, 0));
+}
+.pm-day:first-child { padding-top: 8px; }
+
+/* Square corners and the thinnest gap that still reads as separate photos:
+   the point of this screen is the pictures, not the tiles they sit in. */
+.pm-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 10px;
+  gap: 2px;
 }
 
 .pm-item {
   position: relative;
   aspect-ratio: 1;
-  border-radius: 12px;
   overflow: hidden;
   background: var(--surface-2);
 }
@@ -388,8 +400,8 @@ input, textarea, .val, #bg-hex {
    the signal; a photo not placed anywhere simply has no badge. */
 .pm-badge {
   position: absolute;
-  left: 6px;
-  bottom: 6px;
+  left: 4px;
+  bottom: 4px;
   min-width: 20px;
   padding: 2px 6px;
   border-radius: 10px;
@@ -402,8 +414,8 @@ input, textarea, .val, #bg-hex {
 }
 .pm-x {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 3px;
+  right: 3px;
   width: 26px;
   height: 26px;
   display: grid;

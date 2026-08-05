@@ -438,6 +438,90 @@
     });
   }
 
+  /* ------------------------------------------------------------ date taken */
+  //
+  // File.lastModified is the file's own timestamp, which is whenever it
+  // reached this device — copied, synced, shared in. The day the photo was
+  // taken lives in its EXIF, so read that and keep lastModified as the
+  // fallback for anything that hasn't got any.
+
+  // "2026:03:12 09:41:07" — no timezone, so it is read as local time, which
+  // is the same reading the camera clock had.
+  function exifStamp(text) {
+    const m = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(text);
+    if (!m) return null;
+    const t = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return Number.isNaN(t.getTime()) ? null : t.getTime();
+  }
+
+  // One IFD, looking only for the tags asked for. Returns them by tag number.
+  function readIFD(v, base, at, little, wanted) {
+    const out = {};
+    if (at + 2 > v.byteLength) return out;
+    const count = v.getUint16(at, little);
+    for (let i = 0; i < count; i++) {
+      const entry = at + 2 + i * 12;
+      if (entry + 12 > v.byteLength) break;
+      const tag = v.getUint16(entry, little);
+      if (!wanted.includes(tag)) continue;
+      const type = v.getUint16(entry + 2, little);
+      const n = v.getUint32(entry + 4, little);
+      if (type === 4) {                       // LONG: an offset to another IFD
+        out[tag] = v.getUint32(entry + 8, little);
+      } else if (type === 2) {                // ASCII
+        const at2 = n > 4 ? base + v.getUint32(entry + 8, little) : entry + 8;
+        let text = '';
+        for (let k = 0; k < n - 1 && at2 + k < v.byteLength; k++) {
+          text += String.fromCharCode(v.getUint8(at2 + k));
+        }
+        out[tag] = text;
+      }
+    }
+    return out;
+  }
+
+  const TAG_DATETIME = 0x0132;          // IFD0, when the file was last written
+  const TAG_EXIF_IFD = 0x8769;
+  const TAG_ORIGINAL = 0x9003;          // when the shutter went
+  const TAG_DIGITIZED = 0x9004;
+
+  async function takenAt(file) {
+    try {
+      // The EXIF block sits at the very front of a JPEG; a slice is enough and
+      // saves reading a 12MP file into memory to find six bytes.
+      const head = await file.slice(0, 128 * 1024).arrayBuffer();
+      const v = new DataView(head);
+      if (v.byteLength < 16 || v.getUint16(0) !== 0xffd8) return null;   // not a JPEG
+
+      let p = 2;
+      while (p + 4 <= v.byteLength) {
+        if (v.getUint8(p) !== 0xff) break;
+        const marker = v.getUint8(p + 1);
+        if (marker === 0xda || marker === 0xd9) break;                   // image data starts
+        const size = v.getUint16(p + 2, false);
+        if (size < 2) break;
+        if (marker === 0xe1 && p + 10 <= v.byteLength
+            && v.getUint32(p + 4, false) === 0x45786966) {               // "Exif"
+          const base = p + 10;                                           // TIFF header
+          const order = v.getUint16(base, false);
+          if (order !== 0x4949 && order !== 0x4d4d) return null;
+          const little = order === 0x4949;
+          const ifd0 = readIFD(v, base, base + v.getUint32(base + 4, little),
+            little, [TAG_DATETIME, TAG_EXIF_IFD]);
+          if (ifd0[TAG_EXIF_IFD]) {
+            const sub = readIFD(v, base, base + ifd0[TAG_EXIF_IFD], little,
+              [TAG_ORIGINAL, TAG_DIGITIZED]);
+            const t = exifStamp(sub[TAG_ORIGINAL] || sub[TAG_DIGITIZED] || '');
+            if (t) return t;
+          }
+          return exifStamp(ifd0[TAG_DATETIME] || '');
+        }
+        p += 2 + size;
+      }
+    } catch { /* unreadable, or not a shape we know */ }
+    return null;
+  }
+
   // Decode once, at a sane size, and keep the ImageBitmap. Every later draw is
   // then a straight blit with no decode behind it, and what we persist is the
   // resized copy rather than the original 12MP file.
@@ -457,9 +541,12 @@
       ? blob
       : await encode(bitmap, 'image/jpeg', 0.92);
 
+    const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
+
     return {
       id: uid(),
       name,
+      taken,
       bitmap,
       w: bitmap.width,
       h: bitmap.height,
@@ -892,6 +979,25 @@
   // is the whole status. Tapping a photo drops it into a tile and leaves the
   // library open, so filling a four-up page is four taps and one close.
 
+  // Which day a photo belongs to, and what to call it. Local midnight, so a
+  // photo taken at 11pm is on that evening's day and not the next one.
+  const dayKey = (t) => {
+    const d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+
+  function dayLabel(key) {
+    const today = dayKey(Date.now());
+    const day = 86400000;
+    if (key === today) return 'Today';
+    if (key === today - day) return 'Yesterday';
+    const d = new Date(key);
+    const opts = { weekday: 'short', day: 'numeric', month: 'long' };
+    // The year only earns its place once it isn't this one.
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString(undefined, opts);
+  }
+
   function renderPhotos() {
     const grid = $('pm-grid');
     grid.innerHTML = '';
@@ -905,7 +1011,33 @@
     $('pm-count').textContent = n || '';
     $('pm-empty').hidden = n > 0;
 
-    state.photos.forEach((photo) => {
+    // Newest first, the way a photo roll reads. Sorted for the view only —
+    // state.photos stays in the order things were imported, which is what the
+    // pages were built from and what the replace reel steps through.
+    const byDay = new Map();
+    [...state.photos]
+      .sort((a, b) => (b.taken || 0) - (a.taken || 0))
+      .forEach((photo) => {
+        const key = dayKey(photo.taken || Date.now());
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key).push(photo);
+      });
+
+    byDay.forEach((photos, key) => {
+      const head = document.createElement('h3');
+      head.className = 'pm-day';
+      head.textContent = dayLabel(key);
+      grid.appendChild(head);
+
+      const row = document.createElement('div');
+      row.className = 'pm-row';
+      grid.appendChild(row);
+      photos.forEach((photo) => addPhotoTile(row, photo));
+    });
+  }
+
+  function addPhotoTile(grid, photo) {
+    {
       const uses = usageCount(photo.id);
       // Built as nodes, not markup: a filename is user text and can hold
       // quotes or angle brackets, which would break out of an attribute.
@@ -943,7 +1075,7 @@
       pick.addEventListener('click', () => placePhoto(photo.id));
       kill.addEventListener('click', () => removePhoto(photo.id));
       grid.appendChild(el);
-    });
+    }
   }
 
   let libraryOpen = false;
@@ -1930,7 +2062,8 @@
   function savePhoto(photo) {
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
-      id: photo.id, name: photo.name, blob: photo.blob, thumb: photo.thumbBlob, w: photo.w, h: photo.h,
+      id: photo.id, name: photo.name, taken: photo.taken,
+      blob: photo.blob, thumb: photo.thumbBlob, w: photo.w, h: photo.h,
     });
   }
 
@@ -2040,6 +2173,9 @@
         const bitmap = await createImageBitmap(row.blob);
         state.photos.push({
           id: row.id, name: row.name, bitmap, w: row.w || bitmap.width, h: row.h || bitmap.height,
+          // Photos stored by an earlier build have no date on them; the file's
+          // own timestamp is long gone by then, so they group under today.
+          taken: row.taken || Date.now(),
           blob: row.blob, thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         });
         persisted.add(row.id);
