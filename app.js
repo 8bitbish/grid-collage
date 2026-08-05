@@ -79,7 +79,7 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05d';
+  const VERSION = '2026.08.05e';
 
   /* --------------------------------------------------------------- state */
 
@@ -306,7 +306,11 @@
         // About the photo's own centre, so the area covered is unchanged and
         // the cover clamp still holds.
         if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
-        g.drawImage(photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        // photo.frame is set only while an export is walking a video's
+        // frames; every other draw uses the poster. Both are things
+        // drawImage already takes, so composing a moving picture is the
+        // same code that composes a still one.
+        g.drawImage(photo.frame || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -580,6 +584,8 @@
     if (head.length < 12) return 'empty';
     const text = (i, n) => String.fromCharCode(...head.slice(i, i + n));
     if (head[0] === 0xff && head[1] === 0xd8) return 'jpeg';
+    // EBML: .webm and .mkv both. Either way it is something that moves.
+    if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return 'video';
     if (text(1, 3) === 'PNG') return 'png';
     if (text(0, 4) === 'RIFF' && text(8, 4) === 'WEBP') return 'webp';
     if (text(0, 3) === 'GIF') return 'gif';
@@ -752,7 +758,9 @@
         : `${name} is HEIC, and it wouldn't decode`;
     }
     if (kind === 'avif') return `${name} is AVIF — this browser can't decode it`;
-    if (kind === 'video') return `${name} is a video, not a photo`;
+    // Video is welcome now, so getting this far means the browser wouldn't
+    // play it — a codec it hasn't got, or a file that isn't really one.
+    if (kind === 'video') return `${name} is a video this browser can't play`;
     if (kind === 'tiff') return `${name} is a TIFF — this browser can't decode it`;
     if (kind === 'unknown') return `${name} isn't an image this browser recognises`;
     const why = err && (err.name === 'NotReadableError' || err.name === 'NotFoundError')
@@ -762,6 +770,8 @@
   }
 
   async function ingest(blob, name) {
+    const kind = await sniffKind(blob);
+    if (kind === 'video') return ingestVideo(blob, name);
     const decoded = await decodeImage(blob);
     const bitmap = MAX_EDGE ? await shrink(decoded, MAX_EDGE) : decoded;
     const resized = bitmap !== decoded;
@@ -783,8 +793,7 @@
     // mean every relaunch and every export ran libheif again, on a file the
     // browser itself still can't read. It goes in as a JPEG once, here, and
     // is an ordinary photo from then on.
-    const foreign = (await sniffKind(blob)) === 'heic';
-    const stored = resized || foreign ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
+    const stored = resized || kind === 'heic' ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
 
     const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
 
@@ -805,6 +814,71 @@
     };
   }
 
+  // A video joins the tray as its first frame. Everything the editor does —
+  // the layout, the crop, the thumbnail, the cover on the homepage — is done
+  // against that still, and it is only at export that the rest of the frames
+  // are read. So placing a video costs exactly what placing a photo costs.
+  async function ingestVideo(blob, name) {
+    const { bitmap, duration } = await posterFrame(blob);
+
+    const thumbBitmap = await shrink(bitmap, THUMB_EDGE);
+    const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.82);
+    if (thumbBitmap !== bitmap) thumbBitmap.close();
+
+    const proxyBitmap = await shrink(bitmap, PROXY_EDGE);
+    const proxyBlob = await encode(proxyBitmap, 'image/jpeg', 0.86);
+    if (proxyBitmap !== bitmap) proxyBitmap.close();
+
+    return {
+      id: uid(),
+      name,
+      kind: 'video',
+      duration,
+      // No EXIF to read; a video's own timestamps are the encoder's, not the
+      // camera's, so the file's date is the honest answer.
+      taken: blob.lastModified || Date.now(),
+      bitmap,
+      // The poster is the whole of what we ever draw, so there is no larger
+      // version waiting to be read.
+      full: true,
+      w: bitmap.width,
+      h: bitmap.height,
+      blob,
+      proxyBlob,
+      thumbUrl: URL.createObjectURL(thumbBlob),
+      thumbBlob,
+    };
+  }
+
+  // Frame one, and how long the whole thing runs. Through a <video> element
+  // rather than the decoder we ship: the browser can already play what it
+  // can play, and this way importing costs no download.
+  function posterFrame(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const v = document.createElement('video');
+      v.preload = 'auto';
+      v.muted = true;
+      v.playsInline = true;
+      const fail = (err) => { URL.revokeObjectURL(url); reject(err || new Error('no frame')); };
+      v.onerror = () => fail();
+      v.onloadeddata = async () => {
+        try {
+          if (!v.videoWidth || !v.videoHeight) { fail(); return; }
+          const c = document.createElement('canvas');
+          c.width = v.videoWidth;
+          c.height = v.videoHeight;
+          c.getContext('2d').drawImage(v, 0, 0);
+          const bitmap = await createImageBitmap(c);
+          const duration = Number.isFinite(v.duration) ? v.duration : 0;
+          URL.revokeObjectURL(url);
+          resolve({ bitmap, duration });
+        } catch (err) { fail(err); }
+      };
+      v.src = url;
+    });
+  }
+
   async function addPhotos(files) {
     // An empty type is not a "no": some pickers hand a file back with no type
     // on it at all, and those were being dropped without a word. Only a type
@@ -813,12 +887,13 @@
     const images = [];
     const skipped = [];
     [...files].forEach((f) => {
-      const refused = f.type && !f.type.startsWith('image/') && !/\.hei[cf]$/i.test(f.name);
+      const refused = f.type && !f.type.startsWith('image/') && !f.type.startsWith('video/')
+        && !/\.hei[cf]$/i.test(f.name);
       (refused ? skipped : images).push(f);
     });
     if (!images.length) {
-      if (skipped.length === 1) toast(`${skipped[0].name} isn't an image`);
-      else if (skipped.length) toast(`None of those ${skipped.length} files are images`);
+      if (skipped.length === 1) toast(`${skipped[0].name} isn't a photo or a video`);
+      else if (skipped.length) toast(`None of those ${skipped.length} files are photos or video`);
       return;
     }
 
@@ -907,7 +982,9 @@
   const loadingFull = new Map();
 
   function ensureFull(photo) {
-    if (!photo || photo.full) return Promise.resolve(false);
+    // A video's "full size" is its poster, which is already in hand — asking
+    // the image decoder for an mp4 would only throw.
+    if (!photo || photo.full || photo.kind === 'video') return Promise.resolve(false);
     if (loadingFull.has(photo.id)) return loadingFull.get(photo.id);
 
     const job = decodeImage(photo.blob).then((bitmap) => {
@@ -1322,6 +1399,12 @@
     return d.toLocaleDateString(undefined, opts);
   }
 
+  // 0:07, 1:23 — the length, in the shape a video player writes it.
+  function clockLabel(seconds) {
+    const whole = Math.max(0, Math.round(seconds));
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+  }
+
   function renderPhotos() {
     const grid = $('pm-grid');
     grid.innerHTML = '';
@@ -1387,6 +1470,15 @@
         badge.className = 'pm-badge';
         badge.textContent = uses;
         el.appendChild(badge);
+      }
+
+      // A poster frame looks exactly like a photo, so a video has to say so.
+      if (photo.kind === 'video') {
+        el.classList.add('is-video');
+        const mark = document.createElement('span');
+        mark.className = 'pm-clip';
+        mark.textContent = clockLabel(photo.duration || 0);
+        el.appendChild(mark);
       }
 
       const kill = document.createElement('button');
@@ -1928,6 +2020,148 @@
 
   const FRAMED = (() => { try { return window.self !== window.top; } catch { return true; } })();
 
+  /* ------------------------------------------------------------ video out */
+  //
+  // A page with a video on it can't be a JPEG. It is composed the same way
+  // every other page is — the same drawPage, the same layout, gap, padding
+  // and background — only once per frame, with each video tile showing the
+  // frame at that moment instead of its poster. The frames go out through
+  // WebCodecs to H.264 and into an mp4.
+  //
+  // Mediabunny does the reading, the muxing and the wrapping of WebCodecs.
+  // It is fetched the first time a video is actually exported and cached by
+  // the service worker after, exactly like the HEIC decoder: a deck of
+  // photos never pays for it.
+
+  const MEDIABUNNY = './vendor/mediabunny.mjs';
+  let mbLib = null;
+
+  function loadMediabunny() {
+    if (!mbLib) mbLib = import(MEDIABUNNY).catch((err) => { mbLib = null; throw err; });
+    return mbLib;
+  }
+
+  const EXPORT_FPS = 30;
+  const MAX_CLIP = 60;                     // a carousel slide tops out here
+
+  const pageVideos = (pg) => photosOn(pg).filter((p) => p.kind === 'video');
+  const hasVideo = (pg) => pageVideos(pg).length > 0;
+
+  // Roughly a tenth of a bit per pixel per frame, which is where H.264 stops
+  // looking like H.264 on flat colour and gradients — this app makes a lot of
+  // both, in the background behind the tiles.
+  const bitrateFor = (w, h) => Math.round(Math.min(24e6, Math.max(2e6, w * h * EXPORT_FPS * 0.1)));
+
+  async function renderVideoPage(pg, onProgress) {
+    const MB = await loadMediabunny();
+    const { w: W, h: H } = outputSize();
+
+    // Each distinct file is opened once, however many tiles are showing it.
+    const sources = new Map();
+    for (const photo of pageVideos(pg)) {
+      if (sources.has(photo.id)) continue;
+      const input = new MB.Input({ source: new MB.BlobSource(photo.blob), formats: MB.ALL_FORMATS });
+      const track = await input.getPrimaryVideoTrack();
+      if (!track) continue;
+      sources.set(photo.id, {
+        input, track, sink: new MB.VideoSampleSink(track),
+        duration: await input.computeDuration(),
+      });
+    }
+    if (!sources.size) return null;
+
+    // Two clips on one page run together and the page lasts as long as the
+    // longer of them; the shorter one holds its last frame.
+    const seconds = Math.min(MAX_CLIP, Math.max(...[...sources.values()].map((s) => s.duration || 0)));
+    const frames = Math.max(1, Math.round(seconds * EXPORT_FPS));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const g = canvas.getContext('2d');
+
+    const target = new MB.BufferTarget();
+    const output = new MB.Output({ format: new MB.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    const videoOut = new MB.CanvasSource(canvas, { codec: 'avc', bitrate: bitrateFor(W, H) });
+    output.addVideoTrack(videoOut, { frameRate: EXPORT_FPS });
+    const audio = await attachAudio(MB, output, sources);
+
+    await output.start();
+    if (audio) await audio.copy();
+
+    // Asked for in order, so each packet is decoded once however many frames
+    // come out of it.
+    const times = Array.from({ length: frames }, (_, i) => i / EXPORT_FPS);
+    const readers = new Map();
+    sources.forEach((src, id) => readers.set(id, src.sink.samplesAtTimestamps(times)));
+
+    try {
+      return await composeFrames(pg, g, W, H, frames, readers, videoOut, output, target, onProgress);
+    } finally {
+      // Whatever happened, nothing is left holding a decoder open or a frame
+      // undrained — abandoning an iterator mid-flight leaves both.
+      for (const reader of readers.values()) { try { await reader.return(); } catch { /* done already */ } }
+      for (const src of sources.values()) { try { await src.input.dispose(); } catch { /* already gone */ } }
+      photosOn(pg).forEach((photo) => { photo.frame = null; });
+    }
+  }
+
+  async function composeFrames(pg, g, W, H, frames, readers, videoOut, output, target, onProgress) {
+    for (let i = 0; i < frames; i += 1) {
+      const open = [];
+      for (const [id, reader] of readers) {
+        const { value: sample } = await reader.next();
+        const photo = photoById(id);
+        if (!sample || !photo) continue;
+        // A frame is something drawImage already takes, so the page composes
+        // itself with no idea that anything is moving.
+        photo.frame = sample.toCanvasImageSource();
+        open.push([photo, sample]);
+      }
+      drawPage(g, pg, W, H);
+      open.forEach(([photo, sample]) => { photo.frame = null; sample.close(); });
+
+      await videoOut.add(i / EXPORT_FPS, 1 / EXPORT_FPS);
+      if (onProgress) onProgress((i + 1) / frames);
+    }
+
+    await output.finalize();
+    return new Blob([target.buffer], { type: 'video/mp4' });
+  }
+
+  // The sound comes across untouched wherever it can: the packets in the
+  // source are already what an mp4 wants, so copying them costs nothing and
+  // loses nothing, where re-encoding would cost both.
+  async function attachAudio(MB, output, sources) {
+    // With more than one clip running at once there is no honest way to pick,
+    // so the one that lasts longest is the one you hear.
+    let pick = null;
+    for (const src of sources.values()) if (!pick || (src.duration || 0) > (pick.duration || 0)) pick = src;
+    if (!pick) return null;
+    try {
+      const track = await pick.input.getPrimaryAudioTrack();
+      if (!track) return null;
+      const codec = await track.getCodec();
+      if (!codec || !output.format.getSupportedCodecs().includes(codec)) return null;
+      const source = new MB.EncodedAudioPacketSource(codec);
+      output.addAudioTrack(source);
+      return {
+        async copy() {
+          const sink = new MB.EncodedPacketSink(track);
+          const meta = { decoderConfig: await track.getDecoderConfig() };
+          let first = true;
+          for await (const packet of sink.packets()) {
+            await source.add(packet, first ? meta : undefined);
+            first = false;
+          }
+        },
+      };
+    } catch {
+      // No sound is a far better answer than no file.
+      return null;
+    }
+  }
+
   async function exportDeck() {
     const filled = state.pages.filter((pg) => pg.cells.some(Boolean));
     if (!filled.length) { toast('Add a photo first'); return; }
@@ -1935,29 +2169,68 @@
     const ext = state.format === 'image/png' ? 'png' : 'jpg';
     const out = outputSize();
     const skipped = state.pages.length - filled.length;
+    const moving = filled.filter(hasVideo).length;
     toast(skipped
       ? `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''} — skipping ${skipped} empty`
       : `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''}…`);
 
+    // A page of video is the one thing here that takes long enough to need
+    // saying so: every frame has to be decoded, composed and encoded again.
+    if (moving) showOpening('Rendering', 'Reading the video…');
+    let failed = 0;
+
     const files = [];
     for (let i = 0; i < filled.length; i++) {
+      const page = filled[i];
+      if (hasVideo(page)) {
+        if (moving) {
+          $('op-name').textContent = filled.length > 1
+            ? `Slide ${i + 1} of ${filled.length}` : 'Rendering';
+        }
+        let clip = null;
+        try {
+          clip = await renderVideoPage(page, (done) => {
+            $('op-fill').style.width = `${Math.round(done * 100)}%`;
+            $('op-step').textContent = `${Math.round(done * 100)}% of this slide`;
+          });
+        } catch (err) {
+          console.warn('Video export failed', { page: i + 1, error: err });
+        }
+        if (clip) {
+          files.push(new File([clip], `${String(i + 1).padStart(2, '0')}.mp4`, { type: 'video/mp4' }));
+          continue;
+        }
+        // Rather than drop the slide, send the frame it opens on. A carousel
+        // missing its third slide is worse than one whose third slide is a
+        // still, and it is obvious which happened.
+        failed += 1;
+      }
       // Never export a proxy. Whatever is on screen, the file that comes out
       // is rendered from the photo as it arrived.
-      await Promise.all(photosOn(filled[i]).map(ensureFull));
-      const blob = await renderToBlob(filled[i], state.format);
+      await Promise.all(photosOn(page).map(ensureFull));
+      const blob = await renderToBlob(page, state.format);
       if (!blob) continue;
       // Instagram imports by filename, so the order has to be in the name.
       files.push(new File([blob], `${String(i + 1).padStart(2, '0')}.${ext}`, { type: state.format }));
     }
+    if (moving) hideOpening();
     if (!files.length) { toast("Couldn't render the pages"); return; }
+
+    // Said at the end rather than here. Everything below toasts something
+    // routine on its way out, and a routine message replacing this one is
+    // how you would come to post a still where you meant a video.
+    const warn = failed
+      ? () => toast(`${failed} video slide${failed > 1 ? 's' : ''} wouldn't render — sent as stills`)
+      : null;
 
     // Share sheet takes the whole carousel at once and lands it in Photos.
     if (navigator.canShare && navigator.canShare({ files })) {
       try {
         await navigator.share({ files, title: 'Carousel' });
+        if (warn) warn();
         return;
       } catch (err) {
-        if (err.name === 'AbortError') return;
+        if (err.name === 'AbortError') { if (warn) warn(); return; }
       }
     }
 
@@ -1965,7 +2238,8 @@
       // Downloads are blocked in an embedded frame; offer the current page.
       const url = URL.createObjectURL(files[Math.min(state.current, files.length - 1)]);
       openSheet(url, files[0].name, `${out.w}×${out.h}`, ext.toUpperCase());
-      toast('Embedded preview can only save one page at a time');
+      toast(warn ? '' : 'Embedded preview can only save one page at a time');
+      if (warn) warn();
       return;
     }
 
@@ -1983,7 +2257,8 @@
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       }, i * 250);
     });
-    toast(`Saving ${files.length} page${files.length > 1 ? 's' : ''} as ${out.w}×${out.h} ${ext.toUpperCase()}`);
+    if (warn) warn();
+    else toast(`Saving ${files.length} page${files.length > 1 ? 's' : ''} as ${out.w}×${out.h} ${ext.toUpperCase()}`);
   }
 
   function openSheet(url, name, size, ext) {
@@ -2449,6 +2724,7 @@
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
       id: photo.id, project: current.id, name: photo.name, taken: photo.taken,
+      kind: photo.kind || 'photo', duration: photo.duration || 0,
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
       proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
       w: photo.w, h: photo.h,
@@ -2822,7 +3098,11 @@
           // w/h are the real photo's, not the proxy's — the cover maths works
           // in the photo's own proportions and must not change when the full
           // one swaps in.
-          full: !row.proxy,
+          kind: row.kind === 'video' ? 'video' : 'photo',
+          duration: row.duration || 0,
+          // A restored video is drawn from its poster, which is all we ever
+          // draw, so it is never waiting on anything.
+          full: row.kind === 'video' ? true : !row.proxy,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
