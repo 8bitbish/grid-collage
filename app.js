@@ -592,7 +592,49 @@
     try {
       return await createImageBitmap(blob);
     } catch (strict) {
-      return decodeVia(blob, strict);
+      const lenient = await decodeVia(blob, strict).catch(() => null);
+      if (lenient) return lenient;
+
+      const kind = await sniffKind(blob);
+      const platform = await decodeViaCodec(blob, kind);
+      if (platform) return platform;
+
+      // Last, and only for a file that genuinely is one: this is a megabyte
+      // of decoder and it must never be fetched on a hunch.
+      if (kind === 'heic') {
+        if (!heifLib) toast('Reading HEIC — fetching the decoder, just this once');
+        return decodeHeif(blob);
+      }
+      throw strict;
+    }
+  }
+
+  // The last door, and the only one that can open on a HEIC. Chrome doesn't
+  // ship an HEVC image decoder — patents — so <img> will never take one. But
+  // WebCodecs can reach the decoders the device itself has, and a phone that
+  // shoots HEIC has one in hardware. It costs a feature test to ask, which is
+  // a great deal cheaper than shipping a decoder of our own.
+  const CODEC_MIME = {
+    heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
+    jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+  };
+
+  async function decodeViaCodec(blob, kind) {
+    if (!window.ImageDecoder) return null;
+    const type = CODEC_MIME[kind];
+    if (!type) return null;
+    let decoder = null;
+    try {
+      if (ImageDecoder.isTypeSupported && !(await ImageDecoder.isTypeSupported(type))) return null;
+      decoder = new ImageDecoder({ data: await blob.arrayBuffer(), type });
+      const { image } = await decoder.decode();
+      const bitmap = await createImageBitmap(image);
+      image.close();
+      return bitmap;
+    } catch {
+      return null;
+    } finally {
+      try { if (decoder) decoder.close(); } catch { /* already gone */ }
     }
   }
 
@@ -619,6 +661,70 @@
     });
   }
 
+  /* ------------------------------------------------------------------ HEIC */
+  //
+  // Chrome has no HEIC decoder and is not getting one — the HEVC patents are
+  // the whole reason. Phones shoot HEIC regardless, and a photo that opens
+  // fine in the gallery has no business being refused here, so the app
+  // carries its own: libheif built to WebAssembly, in vendor/.
+  //
+  // It is fetched the first time a HEIC actually turns up, and the service
+  // worker keeps it from then on — it is a plain same-origin GET, so the
+  // stale-while-revalidate branch caches it without being told to. A library
+  // of nothing but JPEGs never pays a byte for it.
+
+  const HEIF_GLUE = './vendor/libheif.js';
+  const HEIF_WASM = './vendor/libheif.wasm';
+  let heifLib = null;
+
+  function loadHeif() {
+    if (heifLib) return heifLib;
+    heifLib = (async () => {
+      if (!window.libheif) {
+        await new Promise((resolve, reject) => {
+          const tag = document.createElement('script');
+          tag.src = HEIF_GLUE;
+          tag.onload = resolve;
+          tag.onerror = () => reject(new Error('offline'));
+          document.head.appendChild(tag);
+        });
+      }
+      if (!window.libheif) throw new Error('offline');
+      // This build wants the binary handed to it rather than fetching it
+      // itself, which suits us: the fetch is the slow part and it belongs
+      // where we can say something about it.
+      const res = await fetch(HEIF_WASM);
+      if (!res.ok) throw new Error('offline');
+      return window.libheif({ wasmBinary: new Uint8Array(await res.arrayBuffer()) });
+    })().catch((err) => { heifLib = null; throw err; });
+    return heifLib;
+  }
+
+  async function decodeHeif(blob) {
+    const lib = await loadHeif();
+    const images = new lib.HeifDecoder().decode(new Uint8Array(await blob.arrayBuffer()));
+    if (!images || !images.length) throw new Error('nothing inside it');
+    const image = images[0];
+    const w = image.get_width();
+    const h = image.get_height();
+    try {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      const pixels = g.createImageData(w, h);
+      await new Promise((resolve, reject) => {
+        image.display(pixels, (out) => (out ? resolve(out) : reject(new Error('it would not decode'))));
+      });
+      g.putImageData(pixels, 0, 0);
+      return await createImageBitmap(c);
+    } finally {
+      // Those pixels sit on the wasm heap until this is called, and a phone
+      // photo is twelve megapixels of them.
+      images.forEach((im) => { try { if (im.free) im.free(); } catch { /* older build */ } });
+    }
+  }
+
   // Said in terms of what is wrong with the file, not what our decoder did.
   function whyNot(file, kind, err) {
     const name = file.name || 'That photo';
@@ -628,7 +734,13 @@
     if (kind === 'unreadable') {
       return `${name} couldn't be read off the device — if it lives in the cloud, download it first`;
     }
-    if (kind === 'heic') return `${name} is HEIC inside, whatever it is called — this browser can't decode it`;
+    // HEIC is no longer a dead end, so a failure here is about the decoder,
+    // not about the format.
+    if (kind === 'heic') {
+      return String(err && err.message) === 'offline'
+        ? `${name} is HEIC — the decoder for it needs a connection the first time`
+        : `${name} is HEIC, and it wouldn't decode`;
+    }
     if (kind === 'avif') return `${name} is AVIF — this browser can't decode it`;
     if (kind === 'video') return `${name} is a video, not a photo`;
     if (kind === 'tiff') return `${name} is a TIFF — this browser can't decode it`;
@@ -656,7 +768,13 @@
     // Only re-encode when we actually changed the pixels. Untouched, the file
     // is persisted exactly as it arrived — no second pass through a lossy
     // encoder, whatever format it came in.
-    const stored = resized ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
+    //
+    // A HEIC is the exception, and it has to be: keeping the original would
+    // mean every relaunch and every export ran libheif again, on a file the
+    // browser itself still can't read. It goes in as a JPEG once, here, and
+    // is an ordinary photo from then on.
+    const foreign = (await sniffKind(blob)) === 'heic';
+    const stored = resized || foreign ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
 
     const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
 
