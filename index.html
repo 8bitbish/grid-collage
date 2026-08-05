@@ -234,6 +234,15 @@
   </nav>
 </main>
 
+<div class="update-toast" id="update-toast" role="status" aria-live="polite" hidden>
+  <div class="ut-text">
+    <strong>Update available</strong>
+    <span>Reload to get the newest version</span>
+  </div>
+  <button class="btn btn-ghost btn-sm" id="ut-later" type="button">Later</button>
+  <button class="btn btn-primary btn-sm" id="ut-now" type="button">Update</button>
+</div>
+
 <input type="file" id="file-input" accept="image/*" multiple hidden>
 
 <!-- ------------------------------------------------------ the photo library -->

@@ -21,13 +21,45 @@ const SHELL = [
   './icons/icon-maskable-512.png',
 ];
 
+// The files whose contents are the app itself. A change to any of them is an
+// update worth telling someone about; a new icon is not.
+const CORE = ['/app.js', '/styles.css', '/index.html', '/'];
+
+// Deliberately no skipWaiting here. A worker that takes over mid-session
+// swaps the cached files under a page still running the old ones, which is
+// how you end up with a shell that only updates if you close the app. It
+// waits instead, and the page decides when to let it in.
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
 });
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'skip-waiting') self.skipWaiting();
+});
+
+// Whether two responses are the same file. GitHub Pages sends an ETag; the
+// other two are there for hosts that don't.
+function stamp(res) {
+  if (!res) return '';
+  return res.headers.get('etag')
+    || res.headers.get('last-modified')
+    || res.headers.get('content-length')
+    || '';
+}
+
+const isCore = (url) => {
+  const p = new URL(url).pathname;
+  return CORE.some((c) => p.endsWith(c));
+};
+
+async function announceUpdate() {
+  // Said as often as it is found, with no guard here. One load finding both
+  // app.js and the stylesheet changed announces twice, and the page shows one
+  // toast either way — whereas anything remembered on this side outlives the
+  // load and swallows the next deploy. A worker lives far longer than a page.
+  const windows = await self.clients.matchAll({ type: 'window' });
+  windows.forEach((c) => c.postMessage({ type: 'update-ready' }));
+}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -122,7 +154,13 @@ self.addEventListener('fetch', (event) => {
 
       const fresh = fetch(request).then((response) => {
         if (response.ok && new URL(request.url).origin === self.location.origin) {
+          // The page is already running the copy in `hit`. If what just came
+          // back is a different file, the page it is running is out of date —
+          // this is the moment to say so, rather than leaving it to be
+          // noticed the next time the app is opened from cold.
+          const changed = hit && stamp(hit) && stamp(hit) !== stamp(response);
           cache.put(request, response.clone());
+          if (changed && isCore(request.url)) announceUpdate();
         }
         return response;
       }).catch(() => null);
