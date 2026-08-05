@@ -79,7 +79,7 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05b';
+  const VERSION = '2026.08.05c';
 
   /* --------------------------------------------------------------- state */
 
@@ -2664,9 +2664,17 @@
       }
     }
 
-    projects.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    // Newest made, first — not most recently touched. Sorting by the edit
+    // meant the grid rearranged itself behind you: open a carousel to look
+    // at it and it jumped to the front, so nothing was ever where you left
+    // it. When it was made never changes, so neither does the order.
+    sortProjects();
     saveProjects();
   }
+
+  const sortProjects = () => projects.sort(
+    (a, b) => (b.created || b.updated || 0) - (a.created || a.updated || 0),
+  );
 
   function nextName() {
     const used = new Set(projects.map((p) => p.name));
@@ -3642,6 +3650,10 @@
   // happens behind it: the one-off move of a pre-projects deck, the cover
   // thumbnails, and anything that arrived through the share sheet.
   projects = loadProjects();
+  // The stored list was written in whatever order the build that saved it
+  // used, so put it in this one before it is drawn rather than waiting for
+  // the next edit to correct it.
+  sortProjects();
   // Set here as well as in the markup: embedded, the page is wrapped in a
   // <body> that isn't ours, so the class in index.html never arrives.
   document.body.classList.add('on-home');
