@@ -173,37 +173,24 @@ input, textarea, .val, #bg-hex {
 .photos-btn.is-empty .photos-count { background: var(--accent); color: #fff; }
 .photos-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
 
-/* While a page is being dragged, both ends fold away and hand their width to
+/* While a page is being dragged, both ends step out and hand their width to
    the strip: more room to move the page around, and less chance of dropping
-   it on a button. max-width rather than width, because neither has one to
-   animate from — they are sized by their contents. */
-.photos-btn,
-.pagesbar-end {
-  max-width: 200px;
-  overflow: hidden;
-  transition: max-width 180ms cubic-bezier(0.3, 0, 0.2, 1),
-              opacity 140ms, padding 180ms;
-}
+   it on a button.
+
+   They go in one frame, deliberately. Animating them means the strip's
+   padding — which is what holds the pages still, below — has to track the
+   collapsing width exactly, and it can't: a max-width easing from 200 to 0
+   spends its first third above the button's natural 67px doing nothing
+   visible, while the padding eases the whole way. The pages drift for the
+   length of the animation. Switching both at once, the drift is a frame. */
 .pagesbar.is-reordering .photos-btn,
-.pagesbar.is-reordering .pagesbar-end {
-  max-width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  opacity: 0;
-  border-width: 0;
-  pointer-events: none;
-}
+.pagesbar.is-reordering .pagesbar-end { display: none; }
+
 /* The strip takes on the width the left end gave up, so the pages hold their
    place on screen while the space around them opens. --fold-left is measured
    in JS at the moment the drag starts. */
 .pagesbar.is-reordering .filmstrip {
   padding-left: calc(12px + var(--fold-left, 0px));
-}
-.filmstrip {
-  transition: padding-left 180ms cubic-bezier(0.3, 0, 0.2, 1);
-}
-@media (prefers-reduced-motion: reduce) {
-  .filmstrip { transition: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .photos-btn,
