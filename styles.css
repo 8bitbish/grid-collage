@@ -134,6 +134,44 @@ input, textarea, .val, #bg-hex {
 .photos-btn.is-empty .photos-count { background: var(--accent); color: #fff; }
 .photos-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
 
+/* Undo and redo bracket the pages from the right, where the work they undo
+   is. Pinned like the library button, so the strip between them still
+   scrolls the full length of the deck. */
+.pagesbar-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid var(--line);
+}
+.pb-btn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pb-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pb-btn:not(:disabled) { color: var(--text); }
+.pb-btn:disabled { opacity: 0.3; cursor: default; }
+@media (hover: hover) {
+  .pb-btn:hover:not(:disabled) { background: var(--surface-2); }
+}
+
 /* ----------------------------------------------------- the photo library */
 .photos-modal {
   position: fixed;
@@ -363,6 +401,39 @@ input, textarea, .val, #bg-hex {
   cursor: pointer;
 }
 
+/* Delete this page, in the page's own top-right corner. Placed by JS against
+   the canvas rather than the stage: the canvas is centred by constraint and
+   its corner moves with the deck's shape, so a CSS inset on the stage would
+   leave it floating out in the surround at anything but 1:1. */
+.page-x {
+  position: absolute;
+  z-index: 6;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(13, 13, 16, 0.66);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+}
+.page-x svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+.page-x[hidden] { display: none; }
+@media (hover: hover) {
+  .page-x:hover { background: var(--accent); border-color: var(--accent); }
+}
+
 .dropzone {
   position: fixed;
   inset: 10px;
@@ -438,6 +509,7 @@ input, textarea, .val, #bg-hex {
 .dock-back,
 .film-add,
 .photos-btn,
+.pb-btn,
 .pm-close,
 .pm-pick,
 .layout-btn,
@@ -449,6 +521,8 @@ input, textarea, .val, #bg-hex {
 .dock-back:active,
 .film-add:active:not(:disabled),
 .photos-btn:active,
+.pb-btn:active:not(:disabled),
+.page-x:active,
 .pm-close:active,
 .pm-pick:active,
 .pm-x:active,
@@ -464,6 +538,8 @@ input, textarea, .val, #bg-hex {
 .dock-back:active { background: #2f2f3c; transform: scale(0.92); }
 .film-add:active:not(:disabled) { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
 .photos-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.93); }
+.pb-btn:active:not(:disabled) { background: var(--surface-2); transform: scale(0.9); }
+.page-x:active { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(0.9); }
 .pm-close:active { background: #2f2f3c; transform: scale(0.92); }
 .pm-pick:active { transform: scale(0.94); filter: brightness(1.25); }
 .pm-x:active { transform: scale(0.88); }
@@ -1010,6 +1086,9 @@ input[type="range"]::-moz-range-thumb {
   .film { transition: none; }
 }
 
+/* Delete this page. Small, because the tile it sits on is small — at 9:16 the
+   page is only 30px across — but it keeps a 28px touch target through the
+   padding, which overhangs the corner where there is nothing else to hit. */
 /* A shadow alone disappears against a white page, so the number carries its
    own dark chip. */
 .film-num {

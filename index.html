@@ -22,8 +22,6 @@
     <span class="brand-name">Grid Collage</span>
   </div>
   <div class="topbar-actions">
-    <button id="btn-undo" class="btn btn-ghost btn-icon" type="button" title="Undo" aria-label="Undo" disabled>&#8630;</button>
-    <button id="btn-redo" class="btn btn-ghost btn-icon" type="button" title="Redo" aria-label="Redo" disabled>&#8631;</button>
     <button id="btn-install" class="btn btn-ghost" type="button" hidden>Install</button>
     <button id="btn-export" class="btn btn-primary" type="button">Export</button>
   </div>
@@ -39,6 +37,14 @@
       <span class="photos-count" id="photos-count">0</span>
     </button>
     <div class="filmstrip" id="filmstrip"></div>
+    <div class="pagesbar-end">
+      <button id="btn-undo" class="pb-btn" type="button" title="Undo" aria-label="Undo" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10a5 5 0 0 1 0 10H8"/><path d="M8 4L4 8l4 4"/></svg>
+      </button>
+      <button id="btn-redo" class="pb-btn" type="button" title="Redo" aria-label="Redo" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8H10a5 5 0 0 0 0 10h6"/><path d="M16 4l4 4-4 4"/></svg>
+      </button>
+    </div>
   </div>
 
   <!-- ------------------------------------------------------------- preview -->
@@ -55,6 +61,9 @@
         <canvas id="canvas" width="1080" height="1080" aria-label="Current page"></canvas>
         <canvas class="peek" id="canvas-next" aria-hidden="true"></canvas>
       </div>
+      <button class="page-x" id="btn-page-x" type="button" aria-label="Delete this page" title="Delete this page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </section>

@@ -293,6 +293,29 @@
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
     page().rev = (page().rev || 0) + 1;
+    placePageX();
+  }
+
+  // The delete-page button rides the top-right corner of the page itself. The
+  // canvas is sized by constraint and centred, so where that corner lands
+  // depends on the deck's shape and the space available — it has to be
+  // measured, not expressed as an inset.
+  function placePageX() {
+    const btn = $('btn-page-x');
+    if (!btn) return;
+    // Out of the way while a tile is selected: the dock is showing that tile's
+    // own Delete, and two crosses meaning different things is one too many.
+    // Out of the way mid-slide too, or it hangs over a page that's leaving.
+    const hide = state.selected !== -1 || sliding || !state.photos.length;
+    btn.hidden = hide;
+    if (hide) return;
+
+    const wrap = $('canvas-wrap').getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+    const inset = 8;
+    btn.style.left = `${rect.right - wrap.left - btn.offsetWidth - inset}px`;
+    btn.style.top = `${rect.top - wrap.top + inset}px`;
   }
 
   function roundedPath(g, r, radius) {
@@ -1015,6 +1038,7 @@
 
     preparePeek();
     sliding = true;
+    placePageX();
     buzz('turn');
     // Straight away, not when the slide lands: state.current can't move until
     // the animation finishes (the render reads it), but the strip is showing
@@ -2163,6 +2187,7 @@
   // the same tick — the grid scrolls, so the same tap test applies.
   buzzTaps($('photos-modal'));
   buzzTaps($('btn-photos'));
+  buzzTaps(document.querySelector('.pagesbar-end'));
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
@@ -2212,6 +2237,7 @@
   });
 
   $('btn-export').addEventListener('click', exportDeck);
+  $('btn-page-x').addEventListener('click', () => { buzz('drop'); deletePage(state.current); });
   $('btn-photos').addEventListener('click', openLibrary);
   $('pm-close').addEventListener('click', closeLibrary);
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
