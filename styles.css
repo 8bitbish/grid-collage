@@ -156,6 +156,31 @@ body.on-home .app { display: none; }
   text-overflow: ellipsis;
 }
 
+/* Only up while a share is waiting to be placed. It sits between the header
+   and the grid because the grid is the answer to it. */
+.sharebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, rgba(255, 77, 141, 0.16), rgba(255, 182, 72, 0.08)),
+    var(--surface);
+}
+.sharebar span {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sharebar .btn { flex: none; }
+#share-drop { color: var(--muted); }
+
 .home-body {
   flex: 1;
   min-height: 0;
@@ -221,6 +246,18 @@ body.on-home .app { display: none; }
 .tile.is-holding .brand-mark { transform: scale(1.08); }
 .tile img,
 .tile .brand-mark { transition: transform 160ms ease-out; }
+
+/* While a share is waiting, every tile is a target — so every tile says so,
+   rather than leaving the bar above to be taken on trust. */
+body.is-picking .tile { cursor: copy; }
+body.is-picking .tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  opacity: 0.5;
+  pointer-events: none;
+}
 
 .home-hint {
   margin: 16px auto 0;

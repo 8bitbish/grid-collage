@@ -48,6 +48,13 @@
       <span aria-hidden="true">+</span> New
     </button>
   </header>
+  <!-- Photos arrived through the share sheet and there is more than one place
+       they could go. The grid becomes the chooser: tap the one you meant. -->
+  <div class="sharebar" id="sharebar" hidden>
+    <span id="share-count">Add photos to…</span>
+    <button class="btn btn-ghost btn-sm" id="share-new" type="button">New carousel</button>
+    <button class="btn btn-ghost btn-sm" id="share-drop" type="button">Discard</button>
+  </div>
   <div class="home-body" id="home-body">
     <div class="home-grid" id="home-grid"></div>
     <div class="home-empty" id="home-empty" hidden>

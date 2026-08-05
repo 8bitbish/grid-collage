@@ -2699,6 +2699,8 @@
 
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+  const HOME_HINT = 'Press and hold a carousel for its details';
+
   function renderHome() {
     const grid = $('home-grid');
     grid.innerHTML = '';
@@ -2769,7 +2771,8 @@
     };
 
     tile.addEventListener('pointerdown', (e) => {
-      if (e.button > 0) return;
+      // While a share is waiting, a tile means one thing only: put them here.
+      if (e.button > 0 || pendingShare) return;
       held = false;
       from = { x: e.clientX, y: e.clientY };
       tile.classList.add('is-holding');
@@ -2791,12 +2794,14 @@
       // The hold already answered this press; the click that follows it is
       // the same finger and must not also open the project.
       if (held) { held = false; e.preventDefault(); return; }
+      if (pendingShare) { placeSharedIn(rec); return; }
       openProject(rec);
     });
     // A right-click is the same intent on a desktop, and stops the browser's
     // own menu covering the sheet on a long press.
     tile.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      if (pendingShare) return;
       stop();
       held = true;
       openDetail(rec);
@@ -2815,6 +2820,56 @@
       el.prepend(img);
     });
   }
+
+  /* --------------------------------------------- placing what was shared in */
+  //
+  // Photos came in through the share sheet with the app on the homepage, and
+  // there is more than one carousel they could belong to. Rather than pick
+  // one, the grid turns into the chooser: the bar says what is waiting and
+  // every tile becomes a target. The hold is off while it is up — one tap,
+  // one meaning.
+
+  let pendingShare = null;
+
+  function beginSharePick(files) {
+    pendingShare = files;
+    $('share-count').textContent = `Add ${plural(files.length, 'photo')} to…`;
+    $('sharebar').hidden = false;
+    $('home-hint').textContent = 'Tap a carousel to add them, or start a new one';
+    document.body.classList.add('is-picking');
+  }
+
+  function endSharePick() {
+    pendingShare = null;
+    $('sharebar').hidden = true;
+    $('home-hint').textContent = HOME_HINT;
+    document.body.classList.remove('is-picking');
+  }
+
+  async function placeSharedIn(rec) {
+    const files = pendingShare;
+    endSharePick();
+    if (!files || !rec) return;
+    await openProject(rec);
+    // The toast lives in the editor, which is now on screen, so it lands.
+    if (!current) return;
+    toast(`${plural(files.length, 'photo')} shared in`);
+    await addPhotos(files);
+  }
+
+  $('share-new').addEventListener('click', () => placeSharedIn(createProject()));
+  $('share-drop').addEventListener('click', () => {
+    // It says Discard rather than Cancel because that is what it does: the
+    // files have already been taken out of the share inbox, so backing out
+    // here is the end of them.
+    const n = pendingShare ? pendingShare.length : 0;
+    endSharePick();
+    if (!n) return;
+    // The toast lives in the editor's stage, which isn't laid out here, so
+    // the header line says it instead and puts itself back.
+    $('home-sub').textContent = `${plural(n, 'shared photo')} discarded`;
+    setTimeout(renderHome, 2600);
+  });
 
   /* --------------------------------------------------------- press and hold */
 
@@ -3124,14 +3179,26 @@
       return;
     }
 
-    // Sharing into the app is an instruction to put the photos somewhere, so
-    // it can't stop at the homepage: they go into whichever project was
-    // touched last, or into a new one if there isn't a project yet.
-    if (!current) await openProject(projects[0] || createProject());
-    if (!current) return;
-
-    toast(`${files.length} photo${files.length > 1 ? 's' : ''} shared in`);
-    await addPhotos(files);
+    // Already in a project: that's the one you were working in, and it is the
+    // only sensible answer — so no question gets asked.
+    if (current) {
+      toast(`${plural(files.length, 'photo')} shared in`);
+      await addPhotos(files);
+      return;
+    }
+    // Nothing to choose between: make the one project there could be.
+    if (!projects.length) {
+      await openProject(createProject());
+      if (!current) return;
+      toast(`${plural(files.length, 'photo')} shared in`);
+      await addPhotos(files);
+      return;
+    }
+    // Otherwise the grid becomes the chooser. Guessing here was the one thing
+    // the share flow got wrong: opening a project to look at it counts as
+    // touching it, so "the last one you edited" could be a carousel you never
+    // changed — and the photos would land there without a word.
+    beginSharePick(files);
   }
 
   // Without this the browser may evict the deck under storage pressure.
@@ -3257,8 +3324,10 @@
   $('btn-export').addEventListener('click', exportDeck);
   $('btn-page-x').addEventListener('click', () => { buzz('drop'); deletePage(state.current); });
   $('btn-home').addEventListener('click', goHome);
-  $('btn-new').addEventListener('click', () => openProject(createProject()));
-  $('home-first').addEventListener('click', () => openProject(createProject()));
+  // New means "a new one for these" while a share is waiting to be placed.
+  const startNew = () => (pendingShare ? placeSharedIn(createProject()) : openProject(createProject()));
+  $('btn-new').addEventListener('click', startNew);
+  $('home-first').addEventListener('click', startNew);
   $('btn-photos').addEventListener('click', openLibrary);
   $('pm-close').addEventListener('click', closeLibrary);
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
