@@ -79,7 +79,7 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05c';
+  const VERSION = '2026.08.05d';
 
   /* --------------------------------------------------------------- state */
 
@@ -2672,9 +2672,26 @@
     saveProjects();
   }
 
-  const sortProjects = () => projects.sort(
-    (a, b) => (b.created || b.updated || 0) - (a.created || a.updated || 0),
-  );
+  // Until a tile has been dragged, the order is the date each was made.
+  // After that the stored array is the order and nothing re-sorts it — you
+  // have said where things go, and having the grid quietly put them back
+  // would be worse than never having let you move them. New projects are
+  // unshifted to the front either way, so making one always puts it where
+  // you are looking.
+  const ORDER_KEY = 'grid-collage:custom-order';
+  let customOrder = false;
+  try { customOrder = localStorage.getItem(ORDER_KEY) === '1'; } catch { /* private mode */ }
+
+  function setCustomOrder() {
+    if (customOrder) return;
+    customOrder = true;
+    try { localStorage.setItem(ORDER_KEY, '1'); } catch { /* private mode */ }
+  }
+
+  function sortProjects() {
+    if (customOrder) return;
+    projects.sort((a, b) => (b.created || b.updated || 0) - (a.created || a.updated || 0));
+  }
 
   function nextName() {
     const used = new Set(projects.map((p) => p.name));
@@ -3002,52 +3019,235 @@
   const HOLD_MS = 450;
 
   function armHold(tile, rec) {
-    let timer = 0;
-    let from = null;
-    let held = false;
-
-    const stop = () => {
-      clearTimeout(timer);
-      from = null;
-      tile.classList.remove('is-holding');
-    };
+    let lastPointer = 'mouse';
 
     tile.addEventListener('pointerdown', (e) => {
+      lastPointer = e.pointerType || 'mouse';
       // While a share is waiting, a tile means one thing only: put them here.
-      if (e.button > 0 || pendingShare) return;
-      held = false;
-      from = { x: e.clientX, y: e.clientY };
+      // That path goes through click, below.
+      if (e.button > 0 || pendingShare || gridDrag) return;
+
+      const from = { x: e.clientX, y: e.clientY };
+      let lifted = false;
+
       tile.classList.add('is-holding');
-      timer = setTimeout(() => {
-        held = true;
-        stop();
-        buzz('pick');
-        openDetail(rec);
+      const timer = setTimeout(() => {
+        lifted = true;
+        tile.classList.remove('is-holding');
+        beginGridDrag(tile, from.x, from.y);
       }, HOLD_MS);
+
+      // On window, not on the tile: once it is in your hand the pointer
+      // spends most of the drag over other tiles, and the release can land
+      // anywhere at all.
+      const move = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        if (lifted) { ev.preventDefault(); moveGridDrag(ev.clientX, ev.clientY); return; }
+        // Moved before the hold landed — that was a scroll, not a press.
+        if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) > 10) { clearTimeout(timer); done(); }
+      };
+
+      const up = (ev) => {
+        clearTimeout(timer);
+        if (lifted) {
+          // Held and let go without going anywhere: that was a question
+          // about the tile, not an instruction to move it.
+          const asked = !(gridDrag && gridDrag.moved);
+          endGridDrag();
+          if (asked) openDetail(rec);
+        } else if (ev.type === 'pointerup'
+            && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 10) {
+          openProject(rec);
+        }
+        done();
+      };
+
+      const done = () => {
+        tile.classList.remove('is-holding');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+
+      window.addEventListener('pointermove', move, { passive: false });
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
-    tile.addEventListener('pointermove', (e) => {
-      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 10) stop();
-    });
-    tile.addEventListener('pointerup', stop);
-    tile.addEventListener('pointercancel', stop);
-    tile.addEventListener('pointerleave', stop);
 
     tile.addEventListener('click', (e) => {
-      // The hold already answered this press; the click that follows it is
-      // the same finger and must not also open the project.
-      if (held) { held = false; e.preventDefault(); return; }
       if (pendingShare) { placeSharedIn(rec); return; }
-      openProject(rec);
+      // A pointer tap was already answered on pointerup, where it could be
+      // told apart from a hold. What is left is the keyboard, which fires a
+      // click with no clicks behind it.
+      if (e.detail === 0) openProject(rec);
     });
-    // A right-click is the same intent on a desktop, and stops the browser's
-    // own menu covering the sheet on a long press.
+
     tile.addEventListener('contextmenu', (e) => {
+      // Always swallowed: on Android this is the system's own long-press
+      // menu trying to open over the drag.
       e.preventDefault();
-      if (pendingShare) return;
-      stop();
-      held = true;
+      // A right-click is a fair shortcut to the details. A touch long-press
+      // is not — that one is already the hold, and answering it here would
+      // open the sheet on top of a tile you had just picked up.
+      if (lastPointer === 'touch' || pendingShare || gridDrag) return;
       openDetail(rec);
     });
+  }
+
+  /* ------------------------------------------------- rearranging the grid */
+  //
+  // Three things one tile has to tell apart. A tap opens it. A hold and
+  // release says what it is. A hold and drag moves it. The hold is the fork:
+  // once it fires the tile is in your hand, and what happens next is decided
+  // by whether you go anywhere — which is the same bargain the filmstrip
+  // strikes with pages, so the two feel like one app.
+
+  const GRID_LIFT_MS = 170;
+  const GRID_EDGE = 64;          // how close to an end starts the scroll
+  const GRID_EDGE_SPEED = 14;    // pixels a frame at the very edge
+  let gridDrag = null;
+
+  // Once a page has been picked up the browser must not also scroll the grid
+  // with the same finger. touch-action can't be changed mid-gesture, but
+  // cancelling the moves after the hold stops the scroll before it starts.
+  const blockGridScroll = (e) => { if (gridDrag) e.preventDefault(); };
+
+  function beginGridDrag(tile, x, y) {
+    const grid = $('home-grid');
+    const body = $('home-body');
+    const items = [...grid.querySelectorAll('.tile')];
+    const index = items.indexOf(tile);
+    if (index === -1) return;
+
+    // A long press would otherwise start a selection, and the selection takes
+    // the pointer stream with it.
+    const sel = window.getSelection && window.getSelection();
+    if (sel && sel.removeAllRanges) sel.removeAllRanges();
+    document.addEventListener('touchmove', blockGridScroll, { passive: false });
+    buzz('pick');
+
+    // Every cell is the same size, so one step across and one step down
+    // describe the whole grid. Measured now, before anything has moved.
+    const rects = items.map((it) => it.getBoundingClientRect());
+    let cols = 1;
+    while (cols < rects.length && Math.abs(rects[cols].top - rects[0].top) < 2) cols += 1;
+    const stepX = cols > 1 ? rects[1].left - rects[0].left : rects[0].width + 2;
+    const stepY = rects.length > cols ? rects[cols].top - rects[0].top : rects[0].height + 2;
+
+    gridDrag = {
+      tile, index, target: index, items, cols, stepX, stepY, body,
+      startX: x, startY: y, x, y, moved: false,
+      originX: rects[0].left + rects[0].width / 2,
+      originY: rects[0].top + rects[0].height / 2,
+      homeX: rects[index].left + rects[index].width / 2,
+      homeY: rects[index].top + rects[index].height / 2,
+      startScroll: body.scrollTop,
+      maxScroll: Math.max(0, body.scrollHeight - body.clientHeight),
+      raf: 0,
+    };
+
+    grid.classList.add('is-reordering');
+    tile.classList.add('is-lifted');
+    gridDrag.raf = requestAnimationFrame(gridEdgeScroll);
+    layoutGridDrag();
+  }
+
+  function moveGridDrag(x, y) {
+    if (!gridDrag) return;
+    gridDrag.x = x;
+    gridDrag.y = y;
+    if (Math.hypot(x - gridDrag.startX, y - gridDrag.startY) > 10) gridDrag.moved = true;
+    layoutGridDrag();
+  }
+
+  function layoutGridDrag() {
+    const d = gridDrag;
+    if (!d) return;
+    // What the finger has moved, plus whatever the grid has scrolled beneath
+    // it — the tile travels with the scroller, so it has to be paid back.
+    const dx = d.x - d.startX;
+    const dy = (d.y - d.startY) + (d.body.scrollTop - d.startScroll);
+    d.tile.style.transform = `translate(${dx}px, ${dy}px) scale(1.06)`;
+
+    // Which cell the tile's own middle is now sitting over.
+    const col = clamp(Math.round((d.homeX + dx - d.originX) / d.stepX), 0, d.cols - 1);
+    const row = Math.max(0, Math.round((d.homeY + dy - d.originY) / d.stepY));
+    const target = clamp(row * d.cols + col, 0, d.items.length - 1);
+    if (target === d.target) return;
+    d.target = target;
+    d.moved = true;
+
+    // Open the gap: everything between the old slot and the new one steps
+    // along by exactly one place, wrapping across rows as it goes.
+    d.items.forEach((it, i) => {
+      if (it === d.tile) return;
+      let slot = i;
+      if (d.index < target && i > d.index && i <= target) slot = i - 1;
+      else if (d.index > target && i >= target && i < d.index) slot = i + 1;
+      const across = (slot % d.cols) - (i % d.cols);
+      const down = Math.floor(slot / d.cols) - Math.floor(i / d.cols);
+      it.style.transform = across || down
+        ? `translate(${across * d.stepX}px, ${down * d.stepY}px)`
+        : '';
+    });
+  }
+
+  // Holding a tile against the top or bottom of the grid walks it along,
+  // faster the closer to the edge — otherwise a deck of twenty could only be
+  // rearranged as far as one screen reaches.
+  function gridEdgeScroll() {
+    const d = gridDrag;
+    if (!d) return;
+    const box = d.body.getBoundingClientRect();
+    let step = 0;
+    if (d.y < box.top + GRID_EDGE) step = -GRID_EDGE_SPEED * ((box.top + GRID_EDGE - d.y) / GRID_EDGE);
+    else if (d.y > box.bottom - GRID_EDGE) step = GRID_EDGE_SPEED * ((d.y - (box.bottom - GRID_EDGE)) / GRID_EDGE);
+    if (step) {
+      const next = clamp(d.body.scrollTop + step, 0, d.maxScroll);
+      if (next !== d.body.scrollTop) {
+        d.body.scrollTop = next;
+        d.moved = true;
+        layoutGridDrag();
+      }
+    }
+    d.raf = requestAnimationFrame(gridEdgeScroll);
+  }
+
+  function endGridDrag() {
+    const d = gridDrag;
+    if (!d) return;
+    cancelAnimationFrame(d.raf);
+    gridDrag = null;
+    document.removeEventListener('touchmove', blockGridScroll);
+
+    const { tile, index, target, items, cols, stepX, stepY } = d;
+
+    // Settle into the slot it is going to occupy rather than snapping back
+    // to the one it came from.
+    const across = (target % cols) - (index % cols);
+    const down = Math.floor(target / cols) - Math.floor(index / cols);
+    tile.style.transition = `transform ${GRID_LIFT_MS}ms cubic-bezier(0.2, 0.7, 0.3, 1)`;
+    tile.style.transform = `translate(${across * stepX}px, ${down * stepY}px)`;
+
+    if (target !== index) {
+      buzz('drop');
+      const [moved] = projects.splice(index, 1);
+      projects.splice(target, 0, moved);
+      // From here on the order is yours, and the date it was made stops
+      // deciding it. New ones still arrive at the front.
+      setCustomOrder();
+      saveProjects();
+    }
+
+    setTimeout(() => {
+      items.forEach((it) => {
+        it.style.transform = '';
+        it.style.transition = '';
+        it.classList.remove('is-lifted');
+      });
+      $('home-grid').classList.remove('is-reordering');
+      renderHome();
+    }, GRID_LIFT_MS);
   }
 
   function paintCovers() {
@@ -3059,6 +3259,10 @@
       const img = document.createElement('img');
       img.src = url;
       img.alt = '';
+      // An image is draggable by default, and starting the browser's own
+      // drag cancels the pointer stream mid-gesture — which took the tile
+      // out of your hand the moment you tried to move it.
+      img.draggable = false;
       el.prepend(img);
     });
   }
