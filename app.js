@@ -476,6 +476,7 @@
     syncEmpty();
     syncFades();
     armDwell();
+    manageResidency();
     syncPlayback();
     // Reading a frame out of a clip means decoding up to it, so it happens
     // off to the side and paints when it lands. A no-op once the poster
@@ -819,7 +820,6 @@
 
     const proxyBitmap = await shrink(bitmap, PROXY_EDGE);
     const proxyBlob = await encode(proxyBitmap, 'image/jpeg', 0.86);
-    if (proxyBitmap !== bitmap) proxyBitmap.close();
 
     // Only re-encode when we actually changed the pixels. Untouched, the file
     // is persisted exactly as it arrived — no second pass through a lossy
@@ -833,16 +833,29 @@
 
     const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
 
+    // What stays in memory is the proxy, and the full-size decode is let go
+    // now that everything that needed it has been made. Twenty 12MP photos
+    // held at full size is the better part of a gigabyte of pixels, which is
+    // what selecting a folder's worth of them died of. This is exactly the
+    // state the app is in after a relaunch — the original is read back on
+    // demand, on dwell, on selection and before every export.
+    const w = bitmap.width;
+    const h = bitmap.height;
+    const keep = proxyBitmap !== bitmap ? proxyBitmap : bitmap;
+    if (keep !== bitmap) bitmap.close();
+
     return {
       id: uid(),
       name,
       taken,
-      bitmap,
-      // Just decoded it, so this one starts at full size. Only a restore
-      // begins on the proxy.
-      full: true,
-      w: bitmap.width,
-      h: bitmap.height,
+      bitmap: keep,
+      small: false,
+      full: keep === bitmap,
+      // The real photo's, not the proxy's: the cover maths works in the
+      // photo's own proportions and must not change when the full one
+      // swaps back in.
+      w,
+      h,
       blob: stored,
       proxyBlob,
       thumbUrl: URL.createObjectURL(thumbBlob),
@@ -863,7 +876,15 @@
 
     const proxyBitmap = await shrink(bitmap, PROXY_EDGE);
     const proxyBlob = await encode(proxyBitmap, 'image/jpeg', 0.86);
-    if (proxyBitmap !== bitmap) proxyBitmap.close();
+
+    // A phone clip's poster is 1080x1920, which is eight megabytes of pixels
+    // held for every clip in the tray. The proxy is all the preview and the
+    // thumbnails ever need, and the export reads real frames rather than
+    // this, so the full-size one goes.
+    const w = bitmap.width;
+    const h = bitmap.height;
+    const keep = proxyBitmap !== bitmap ? proxyBitmap : bitmap;
+    if (keep !== bitmap) bitmap.close();
 
     return {
       id: uid(),
@@ -873,12 +894,14 @@
       // No EXIF to read; a video's own timestamps are the encoder's, not the
       // camera's, so the file's date is the honest answer.
       taken: blob.lastModified || Date.now(),
-      bitmap,
-      // The poster is the whole of what we ever draw, so there is no larger
-      // version waiting to be read.
+      bitmap: keep,
+      small: false,
+      // The poster is the whole of what is ever drawn for a clip, so there
+      // is nothing larger waiting to be read — ensureFull would try to
+      // decode the video file as an image, and must never run on one.
       full: true,
-      w: bitmap.width,
-      h: bitmap.height,
+      w,
+      h,
       blob,
       proxyBlob,
       thumbUrl: URL.createObjectURL(thumbBlob),
@@ -902,10 +925,30 @@
       v.playsInline = true;
 
       let settled = false;
+      let timer = 0;
+
+      // Reading a frame costs a decoder, and letting the element fall out of
+      // scope does not give it back — it sits there holding one, and the
+      // pixels behind it, until something collects it. Importing a folder of
+      // clips left one of these alive per clip, which on a phone is a hard
+      // ceiling rather than a slow leak: there are only so many decoders, and
+      // a tab holding a dozen is a tab about to be killed. So it is handed
+      // back explicitly, on the way out, whichever way that is.
+      const release = () => {
+        clearTimeout(timer);
+        v.onerror = null;
+        v.onloadeddata = null;
+        v.onseeked = null;
+        try { v.pause(); } catch { /* never started */ }
+        v.removeAttribute('src');
+        try { v.load(); } catch { /* nothing to unload */ }
+        URL.revokeObjectURL(url);
+      };
+
       const fail = (err) => {
         if (settled) return;
         settled = true;
-        URL.revokeObjectURL(url);
+        release();
         reject(err || new Error('no frame'));
       };
       const grab = async () => {
@@ -916,11 +959,12 @@
           c.width = v.videoWidth;
           c.height = v.videoHeight;
           c.getContext('2d').drawImage(v, 0, 0);
-          const bitmap = await createImageBitmap(c);
+          // The pixels are on the canvas now, so the element has done its
+          // job and can go before the bitmap is even built.
           const duration = Number.isFinite(v.duration) ? v.duration : 0;
           settled = true;
-          URL.revokeObjectURL(url);
-          resolve({ bitmap, duration });
+          release();
+          resolve({ bitmap: await createImageBitmap(c), duration });
         } catch (err) { fail(err); }
       };
 
@@ -938,7 +982,7 @@
         }
       };
       // A file that turns out to be undecodable can fire neither event.
-      setTimeout(() => fail(new Error('timed out reading a frame')), 15000);
+      timer = setTimeout(() => fail(new Error('timed out reading a frame')), 15000);
       v.src = url;
     });
   }
@@ -968,6 +1012,13 @@
 
     // A few at a time: all 20 at once spikes memory with 12MP decodes, one at
     // a time leaves the decoder idle between photos.
+    //
+    // Only the first few will be looked at when this finishes. The rest go
+    // down to their thumbnail as they arrive rather than at the end, because
+    // "at the end" means the whole selection is held decoded at once first,
+    // and that spike is the thing a large import dies on. They are read back
+    // up as they are reached.
+    const SHARP_ON_ARRIVAL = 4;
     const queue = [...images];
     const results = new Array(images.length);
     const worker = async () => {
@@ -975,7 +1026,12 @@
         const index = images.length - queue.length;
         const file = queue.shift();
         try {
-          results[index] = await ingest(file, file.name);
+          const photo = await ingest(file, file.name);
+          results[index] = photo;
+          if (index >= SHARP_ON_ARRIVAL) {
+            arriving.add(photo);
+            try { await atThumb(photo); } finally { arriving.delete(photo); }
+          }
         } catch (err) {
           const kind = await sniffKind(file);
           // On the console as well as on screen: a toast is gone in three
@@ -988,7 +1044,13 @@
         }
       }
     };
-    await Promise.all([worker(), worker(), worker()]);
+    // Two, not three. Each worker holds a whole decoded source while it makes
+    // the thumbnail and the proxy from it, and a twelve-megapixel photo is
+    // fifty megabytes of that — so the third worker was buying a fifth off
+    // the time in exchange for another fifty megabytes at the worst possible
+    // moment. Measured over two dozen 12MP photos: 2.6s peaking at 186MB
+    // against 3.1s peaking at 135MB.
+    await Promise.all([worker(), worker()]);
 
     // Added in the order they were chosen, whatever order they finished in.
     if (results.some(Boolean)) snapshot();
@@ -1090,6 +1152,98 @@
     const pg = state.pages[state.current];
     if (!pg || photosOn(pg).every((p) => p.full)) return;
     dwellTimer = setTimeout(() => loadFullFor(pg), DWELL_MS);
+  }
+
+  /* ------------------------------------------------ how much stays decoded */
+  //
+  // The expensive thing here is not the file, it is the decode. A 1440px
+  // proxy is five megabytes of pixels and a twelve-megapixel original is
+  // fifty, and one was being held for every item in the tray whether or not
+  // anything was drawing it. Forty clips came to a hundred and seventy-eight
+  // megabytes of pixels for slides nobody was looking at, and it grew with
+  // no ceiling — which is what selecting a large pile of files died of. A
+  // phone kills the tab for that and never says why.
+  //
+  // So size is only kept for the slide on screen and the ones a swipe away.
+  // Everything else falls back to its thumbnail, a fortieth of the pixels,
+  // and is read back up on arrival. The filmstrip is drawn at forty pixels
+  // across and the library is a grid of thumbnails, so neither can tell.
+
+  const RESIDENT = 1;                  // pages either side of the current one
+
+  function residentIds() {
+    const ids = new Set();
+    for (let d = -RESIDENT; d <= RESIDENT; d += 1) {
+      const pg = state.pages[state.current + d];
+      if (pg) pg.cells.forEach((c) => { if (c) ids.add(c.photo); });
+    }
+    return ids;
+  }
+
+  const resizing = new Set();
+  // Photos that have been read but not yet added to the tray. An import in
+  // flight can already need one of these shrunk, and it is not orphaned just
+  // because nothing points at it yet.
+  const arriving = new Set();
+
+  // Swap a photo's decoded bitmap for one at the wanted size and let the old
+  // one go. Safe to close: undo hands back the same photo objects rather
+  // than old bitmaps, and every draw reads .bitmap at the moment it draws.
+  // w and h are left alone throughout — they are the real photo's, and the
+  // cover maths would move if they followed whatever is decoded right now.
+  //
+  // It loops rather than doing one pass, because a shrink can be overtaken
+  // by a request to grow again while it is still decoding — scroll the
+  // chooser past a photo and back and that is exactly what happens. Dropping
+  // the newer answer is how the preview ends up stuck on a thumbnail.
+  async function reDecode(photo, small) {
+    if (!photo) return false;
+    photo.want = small;
+    if (resizing.has(photo.id)) return false;   // the pass in flight will see it
+    resizing.add(photo.id);
+    let changed = false;
+    try {
+      while (photo.want !== !!photo.small) {
+        const target = photo.want;
+        const blob = target ? photo.thumbBlob : (photo.proxyBlob || photo.blob);
+        if (!blob) break;
+        const bitmap = await decodeImage(blob);
+        // Gone from the tray, or wanted the other way again, while this was
+        // decoding.
+        if (!state.photos.includes(photo) && !arriving.has(photo)) { bitmap.close(); break; }
+        if (photo.want !== target) { bitmap.close(); continue; }
+        const old = photo.bitmap;
+        photo.bitmap = bitmap;
+        photo.small = target;
+        // Down to a thumbnail is no longer the original, so a dwell can read
+        // it back. A clip has no original to read — its poster is all there
+        // ever is — and must never be handed to the image decoder.
+        if (photo.kind !== 'video') photo.full = false;
+        if (old && old !== bitmap) { try { old.close(); } catch { /* already gone */ } }
+        changed = true;
+      }
+    } catch {
+      // Keep whatever is already decoded; it draws, it is just the wrong size.
+    } finally {
+      resizing.delete(photo.id);
+    }
+    return changed;
+  }
+
+  const atSize = (photo) => reDecode(photo, false);
+  const atThumb = (photo) => reDecode(photo, true);
+
+  function manageResidency() {
+    const near = residentIds();
+    const jobs = [];
+    state.photos.forEach((photo) => {
+      if (near.has(photo.id)) { if (photo.small) jobs.push(atSize(photo)); }
+      else if (!photo.small && photo.thumbBlob) jobs.push(atThumb(photo));
+    });
+    if (!jobs.length) return;
+    Promise.all(jobs).then((done) => {
+      if (done.some(Boolean)) { render(); renderFilmstrip(); }
+    });
   }
 
   const videoCells = (pg) => (pg ? pg.cells
@@ -2867,6 +3021,10 @@
     // with like rather than inheriting the last photo's framing.
     page().cells[i] = emptyCell(photo.id);
     render();
+    // What you have just scrolled onto is on screen now, so it has to be
+    // read back up to size. The reel itself is drawn from thumbnails; the
+    // preview underneath it must not be.
+    manageResidency();
     // Scrolling onto a clip starts it, and scrolling off one stops it, so
     // what you are choosing between is what you would get.
     syncPlayback();
@@ -3527,6 +3685,9 @@
           // A restored video is drawn from its poster, which is all we ever
           // draw, so it is never waiting on anything.
           full: row.kind === 'video' ? true : !row.proxy,
+          // Read back at proxy size, so not on its thumbnail. Residency
+          // decides from here which of them stay that way.
+          small: false,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
@@ -3599,9 +3760,11 @@
     if (!rec || !first) return;
     try {
       // The cover page need not be the one that was open, so its clips may
-      // never have had a poster read. Worth the wait here: this runs once,
-      // on the way out, and a cover showing the wrong frame is the version
-      // that sits on the homepage until something else changes.
+      // never have had a poster read and its photos may be down to their
+      // thumbnails. Worth the wait here: this runs once, on the way out, and
+      // whatever it draws is the version that sits on the homepage until
+      // something else changes it.
+      await Promise.all(photosOn(first).filter((p) => p.small).map(atSize));
       await postersFor(first);
       const W = 400;
       const H = Math.round((W * state.ratio.h) / state.ratio.w);
