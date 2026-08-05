@@ -318,11 +318,13 @@
         // the cover clamp still holds.
         if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
         // cell.frame is set while a video is playing in the preview, and
-        // while an export walks its frames. Everything else draws the
-        // poster. A video element, a decoded frame and an ImageBitmap are
-        // all things drawImage takes, so a moving picture composes through
-        // exactly the same code as a still one.
-        g.drawImage(cell.frame || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        // while an export walks its frames. Failing that a clip draws as its
+        // poster — the first frame of its trim — and failing that as the
+        // photo's own bitmap, which for a clip is the file's first frame and
+        // for a photo is the whole story. A video element, a decoded frame
+        // and an ImageBitmap are all things drawImage takes, so a moving
+        // picture composes through exactly the same code as a still one.
+        g.drawImage(cell.frame || cell.poster || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -475,6 +477,11 @@
     syncFades();
     armDwell();
     syncPlayback();
+    // Reading a frame out of a clip means decoding up to it, so it happens
+    // off to the side and paints when it lands. A no-op once the poster
+    // matches the cut, which it does for all but the first pass after a trim
+    // moves — so this does not loop.
+    ensurePosters(page(), () => { render(); renderFilmstrip(); });
   }
 
   // An untouched deck is one blank page and no photos: say so on the canvas
@@ -879,19 +886,30 @@
     };
   }
 
-  // Frame one, and how long the whole thing runs. Through a <video> element
-  // rather than the decoder we ship: the browser can already play what it
-  // can play, and this way importing costs no download.
-  function posterFrame(blob) {
+  // One frame out of a clip, and how long the whole thing runs. Through a
+  // <video> element rather than the decoder we ship: the browser can already
+  // play what it can play, and this way it costs no download.
+  //
+  // `at` of zero is the file's own first frame, which is what an import
+  // wants. A trimmed tile asks for the first frame it will actually show,
+  // which is somewhere else entirely.
+  function frameAt(blob, at = 0) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(blob);
       const v = document.createElement('video');
       v.preload = 'auto';
       v.muted = true;
       v.playsInline = true;
-      const fail = (err) => { URL.revokeObjectURL(url); reject(err || new Error('no frame')); };
-      v.onerror = () => fail();
-      v.onloadeddata = async () => {
+
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        URL.revokeObjectURL(url);
+        reject(err || new Error('no frame'));
+      };
+      const grab = async () => {
+        if (settled) return;
         try {
           if (!v.videoWidth || !v.videoHeight) { fail(); return; }
           const c = document.createElement('canvas');
@@ -900,13 +918,32 @@
           c.getContext('2d').drawImage(v, 0, 0);
           const bitmap = await createImageBitmap(c);
           const duration = Number.isFinite(v.duration) ? v.duration : 0;
+          settled = true;
           URL.revokeObjectURL(url);
           resolve({ bitmap, duration });
         } catch (err) { fail(err); }
       };
+
+      v.onerror = () => fail();
+      v.onloadeddata = () => {
+        // What puts a frame other than the first into the element is the
+        // seek, so at anything past the start the frame is only there once
+        // seeking has finished. At the start there is nothing to seek to and
+        // loadeddata already means it has arrived.
+        if (at > 0.01) {
+          v.onseeked = grab;
+          try { v.currentTime = at; } catch { grab(); }
+        } else {
+          grab();
+        }
+      };
+      // A file that turns out to be undecodable can fire neither event.
+      setTimeout(() => fail(new Error('timed out reading a frame')), 15000);
       v.src = url;
     });
   }
+
+  const posterFrame = (blob) => frameAt(blob, 0);
 
   async function addPhotos(files) {
     // An empty type is not a "no": some pickers hand a file back with no type
@@ -1055,6 +1092,85 @@
     dwellTimer = setTimeout(() => loadFullFor(pg), DWELL_MS);
   }
 
+  const videoCells = (pg) => (pg ? pg.cells
+    .map((cell, i) => ({ cell, i, photo: photoFor(cell) }))
+    .filter((x) => x.photo && x.photo.kind === 'video') : []);
+
+  /* -------------------------------------------------------- video posters */
+  //
+  // Almost everywhere a clip appears it isn't playing: the filmstrip, the
+  // slides either side of the one you're on, the project cover, the moment
+  // before playback starts. In all of those it is a still, and the still
+  // that belongs there is the first frame the tile will actually show —
+  // which is the first frame of the trim, not of the file. Cut the opening
+  // two seconds off and the thumbnail has to move with it.
+  //
+  // Kept on the cell for the same reason the trim is: one clip in two tiles,
+  // cut two ways, is two different stills.
+
+  // Resolves once every clip on the page has the still it should have, and
+  // says whether anything actually changed.
+  async function postersFor(pg) {
+    // A tile that used to hold a clip and now holds a photo, or nothing, is
+    // carrying a still it will never draw again.
+    let dropped = false;
+    (pg ? pg.cells : []).forEach((cell) => {
+      const was = photoFor(cell);
+      if (cell && cell.poster && (!was || was.kind !== 'video')) {
+        closePoster(cell);
+        dropped = true;
+      }
+    });
+
+    const jobs = videoCells(pg).map(async ({ cell, photo }) => {
+      const { from } = clipRange(cell);
+      // Frame zero is already decoded and sitting on the photo, so an
+      // untrimmed tile has nothing to work out.
+      if (from <= 0.01) {
+        if (!cell.poster) return false;
+        closePoster(cell);
+        return true;
+      }
+      if (cell.posterAt === from || cell.posterBusy === from) return false;
+      cell.posterBusy = from;
+      try {
+        const { bitmap } = await frameAt(photo.blob, from);
+        // The cut can move again while a frame is being read; if it has,
+        // this one is already the wrong answer.
+        if (clipRange(cell).from !== from) { bitmap.close(); return false; }
+        closePoster(cell);
+        cell.poster = bitmap;
+        cell.posterAt = from;
+        return true;
+      } catch {
+        // No frame at the cut is not worth saying anything about — the
+        // file's own first frame stands in, and playback is unaffected.
+        return false;
+      } finally {
+        if (cell.posterBusy === from) cell.posterBusy = 0;
+      }
+    });
+    return (await Promise.all(jobs)).some(Boolean) || dropped;
+  }
+
+  // The same thing where nobody is waiting: repaint if it turned out to
+  // matter, and say nothing if it didn't.
+  function ensurePosters(pg, then) {
+    if (!pg) return;
+    postersFor(pg).then((changed) => { if (changed && then) then(); });
+  }
+
+  function closePoster(cell) {
+    if (!cell || !cell.poster) return;
+    try { cell.poster.close(); } catch { /* already gone */ }
+    cell.poster = null;
+    cell.posterAt = undefined;
+  }
+
+  const dropPosters = (pages) => (pages || []).forEach(
+    (pg) => pg.cells.forEach((c) => closePoster(c)),
+  );
+
   /* ------------------------------------------------------- video preview */
   //
   // The slide you are looking at plays. One hidden <video> per video cell —
@@ -1066,10 +1182,6 @@
 
   const players = new Map();          // cell index -> { el, url, cell }
   let painting = 0;
-
-  const videoCells = (pg) => (pg ? pg.cells
-    .map((cell, i) => ({ cell, i, photo: photoFor(cell) }))
-    .filter((x) => x.photo && x.photo.kind === 'video') : []);
 
   function stopPlayers() {
     players.forEach(({ el, url, cell }) => {
@@ -1122,7 +1234,18 @@
       const { from } = clipRange(cell);
       el.currentTime = from;
       el.play().catch(() => { /* a frame is still better than nothing */ });
-      players.set(i, { el, url, cell, photoId: photo.id });
+
+      // Nothing is drawn off this element until it has presented a frame.
+      // readyState is not that promise — it says data has arrived, not that
+      // there is a picture to copy, and drawing a decoder that is still
+      // warming up or seeking gives you a black rectangle. Which is what a
+      // clip opened with: black, until it got going. So it stays on its
+      // poster until there is genuinely something better.
+      const p = { el, url, cell, photoId: photo.id, ready: false };
+      const gotFrame = () => { p.ready = true; };
+      if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(gotFrame);
+      else el.addEventListener('canplay', gotFrame, { once: true });
+      players.set(i, p);
     });
 
     if (players.size && !painting) painting = requestAnimationFrame(paintPlaying);
@@ -1136,14 +1259,17 @@
 
     const pg = page();
     let live = false;
-    players.forEach(({ el, cell }) => {
+    players.forEach((p) => {
+      const { el, cell } = p;
       // Loop within the trim rather than the whole file, so what you watch
       // is what the export will produce.
       const { from, to } = clipRange(cell);
       if (el.currentTime >= to - 0.02 || el.currentTime < from - 0.02) {
         try { el.currentTime = from; } catch { /* not seekable yet */ }
       }
-      if (el.readyState >= 2) { cell.frame = el; live = true; }
+      // Mid-seek there is no frame to copy, so the poster holds the tile
+      // rather than the picture dropping out on every loop round.
+      if (p.ready && !el.seeking) { cell.frame = el; live = true; }
     });
 
     if (live) {
@@ -2826,6 +2952,12 @@
   // Let go and it runs the trimmed clip, from the top.
   function endTrimDrag() {
     endRun();
+    // The cut has moved, so everywhere this tile is a still — the filmstrip,
+    // the cover, the slides either side — is now showing the wrong frame.
+    // Only on letting go: reading a frame means decoding up to it, and doing
+    // that on every pixel of the drag would be absurd.
+    ensurePosters(page(), () => { render(); renderFilmstrip(); });
+
     const player = players.get(state.selected);
     if (!player) return;
     const { from } = clipRange(page().cells[state.selected]);
@@ -3067,6 +3199,11 @@
     if (data.format) state.format = data.format;
 
     if (data.pages && data.pages.length) {
+      // Every undo replaces the cells wholesale, and a poster is a decoded
+      // bitmap hanging off one. The replacements are built from serialised
+      // JSON and carry none, so without this each step back would abandon a
+      // frame per trimmed clip. They are read again on the next refresh.
+      dropPosters(state.pages);
       state.pages = data.pages.map((p) => {
         const layout = LAYOUTS.find((l) => l.id === p.layout) || LAYOUTS[0];
         const pg = newPage(layout);
@@ -3283,6 +3420,10 @@
   function resetEditor() {
     clearTimeout(dwellTimer);
     stopPlayers();
+    // A poster is a decoded bitmap sitting on a cell, and the cells are
+    // about to be thrown away. Moving between projects would otherwise
+    // stack up a frame per trimmed clip per project visited.
+    dropPosters(state.pages);
     loadingFull.clear();
     state.photos.forEach((p) => {
       try { URL.revokeObjectURL(p.thumbUrl); } catch { /* already gone */ }
@@ -3431,6 +3572,11 @@
     const first = state.pages.find((pg) => pg.cells.some((c) => photoFor(c))) || null;
     if (!rec || !first) return;
     try {
+      // The cover page need not be the one that was open, so its clips may
+      // never have had a poster read. Worth the wait here: this runs once,
+      // on the way out, and a cover showing the wrong frame is the version
+      // that sits on the homepage until something else changes.
+      await postersFor(first);
       const W = 400;
       const H = Math.round((W * state.ratio.h) / state.ratio.w);
       const c = document.createElement('canvas');
