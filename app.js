@@ -558,8 +558,89 @@
   // Decode once, at a sane size, and keep the ImageBitmap. Every later draw is
   // then a straight blit with no decode behind it, and what we persist is the
   // resized copy rather than the original 12MP file.
+  /* ------------------------------------------------------------- decoding */
+  //
+  // What a file is called, and what the picker says its type is, are both
+  // guesses. The first bytes are not — and knowing what actually arrived is
+  // the difference between "couldn't read it" and a message worth acting on.
+
+  async function sniffKind(blob) {
+    let head;
+    try { head = new Uint8Array(await blob.slice(0, 16).arrayBuffer()); } catch { return 'unreadable'; }
+    if (head.length < 12) return 'empty';
+    const text = (i, n) => String.fromCharCode(...head.slice(i, i + n));
+    if (head[0] === 0xff && head[1] === 0xd8) return 'jpeg';
+    if (text(1, 3) === 'PNG') return 'png';
+    if (text(0, 4) === 'RIFF' && text(8, 4) === 'WEBP') return 'webp';
+    if (text(0, 3) === 'GIF') return 'gif';
+    if (text(0, 4) === '<svg' || text(0, 5) === '<?xml') return 'svg';
+    if (text(4, 4) === 'ftyp') {
+      const brand = text(8, 4);
+      if (/^(heic|heix|heim|heis|hevc|hevm|hevs|mif1|msf1)$/.test(brand)) return 'heic';
+      if (brand === 'avif' || brand === 'avis') return 'avif';
+      return 'video';                                   // an mp4/mov wearing a photo's name
+    }
+    if (text(0, 2) === 'II' || text(0, 2) === 'MM') return 'tiff';
+    return 'unknown';
+  }
+
+  // createImageBitmap is the strict decoder: a JPEG that is truncated, or
+  // carries something in its headers it doesn't like, is rejected outright
+  // where the <img> element would have shown you the picture. So when it says
+  // no, ask the lenient one before giving up on the file.
+  async function decodeImage(blob) {
+    try {
+      return await createImageBitmap(blob);
+    } catch (strict) {
+      return decodeVia(blob, strict);
+    }
+  }
+
+  function decodeVia(blob, strict) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      const give = (err) => { URL.revokeObjectURL(url); reject(err || strict); };
+      img.onload = () => {
+        if (!img.naturalWidth || !img.naturalHeight) { give(); return; }
+        try {
+          // Through a canvas rather than straight off the element: whatever
+          // the decoder managed to make of it is now just pixels.
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          c.getContext('2d').drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          createImageBitmap(c).then(resolve, give);
+        } catch (e) { give(e); }
+      };
+      img.onerror = () => give();
+      img.src = url;
+    });
+  }
+
+  // Said in terms of what is wrong with the file, not what our decoder did.
+  function whyNot(file, kind, err) {
+    const name = file.name || 'That photo';
+    if (!file.size || kind === 'empty') {
+      return `${name} came through empty — whatever it came from may not have finished saving it`;
+    }
+    if (kind === 'unreadable') {
+      return `${name} couldn't be read off the device — if it lives in the cloud, download it first`;
+    }
+    if (kind === 'heic') return `${name} is HEIC inside, whatever it is called — this browser can't decode it`;
+    if (kind === 'avif') return `${name} is AVIF — this browser can't decode it`;
+    if (kind === 'video') return `${name} is a video, not a photo`;
+    if (kind === 'tiff') return `${name} is a TIFF — this browser can't decode it`;
+    if (kind === 'unknown') return `${name} isn't an image this browser recognises`;
+    const why = err && (err.name === 'NotReadableError' || err.name === 'NotFoundError')
+      ? "the device wouldn't hand over the file"
+      : 'the picture data is damaged';
+    return `Couldn't read ${name} — it says it's ${kind.toUpperCase()}, but ${why}`;
+  }
+
   async function ingest(blob, name) {
-    const decoded = await createImageBitmap(blob);
+    const decoded = await decodeImage(blob);
     const bitmap = MAX_EDGE ? await shrink(decoded, MAX_EDGE) : decoded;
     const resized = bitmap !== decoded;
     if (resized) decoded.close();
@@ -597,8 +678,21 @@
   }
 
   async function addPhotos(files) {
-    const images = [...files].filter((f) => f.type.startsWith('image/') || /\.hei[cf]$/i.test(f.name));
-    if (!images.length) return;
+    // An empty type is not a "no": some pickers hand a file back with no type
+    // on it at all, and those were being dropped without a word. Only a type
+    // that positively says "not a picture" is turned away here — anything
+    // else goes to the decoder, which can say what is actually wrong with it.
+    const images = [];
+    const skipped = [];
+    [...files].forEach((f) => {
+      const refused = f.type && !f.type.startsWith('image/') && !/\.hei[cf]$/i.test(f.name);
+      (refused ? skipped : images).push(f);
+    });
+    if (!images.length) {
+      if (skipped.length === 1) toast(`${skipped[0].name} isn't an image`);
+      else if (skipped.length) toast(`None of those ${skipped.length} files are images`);
+      return;
+    }
 
     const wasEmpty = state.photos.length === 0;
     if (images.length > 2) toast(`Importing ${images.length} photos…`);
@@ -613,11 +707,15 @@
         const file = queue.shift();
         try {
           results[index] = await ingest(file, file.name);
-        } catch {
-          const heic = /\.hei[cf]$/i.test(file.name) || file.type === 'image/heic';
-          toast(heic
-            ? `${file.name} is HEIC — this browser can't decode it`
-            : `Couldn't read ${file.name}`);
+        } catch (err) {
+          const kind = await sniffKind(file);
+          // On the console as well as on screen: a toast is gone in three
+          // seconds, and this is the sort of thing you want to be able to
+          // read back afterwards.
+          console.warn('Import failed', {
+            name: file.name, type: file.type, size: file.size, kind, error: err,
+          });
+          toast(whyNot(file, kind, err));
         }
       }
     };
@@ -684,7 +782,7 @@
     if (!photo || photo.full) return Promise.resolve(false);
     if (loadingFull.has(photo.id)) return loadingFull.get(photo.id);
 
-    const job = createImageBitmap(photo.blob).then((bitmap) => {
+    const job = decodeImage(photo.blob).then((bitmap) => {
       loadingFull.delete(photo.id);
       // Gone from the library while it was decoding.
       if (!state.photos.includes(photo)) { bitmap.close(); return false; }
@@ -2561,7 +2659,7 @@
         // The proxy if there is one: a deck of twenty opens in a quarter of a
         // second on those, against seven seconds decoding the originals. The
         // full photo is read later, when something needs it.
-        const bitmap = await createImageBitmap(row.proxy || row.blob);
+        const bitmap = await decodeImage(row.proxy || row.blob);
         const photo = {
           id: row.id, name: row.name, bitmap,
           w: row.w || bitmap.width, h: row.h || bitmap.height,
