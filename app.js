@@ -79,7 +79,7 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05e';
+  const VERSION = '2026.08.05f';
 
   /* --------------------------------------------------------------- state */
 

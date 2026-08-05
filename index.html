@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Grid Collage — build an Instagram carousel</title>
-<meta name="description" content="Build a carousel up to 20 pages. Drop photos in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
+<meta name="description" content="Build a carousel up to 20 pages. Drop photos and video in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
 <meta name="theme-color" content="#0d0d10">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -121,11 +121,11 @@
 
   <!-- ------------------------------------------------------------- preview -->
   <section class="stage">
-    <div class="dropzone" id="dropzone" hidden><span>Drop photos to add them</span></div>
+    <div class="dropzone" id="dropzone" hidden><span>Drop photos or video to add them</span></div>
     <div class="blank" id="blank" hidden>
       <p>Nothing here yet.</p>
       <button class="btn btn-primary" id="blank-add" type="button">Add photos</button>
-      <p class="blank-sub">Or drop them anywhere on the page.</p>
+      <p class="blank-sub">Photos or video. Or drop them anywhere on the page.</p>
     </div>
     <div class="canvas-wrap" id="canvas-wrap">
       <div class="track" id="track">
@@ -313,7 +313,9 @@
   <button class="btn btn-primary btn-sm" id="ut-now" type="button">Update</button>
 </div>
 
-<input type="file" id="file-input" accept="image/*" multiple hidden>
+<!-- Video is listed as well as images, or the system picker only offers
+     photos and there is no way to get a clip in at all. -->
+<input type="file" id="file-input" accept="image/*,video/*" multiple hidden>
 
 <!-- ------------------------------------------------------ the photo library -->
 <div class="photos-modal" id="photos-modal" hidden>

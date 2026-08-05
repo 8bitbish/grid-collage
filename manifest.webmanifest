@@ -17,7 +17,7 @@
       "title": "title",
       "text": "text",
       "files": [
-        { "name": "photos", "accept": ["image/*", "image/jpeg", "image/png", "image/webp", "image/heic"] }
+        { "name": "photos", "accept": ["image/*", "image/jpeg", "image/png", "image/webp", "image/heic", "video/*", "video/mp4", "video/quicktime", "video/webm"] }
       ]
     }
   },
