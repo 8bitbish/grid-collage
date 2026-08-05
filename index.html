@@ -14,7 +14,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d10'/%3E%3Cg fill='%23ff4d8d'%3E%3Crect x='6' y='6' width='8' height='8' rx='2'/%3E%3Crect x='18' y='6' width='8' height='8' rx='2'/%3E%3Crect x='6' y='18' width='8' height='8' rx='2'/%3E%3Crect x='18' y='18' width='8' height='8' rx='2' fill='%23ffb648'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="on-home">
 
 <!-- Only shown when the app can still be installed; gone once it has been. -->
 <header class="installbar" id="installbar" hidden>
@@ -29,10 +29,47 @@
   </button>
 </header>
 
+<!-- ------------------------------------------------------------- the homepage -->
+<!-- Where a cold launch lands. Nothing here needs a photo decoded, so it can
+     paint before the database has even been opened: names, counts and sizes
+     are kept alongside each deck as it is edited. Covers arrive after. -->
+<section class="home" id="home">
+  <header class="home-head">
+    <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <div class="home-titles">
+      <h1>Projects</h1>
+      <p id="home-sub">&nbsp;</p>
+    </div>
+    <button class="btn btn-primary btn-sm" id="btn-new" type="button">
+      <span aria-hidden="true">+</span> New
+    </button>
+  </header>
+  <div class="home-body" id="home-body">
+    <div class="home-grid" id="home-grid"></div>
+    <div class="home-empty" id="home-empty" hidden>
+      <p>No carousels yet.</p>
+      <button class="btn btn-primary" id="home-first" type="button">Start one</button>
+      <p class="home-sub-note">Each project keeps its own photos and pages.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Shown over the homepage while a project's photos are read back. -->
+<div class="opening" id="opening" hidden role="status" aria-live="polite">
+  <div class="op-card">
+    <strong id="op-name">Opening</strong>
+    <div class="op-track"><i id="op-fill"></i></div>
+    <span class="op-step" id="op-step">Reading photos…</span>
+  </div>
+</div>
+
 <main class="app">
 
   <!-- ------------------------------------------------ pages, along the top -->
   <div class="pagesbar">
+    <button class="home-btn" id="btn-home" type="button" aria-label="All projects" title="All projects">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
+    </button>
     <button class="photos-btn" id="btn-photos" type="button"
             aria-haspopup="dialog" aria-expanded="false" aria-label="Photos">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M21 8v10a2 2 0 0 1-2 2H7"/><circle cx="8" cy="11" r="1.6"/><path d="M4 16l3.5-3.5L11 16"/></svg>

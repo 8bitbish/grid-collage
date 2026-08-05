@@ -93,8 +93,19 @@
     selected: -1,
   };
 
+  // Ids have to stay unique across every project, because all the photos
+  // share one table — so the counter outlives the session that made it.
+  const SEQ_KEY = 'grid-collage:seq';
   let nextId = 1;
-  const uid = () => `id${nextId++}`;
+  try { nextId = Math.max(1, Number(localStorage.getItem(SEQ_KEY)) || 1); } catch { /* private mode */ }
+
+  function bumpSeq(n) {
+    if (n <= nextId) return;
+    nextId = n;
+    try { localStorage.setItem(SEQ_KEY, String(nextId)); } catch { /* private mode */ }
+  }
+
+  const uid = () => { const id = `id${nextId}`; bumpSeq(nextId + 1); return id; };
 
   const $ = (id) => document.getElementById(id);
   const canvas = $('canvas');
@@ -866,7 +877,7 @@
     // is still means the slot you are aiming at changes under you — so the
     // strip takes on exactly that width as padding and the contents stay put.
     const bar = document.querySelector('.pagesbar');
-    bar.style.setProperty('--fold-left', `${$('btn-photos').offsetWidth}px`);
+    bar.style.setProperty('--fold-left', `${$('btn-home').offsetWidth + $('btn-photos').offsetWidth}px`);
     bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth}px`);
     bar.classList.add('is-reordering');
     el.classList.add('is-lifted');
@@ -1624,11 +1635,17 @@
   // nothing to drop onto. Tapping a photo places it instead.
 
   window.addEventListener('dragover', (e) => e.preventDefault());
-  window.addEventListener('drop', (e) => {
+  window.addEventListener('drop', async (e) => {
     hideDropzone();
     if (!e.dataTransfer.files.length) return;
     e.preventDefault();
-    addPhotos(e.dataTransfer.files);
+    // Dropped onto the homepage: there is nowhere to put them yet, so make
+    // somewhere. The files have to be taken off the event first — it doesn't
+    // survive the await that opening a project needs.
+    const files = [...e.dataTransfer.files];
+    if (!current) await openProject(createProject());
+    if (!current) return;
+    addPhotos(files);
   });
 
   // dragenter/dragleave fire for every element the pointer crosses, so count
@@ -2151,16 +2168,24 @@
   const DB_NAME = 'grid-collage';
   const STORE_PHOTOS = 'photos';
   const STORE_META = 'meta';
+  const STORE_COVERS = 'covers';
   let dbPromise = null;
 
   function db() {
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains(STORE_PHOTOS)) d.createObjectStore(STORE_PHOTOS, { keyPath: 'id' });
         if (!d.objectStoreNames.contains(STORE_META)) d.createObjectStore(STORE_META, { keyPath: 'key' });
+        // v2: a photo belongs to a project, and each project keeps one small
+        // thumbnail so the homepage has something to show without opening a
+        // deck. Photos saved by v1 carry no project; they are stamped once,
+        // at start-up, by migrateLegacy().
+        if (!d.objectStoreNames.contains(STORE_COVERS)) d.createObjectStore(STORE_COVERS, { keyPath: 'id' });
+        const photos = req.transaction.objectStore(STORE_PHOTOS);
+        if (!photos.indexNames.contains('project')) photos.createIndex('project', 'project', { unique: false });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -2191,9 +2216,13 @@
   }
 
   function savePhoto(photo) {
+    // Nothing is written while the homepage is showing: there is no project
+    // for it to belong to, and an unstamped row would look like a leftover
+    // from the version before projects existed.
+    if (!current) return;
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
-      id: photo.id, name: photo.name, taken: photo.taken,
+      id: photo.id, project: current.id, name: photo.name, taken: photo.taken,
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
       proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
       w: photo.w, h: photo.h,
@@ -2204,6 +2233,50 @@
     const d = await db();
     if (!d) return;
     d.transaction(STORE_PHOTOS, 'readwrite').objectStore(STORE_PHOTOS).delete(id);
+  }
+
+  // Every photo row belonging to one project, read in a single pass. Blobs
+  // come back with it, which is the expensive part of opening a deck and the
+  // reason the homepage never does this.
+  async function photoRows(projectId) {
+    const d = await db();
+    if (!d) return [];
+    return new Promise((resolve) => {
+      let req;
+      try {
+        req = d.transaction(STORE_PHOTOS, 'readonly').objectStore(STORE_PHOTOS)
+          .index('project').getAll(IDBKeyRange.only(projectId));
+      } catch { resolve([]); return; }
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  // Deleting a project takes its photos with it. One cursor over the index,
+  // so nothing but that project's rows is ever read.
+  async function dropProjectPhotos(projectId) {
+    const d = await db();
+    if (!d) return;
+    await new Promise((done) => {
+      let tx;
+      try { tx = d.transaction(STORE_PHOTOS, 'readwrite'); } catch { done(); return; }
+      const req = tx.objectStore(STORE_PHOTOS).index('project').openKeyCursor(IDBKeyRange.only(projectId));
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return;
+        tx.objectStore(STORE_PHOTOS).delete(cur.primaryKey);
+        cur.continue();
+      };
+      tx.oncomplete = done;
+      tx.onerror = done;
+      tx.onabort = done;
+    });
+  }
+
+  async function dropCover(projectId) {
+    const d = await db();
+    if (!d) return;
+    try { d.transaction(STORE_COVERS, 'readwrite').objectStore(STORE_COVERS).delete(projectId); } catch { /* gone already */ }
   }
 
   // One description of the deck, shared by persistence and the undo stack.
@@ -2255,23 +2328,32 @@
   // IndexedDB write is async and can be abandoned mid-flight on close, which
   // is how a share-then-close lost its pages while the photos survived.
   // Photos stay in IndexedDB — blobs have no business in localStorage.
-  const DECK_KEY = 'grid-collage:deck';
+  //
+  // One key per project now, and the list of the projects themselves goes the
+  // same way for the same reason: the homepage is the first thing a cold
+  // launch paints, and it must not have to wait on a database to do it.
+  const DECK_PREFIX = 'grid-collage:deck:';
+  const LEGACY_DECK_KEY = 'grid-collage:deck';
+  const PROJECTS_KEY = 'grid-collage:projects';
 
   // Nothing is written until the saved deck has been read back. The first
-  // refresh happens during start-up, and without this it would overwrite the
-  // stored deck with the blank one before restore ever got to look at it.
+  // refresh happens while a project is opening, and without this it would
+  // overwrite the stored deck with the blank one before restore ever got to
+  // look at it. It is also what stops the editor writing while the homepage
+  // is showing and there is no project to write to.
   let restored = false;
 
   function saveDeck() {
-    if (!restored) return;
+    if (!restored || !current) return;
     try {
-      localStorage.setItem(DECK_KEY, JSON.stringify(serialiseDeck()));
+      localStorage.setItem(DECK_PREFIX + current.id, JSON.stringify(serialiseDeck()));
     } catch { /* private mode or quota — the deck just won't come back */ }
+    saveProjectMeta();
   }
 
-  function loadDeck() {
+  function loadDeck(projectId) {
     try {
-      const raw = localStorage.getItem(DECK_KEY);
+      const raw = localStorage.getItem(DECK_PREFIX + projectId);
       if (raw) return JSON.parse(raw);
     } catch { /* ignore */ }
     return null;
@@ -2287,22 +2369,193 @@
     [...persisted].forEach((id) => { if (!live.has(id)) { dropPhoto(id); persisted.delete(id); } });
   }
 
-  async function restoreAll() {
-    // localStorage is where the deck lives now; the IndexedDB record is only
-    // read so a deck saved by the previous build isn't stranded.
-    const saved = loadDeck() || (await getAll(STORE_META)).find((r) => r.key === 'deck');
-    if (saved) {
-      state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
-      ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
-        if (typeof saved[k] === 'number') state[k] = saved[k];
-      });
-      if (saved.bg) state.bg = saved.bg;
-      if (saved.format) state.format = saved.format;
+  /* --------------------------------------------------------------- projects */
+  //
+  // A cold launch lands on the projects, not on a deck. Each project is a
+  // deck of its own with its own photos, and what the homepage shows about
+  // one — its name, how many photos and pages it holds, how much room it is
+  // taking — is written beside it as it is edited. So the list costs one
+  // localStorage read and no decoding at all, however many photos are behind
+  // it. The photos are only read when you open one, which is the one place a
+  // progress bar is worth having.
+
+  let projects = [];          // newest edit first
+  let current = null;         // the open project's record, null on the homepage
+  let opening = false;
+
+  const sizeOf = (b) => (b && b.size) || 0;
+  const nextFrame = () => new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0)));
+
+  function loadProjects() {
+    try {
+      const raw = localStorage.getItem(PROJECTS_KEY);
+      const list = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(list)) return list.filter((p) => p && p.id);
+    } catch { /* private mode, or something else wrote the key */ }
+    return [];
+  }
+
+  function saveProjects() {
+    try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects)); } catch { /* private mode */ }
+  }
+
+  // The cover is whatever the carousel opens on: the first photo actually
+  // placed, falling back to the first one imported. It is the tray thumbnail,
+  // which already exists — no extra encode, and 384px is more than a card
+  // needs.
+  function coverPhotoId() {
+    for (const pg of state.pages) {
+      const cell = pg.cells.find((c) => c && c.photo && photoById(c.photo));
+      if (cell) return cell.photo;
+    }
+    return state.photos.length ? state.photos[0].id : null;
+  }
+
+  // Called on every save of the deck, which is every edit. All of it is
+  // arithmetic over what is already in memory — no blob is read to work out
+  // how big the project is.
+  function saveProjectMeta() {
+    if (!current) return;
+    current.photos = state.photos.length;
+    current.pages = state.pages.length;
+    current.bytes = state.photos.reduce(
+      (n, p) => n + sizeOf(p.blob) + sizeOf(p.thumbBlob) + sizeOf(p.proxyBlob), 0,
+    );
+    current.updated = Date.now();
+
+    const wanted = coverPhotoId();
+    if (wanted !== current.cover) {
+      current.cover = wanted;
+      const photo = wanted ? photoById(wanted) : null;
+      const old = coverUrls.get(current.id);
+      if (old) URL.revokeObjectURL(old);
+      coverUrls.delete(current.id);
+      if (photo && photo.thumbBlob) {
+        put(STORE_COVERS, { id: current.id, blob: photo.thumbBlob });
+        coverUrls.set(current.id, URL.createObjectURL(photo.thumbBlob));
+      } else {
+        dropCover(current.id);
+      }
     }
 
-    const rows = await getAll(STORE_PHOTOS);
+    projects.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    saveProjects();
+  }
+
+  function nextName() {
+    const used = new Set(projects.map((p) => p.name));
+    let n = projects.length + 1;
+    while (used.has(`Carousel ${n}`)) n += 1;
+    return `Carousel ${n}`;
+  }
+
+  function createProject(name) {
+    const rec = {
+      id: `pj-${uid()}`,
+      name: name || nextName(),
+      created: Date.now(),
+      updated: Date.now(),
+      photos: 0,
+      pages: 1,
+      bytes: 0,
+      cover: null,
+    };
+    projects.unshift(rec);
+    saveProjects();
+    return rec;
+  }
+
+  async function deleteProject(rec) {
+    projects = projects.filter((p) => p.id !== rec.id);
+    saveProjects();
+    try { localStorage.removeItem(DECK_PREFIX + rec.id); } catch { /* private mode */ }
+    const url = coverUrls.get(rec.id);
+    if (url) URL.revokeObjectURL(url);
+    coverUrls.delete(rec.id);
+    // Redrawn before the photos are gone: the record is what the list reads,
+    // and waiting on the database would leave a deleted card on screen. The
+    // card leaving, and the total in the header dropping, are the answer —
+    // the toast lives in the editor's stage and has nowhere to appear here.
+    renderHome();
+    await dropProjectPhotos(rec.id);
+    await dropCover(rec.id);
+  }
+
+  /* --------------------------------------------------- opening and closing */
+
+  function applySettings(saved) {
+    if (!saved) return;
+    state.ratio = RATIOS.find((r) => r.id === saved.ratio) || state.ratio;
+    ['gap', 'padding', 'radius', 'quality'].forEach((k) => {
+      if (typeof saved[k] === 'number') state[k] = saved[k];
+    });
+    if (saved.bg) state.bg = saved.bg;
+    if (saved.format) state.format = saved.format;
+  }
+
+  // Back to the state a fresh project starts in. Bitmaps are closed and the
+  // thumbnail URLs revoked here rather than left to the collector: a deck of
+  // twenty is a couple of hundred megabytes of decoded pixels, and hopping
+  // between projects would otherwise stack them up.
+  function resetEditor() {
+    clearTimeout(dwellTimer);
+    loadingFull.clear();
+    state.photos.forEach((p) => {
+      try { URL.revokeObjectURL(p.thumbUrl); } catch { /* already gone */ }
+      try { p.bitmap.close(); } catch { /* not all browsers, and it may be closed */ }
+    });
+    state.photos = [];
+    persisted.clear();
+    state.pages = [newPage()];
+    state.current = 0;
+    state.selected = -1;
+    state.ratio = RATIOS[0];
+    state.gap = 24;
+    state.padding = 24;
+    state.radius = 0;
+    state.bg = '#ffffff';
+    state.quality = 1080;
+    state.format = 'image/jpeg';
+    undoStack.length = 0;
+    redoStack.length = 0;
+    syncHistoryButtons();
+    restyle();
+  }
+
+  function showOpening(name, step) {
+    $('op-name').textContent = name;
+    $('op-step').textContent = step || 'Reading photos…';
+    $('op-fill').style.width = '0%';
+    $('opening').hidden = false;
+  }
+
+  function setOpening(done, total) {
+    $('op-fill').style.width = `${total ? Math.round((done / total) * 100) : 100}%`;
+    $('op-step').textContent = total ? `${done} of ${total} photos` : 'Ready';
+  }
+
+  const hideOpening = () => { $('opening').hidden = true; };
+
+  async function openProject(rec) {
+    if (!rec || opening) return;
+    opening = true;
+    restored = false;
+    current = rec;
+    showOpening(rec.name);
+    // One frame, so the bar is on screen before the reading starts rather
+    // than appearing at the end of it.
+    await nextFrame();
+
+    resetEditor();
+    const saved = loadDeck(rec.id);
+    applySettings(saved);
+
+    const rows = await photoRows(rec.id);
+    setOpening(0, rows.length);
+
     const stale = [];
     const noProxy = [];
+    let done = 0;
     for (const row of rows) {
       try {
         // The proxy if there is one: a deck of twenty opens in a quarter of a
@@ -2335,9 +2588,14 @@
         if ((row.thumbEdge || 0) !== THUMB_EDGE) stale.push(photo);
         persisted.add(row.id);
         // Keep the id counter clear of anything we just restored.
-        const n = Number(String(row.id).replace(/\D/g, ''));
-        if (n >= nextId) nextId = n + 1;
+        bumpSeq(Number(String(row.id).replace(/\D/g, '')) + 1);
       } catch { /* unreadable row — skip it */ }
+      done += 1;
+      setOpening(done, rows.length);
+      // A decode resolves on its own task, so the bar does get painted — but
+      // only every few photos, which is often enough to read and rare enough
+      // not to cost a frame each time.
+      if (done % 4 === 0) await nextFrame();
     }
 
     if (saved && saved.pages && saved.pages.length) {
@@ -2355,19 +2613,302 @@
     }
 
     restored = true;
-    const placed = state.pages.filter((pg) => pg.cells.some(Boolean)).length;
-    if (placed) toast(`Picked up where you left off — ${placed} page${placed > 1 ? 's' : ''}`);
     restyle();
     setBgInputs(state.bg);
     syncStyleInputs();
+
+    // Off the homepage before the first render, so the canvas is measured
+    // against the space it will actually occupy rather than none at all.
+    document.body.classList.remove('on-home');
+    closeDrawer();
+    hideOpening();
+    opening = false;
+
     refresh();
-    // A restore isn't an edit, so it starts with a clean history.
+    // Opening isn't an edit, so it starts with a clean history.
     undoStack.length = 0;
     redoStack.length = 0;
     syncHistoryButtons();
+    requestAnimationFrame(() => render());
 
     if (stale.length) upgradeThumbs(stale);
     if (noProxy.length) backfillProxies(noProxy);
+  }
+
+  // What the card should really show is the slide, not one of the photos in
+  // it — the layout, the background and the framing are most of what makes a
+  // project recognisable. Drawn on the way out, which is the one moment it is
+  // about to be looked at and the photos are still decoded.
+  async function refreshCover(rec) {
+    const first = state.pages.find((pg) => pg.cells.some((c) => photoFor(c))) || null;
+    if (!rec || !first) return;
+    try {
+      const W = 400;
+      const H = Math.round((W * state.ratio.h) / state.ratio.w);
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      drawPage(c.getContext('2d'), first, W, H);
+      const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.82));
+      if (!blob) return;
+      await put(STORE_COVERS, { id: rec.id, blob });
+      const old = coverUrls.get(rec.id);
+      if (old) URL.revokeObjectURL(old);
+      coverUrls.set(rec.id, URL.createObjectURL(blob));
+    } catch { /* the photo thumbnail saved alongside it stands in */ }
+  }
+
+  async function goHome() {
+    if (!current || opening) return;
+    saveDeck();                 // last write while the project is still open
+    await refreshCover(current);
+    restored = false;
+    current = null;
+    closeLibrary();
+    closeDrawer();
+    if (!$('sheet').hidden) closeSheet();
+    resetEditor();
+    document.body.classList.add('on-home');
+    renderHome();
+  }
+
+  /* ------------------------------------------------------------ the homepage */
+
+  // One object URL per cover, kept between renders: the list is rebuilt every
+  // time you come back to it, and reissuing them would leak one a visit.
+  const coverUrls = new Map();
+
+  function fmtBytes(n) {
+    if (!n) return '0 MB';
+    const mb = n / 1048576;
+    if (mb < 0.1) return 'under 0.1 MB';
+    if (mb < 1024) return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+    return `${(mb / 1024).toFixed(1)} GB`;
+  }
+
+  function agoLabel(ts) {
+    const mins = Math.max(0, (Date.now() - ts) / 60000);
+    if (mins < 2) return 'just now';
+    if (mins < 60) return `${Math.round(mins)} min ago`;
+    const hours = mins / 60;
+    if (hours < 24) return `${Math.round(hours)} hr ago`;
+    const days = Math.round(hours / 24);
+    if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+    return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  function renderHome() {
+    const grid = $('home-grid');
+    grid.innerHTML = '';
+    $('home-empty').hidden = projects.length > 0;
+
+    const bytes = projects.reduce((n, p) => n + (p.bytes || 0), 0);
+    $('home-sub').textContent = projects.length
+      ? `${plural(projects.length, 'project')} · ${fmtBytes(bytes)} stored`
+      : 'Build a carousel, then come back to it whenever';
+
+    projects.forEach((rec) => grid.appendChild(projectCard(rec)));
+    paintCovers();
+    loadCovers();
+  }
+
+  function projectCard(rec) {
+    const card = document.createElement('div');
+    card.className = 'project';
+    card.dataset.id = rec.id;
+
+    const open = document.createElement('button');
+    open.className = 'project-open';
+    open.type = 'button';
+    open.setAttribute('aria-label', `Open ${rec.name}`);
+
+    const cover = document.createElement('span');
+    cover.className = 'project-cover';
+    const mark = document.createElement('span');
+    mark.className = 'brand-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 4; i += 1) mark.appendChild(document.createElement('i'));
+    cover.appendChild(mark);
+    open.appendChild(cover);
+
+    const meta = document.createElement('span');
+    meta.className = 'project-meta';
+    // Built as nodes: a project name is user text and could hold anything.
+    const name = document.createElement('span');
+    name.className = 'project-name';
+    name.textContent = rec.name;
+    const counts = document.createElement('span');
+    counts.className = 'project-line';
+    counts.textContent = `${plural(rec.photos || 0, 'photo')} · ${plural(rec.pages || 1, 'slide')}`;
+    const size = document.createElement('span');
+    size.className = 'project-line';
+    size.textContent = `${fmtBytes(rec.bytes || 0)} · ${agoLabel(rec.updated || rec.created || Date.now())}`;
+    meta.append(name, counts, size);
+    open.appendChild(meta);
+    card.appendChild(open);
+
+    const kill = document.createElement('button');
+    kill.className = 'project-x';
+    kill.type = 'button';
+    kill.setAttribute('aria-label', `Delete ${rec.name}`);
+    kill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    card.appendChild(kill);
+
+    const ask = document.createElement('div');
+    ask.className = 'project-confirm';
+    const question = document.createElement('p');
+    question.textContent = 'Delete this project?';
+    const detail = document.createElement('span');
+    detail.textContent = `${plural(rec.photos || 0, 'photo')} · ${fmtBytes(rec.bytes || 0)}`;
+    question.appendChild(detail);
+    const row = document.createElement('div');
+    row.className = 'row';
+    const no = document.createElement('button');
+    no.className = 'btn btn-ghost btn-sm';
+    no.type = 'button';
+    no.textContent = 'Keep';
+    const yes = document.createElement('button');
+    yes.className = 'btn btn-sm btn-danger';
+    yes.type = 'button';
+    yes.textContent = 'Delete';
+    row.append(no, yes);
+    ask.append(question, row);
+    card.appendChild(ask);
+
+    open.addEventListener('click', () => openProject(rec));
+    kill.addEventListener('click', () => {
+      buzz('pick');
+      // One card at a time asking, or the answer is ambiguous.
+      document.querySelectorAll('.project.is-asking').forEach((el) => el.classList.remove('is-asking'));
+      card.classList.add('is-asking');
+    });
+    no.addEventListener('click', () => card.classList.remove('is-asking'));
+    yes.addEventListener('click', () => { buzz('drop'); deleteProject(rec); });
+
+    return card;
+  }
+
+  function paintCovers() {
+    $('home-grid').querySelectorAll('.project').forEach((el) => {
+      const url = coverUrls.get(el.dataset.id);
+      const box = el.querySelector('.project-cover');
+      if (!url || box.querySelector('img')) return;
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      box.textContent = '';
+      box.appendChild(img);
+    });
+  }
+
+  // After the list is on screen, never before it: this is the one thing on
+  // the homepage that touches the database, and it is a handful of 384px
+  // thumbnails rather than anything a deck is made of.
+  async function loadCovers() {
+    const rows = await getAll(STORE_COVERS);
+    let fresh = false;
+    rows.forEach((row) => {
+      if (!row.blob || coverUrls.has(row.id)) return;
+      coverUrls.set(row.id, URL.createObjectURL(row.blob));
+      fresh = true;
+    });
+    if (fresh) paintCovers();
+  }
+
+  /* ---------------------------------------------- the deck from before projects */
+  //
+  // One install already has a deck and a tray saved with no project around
+  // them. Give them one, so an update doesn't look like everything was lost.
+  // Rows with no project aren't in the index, so comparing the two counts
+  // says whether there is anything to do without reading a single blob.
+
+  async function countOf(store, indexName) {
+    const d = await db();
+    if (!d) return 0;
+    return new Promise((resolve) => {
+      try {
+        const s = d.transaction(store, 'readonly').objectStore(store);
+        const req = (indexName ? s.index(indexName) : s).count();
+        req.onsuccess = () => resolve(req.result || 0);
+        req.onerror = () => resolve(0);
+      } catch { resolve(0); }
+    });
+  }
+
+  async function stampOrphans(projectId, wantId) {
+    const out = { photos: 0, bytes: 0, cover: null, coverId: null };
+    const d = await db();
+    if (!d) return out;
+    await new Promise((finish) => {
+      let tx;
+      try { tx = d.transaction(STORE_PHOTOS, 'readwrite'); } catch { finish(); return; }
+      const store = tx.objectStore(STORE_PHOTOS);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return;
+        const row = cur.value;
+        if (!row.project) { row.project = projectId; cur.update(row); }
+        if (row.project === projectId) {
+          out.photos += 1;
+          out.bytes += sizeOf(row.blob) + sizeOf(row.thumb) + sizeOf(row.proxy);
+          if (wantId ? row.id === wantId : !out.cover) {
+            out.cover = row.thumb || row.blob;
+            out.coverId = row.id;
+          }
+          bumpSeq(Number(String(row.id).replace(/\D/g, '')) + 1);
+        }
+        cur.continue();
+      };
+      tx.oncomplete = finish;
+      tx.onerror = finish;
+      tx.onabort = finish;
+    });
+    return out;
+  }
+
+  async function migrateLegacy() {
+    let legacy = null;
+    try {
+      const raw = localStorage.getItem(LEGACY_DECK_KEY);
+      if (raw) legacy = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    const total = await countOf(STORE_PHOTOS, null);
+    const stamped = await countOf(STORE_PHOTOS, 'project');
+    if (!legacy && total === stamped) return false;
+    // Only worth looking at for an install old enough to have kept its deck
+    // in the database rather than in localStorage.
+    if (!legacy) legacy = (await getAll(STORE_META)).find((r) => r.key === 'deck') || null;
+
+    showOpening('Grid Collage', 'Moving your work into a project…');
+    let wantId = null;
+    if (legacy && Array.isArray(legacy.pages)) {
+      for (const p of legacy.pages) {
+        const cell = (p.cells || []).find((c) => c && c.photo);
+        if (cell) { wantId = cell.photo; break; }
+      }
+    }
+
+    const rec = createProject('My carousel');
+    const found = await stampOrphans(rec.id, wantId);
+    rec.photos = found.photos;
+    rec.bytes = found.bytes;
+    rec.pages = (legacy && Array.isArray(legacy.pages) && legacy.pages.length) || 1;
+    if (legacy) {
+      try { localStorage.setItem(DECK_PREFIX + rec.id, JSON.stringify(legacy)); } catch { /* private mode */ }
+    }
+    try { localStorage.removeItem(LEGACY_DECK_KEY); } catch { /* private mode */ }
+    if (found.cover) {
+      rec.cover = found.coverId;
+      put(STORE_COVERS, { id: rec.id, blob: found.cover });
+      coverUrls.set(rec.id, URL.createObjectURL(found.cover));
+    }
+    saveProjects();
+    hideOpening();
+    return true;
   }
 
   // A library stored before proxies existed has none, so it opened the slow
@@ -2508,6 +3049,13 @@
       if (params.get('share') !== '0') toast("Shared photos didn't come through");
       return;
     }
+
+    // Sharing into the app is an instruction to put the photos somewhere, so
+    // it can't stop at the homepage: they go into whichever project was
+    // touched last, or into a new one if there isn't a project yet.
+    if (!current) await openProject(projects[0] || createProject());
+    if (!current) return;
+
     toast(`${files.length} photo${files.length > 1 ? 's' : ''} shared in`);
     await addPhotos(files);
   }
@@ -2575,9 +3123,13 @@
   // the same tick — the grid scrolls, so the same tap test applies.
   buzzTaps($('photos-modal'));
   buzzTaps($('btn-photos'));
+  buzzTaps($('btn-home'));
   buzzTaps(document.querySelector('.pagesbar-end'));
   buzzTaps($('installbar'));
   buzzTaps($('update-toast'));
+  // Opening a project is the heaviest thing a tap can start, so it says so.
+  // Delete answers for itself — those two buzz on the press, in projectCard.
+  buzzTaps($('home'));
 
   [...$('dock-root').children].forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
@@ -2628,6 +3180,14 @@
 
   $('btn-export').addEventListener('click', exportDeck);
   $('btn-page-x').addEventListener('click', () => { buzz('drop'); deletePage(state.current); });
+  $('btn-home').addEventListener('click', goHome);
+  $('btn-new').addEventListener('click', () => openProject(createProject()));
+  $('home-first').addEventListener('click', () => openProject(createProject()));
+  // A tap anywhere else on the homepage puts a card's delete question away.
+  $('home-body').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.project.is-asking')) return;
+    document.querySelectorAll('.project.is-asking').forEach((el) => el.classList.remove('is-asking'));
+  });
   $('btn-photos').addEventListener('click', openLibrary);
   $('pm-close').addEventListener('click', closeLibrary);
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
@@ -2666,6 +3226,9 @@
   $('btn-redo').addEventListener('click', redo);
 
   window.addEventListener('keydown', (e) => {
+    // Every shortcut below acts on the open deck, and on the homepage there
+    // isn't one — undo and the arrow keys would be editing a hidden project.
+    if (!current) return;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -2695,8 +3258,21 @@
   });
 
   refresh();
-  // Restore first, so anything shared in is added to the deck you left behind.
-  restoreAll().then(collectShared);
+
+  // The homepage, straight away and from localStorage alone — no database, no
+  // decoding, nothing to wait for. Everything that does need the database
+  // happens behind it: the one-off move of a pre-projects deck, the cover
+  // thumbnails, and anything that arrived through the share sheet.
+  projects = loadProjects();
+  // Set here as well as in the markup: embedded, the page is wrapped in a
+  // <body> that isn't ours, so the class in index.html never arrives.
+  document.body.classList.add('on-home');
+  renderHome();
+  requestPersistence();
+  migrateLegacy()
+    .then((moved) => { if (moved) renderHome(); })
+    .catch(() => {})
+    .then(collectShared);
 
   if (window.ResizeObserver) {
     let lastW = 0;

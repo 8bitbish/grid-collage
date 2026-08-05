@@ -114,6 +114,232 @@ input, textarea, .val, #bg-hex {
   .installbar-x:hover { background: var(--surface-2); color: var(--text); }
 }
 
+/* ------------------------------------------------------------ the homepage */
+/* Two screens in one document, swapped by a class on the body rather than a
+   navigation: the editor keeps its canvases and its listeners while you are
+   on the homepage, so coming back is instant and leaving tears nothing down
+   that would have to be rebuilt. */
+.home { display: none; }
+body.on-home .home { display: flex; }
+body.on-home .app { display: none; }
+
+.home {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.home-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.home-titles { flex: 1; min-width: 0; }
+.home-titles h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.home-titles p {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Two across on a phone, more as the screen allows. The cover carries the
+   recognition, so it gets the room; the numbers sit under it. */
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+}
+
+.project {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.project-open {
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-cover {
+  aspect-ratio: 1 / 1;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.project-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* No cover yet — an empty project, or one whose thumbnail hasn't arrived. */
+.project-cover .brand-mark { opacity: 0.3; }
+
+.project-meta {
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.project-name {
+  font-size: 13.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-line {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  background: rgba(8, 8, 12, 0.62);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+}
+.project-x svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+/* Deleting a project takes its photos with it, so it asks — over the card
+   itself rather than in a dialog, which keeps the question next to the thing
+   being asked about. */
+.project-confirm {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  text-align: center;
+  background: rgba(10, 10, 14, 0.9);
+  backdrop-filter: blur(3px);
+}
+.project.is-asking .project-confirm { display: flex; }
+.project-confirm p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.project-confirm p span { display: block; color: var(--muted); font-size: 11.5px; }
+.project-confirm .row { display: flex; gap: 8px; }
+/* Destructive at rest, not only on hover — there is no hover on a phone. */
+.project-confirm .btn-danger { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
+
+.home-empty {
+  padding: 48px 20px;
+  text-align: center;
+}
+.home-empty p { margin: 0 0 14px; font-size: 15px; }
+.home-sub-note { margin: 14px 0 0 !important; font-size: 12px; color: var(--muted); }
+
+/* ------------------------------------------------------ opening a project */
+/* The only slow step left: every photo in the deck has to come back out of
+   the database and be decoded. It earns a bar because it is countable — how
+   many photos there are is known before the first one is read. */
+.opening {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(13, 13, 16, 0.86);
+  backdrop-filter: blur(8px);
+}
+.op-card {
+  width: min(300px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+}
+.op-card strong {
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.op-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.op-track i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 120ms linear;
+}
+.op-step {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* -------------------------------------------------------------- layout */
 /* An app shell: header, pages, preview, dock. Nothing scrolls the page, so
    using a control can never push the preview off screen. */
@@ -131,6 +357,31 @@ input, textarea, .val, #bg-hex {
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+}
+
+/* The way back to the projects, at the far left where a back arrow belongs.
+   It shares the row rather than taking one of its own — the preview needs
+   every pixel of height it can get. */
+.home-btn {
+  flex: none;
+  width: 36px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.home-btn svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Pinned, not part of the strip: the way into the photos has to stay put
@@ -183,6 +434,7 @@ input, textarea, .val, #bg-hex {
    spends its first third above the button's natural 67px doing nothing
    visible, while the padding eases the whole way. The pages drift for the
    length of the animation. Switching both at once, the drift is a frame. */
+.pagesbar.is-reordering .home-btn,
 .pagesbar.is-reordering .photos-btn,
 .pagesbar.is-reordering .pagesbar-end { display: none; }
 
@@ -634,10 +886,13 @@ input, textarea, .val, #bg-hex {
 .dock-item,
 .dock-back,
 .film-add,
+.home-btn,
 .photos-btn,
 .pb-btn,
 .pm-close,
 .pm-pick,
+.project-open,
+.project-x,
 .layout-btn,
 .swatch {
   transition: background-color 140ms, color 140ms, border-color 140ms,
@@ -646,7 +901,10 @@ input, textarea, .val, #bg-hex {
 .dock-item:active,
 .dock-back:active,
 .film-add:active:not(:disabled),
+.home-btn:active,
 .photos-btn:active,
+.project-open:active,
+.project-x:active,
 .pb-btn:active:not(:disabled),
 .page-x:active,
 .pm-close:active,
@@ -663,7 +921,12 @@ input, textarea, .val, #bg-hex {
 .dock-item:active { background: var(--surface-2); color: var(--text); transform: scale(0.92); }
 .dock-back:active { background: #2f2f3c; transform: scale(0.92); }
 .film-add:active:not(:disabled) { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
+.home-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.9); }
 .photos-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.93); }
+/* The card is the target, so the whole card answers — pressing the cover and
+   pressing the name have to feel like the same tap. */
+.project-open:active { filter: brightness(1.18); transform: scale(0.975); }
+.project-x:active { background: var(--accent); transform: scale(0.88); }
 .pb-btn:active:not(:disabled) { background: var(--surface-2); transform: scale(0.9); }
 .page-x:active { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(0.9); }
 .pm-close:active { background: #2f2f3c; transform: scale(0.92); }
@@ -1344,7 +1607,9 @@ input[type="range"]::-moz-range-thumb {
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
 /* The library covers the stage, so while it's open the toast has to leave the
-   stage with it — otherwise "this page is full" is announced behind a card. */
+   stage with it — otherwise "this page is full" is announced behind a card.
+   The homepage has no stage laid out at all, so it doesn't use the toast —
+   the card leaving the grid is the answer to the only thing that asks. */
 body.is-library .toast {
   position: fixed;
   bottom: calc(18px + env(safe-area-inset-bottom, 0px));
