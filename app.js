@@ -56,7 +56,8 @@
   // A phone photo is ~12MP; the largest tile we ever draw is 2160px. Decoding
   // at full size costs memory and draw time for detail that can't survive the
   // downscale, so photos are resized once on the way in.
-  const MAX_EDGE = 2560;
+  // 0 means no cap: keep every photo at the size it arrived. See ingest().
+  const MAX_EDGE = 0;
   const THUMB_EDGE = 160;
 
   /* --------------------------------------------------------------- state */
@@ -527,7 +528,7 @@
   // resized copy rather than the original 12MP file.
   async function ingest(blob, name) {
     const decoded = await createImageBitmap(blob);
-    const bitmap = await shrink(decoded, MAX_EDGE);
+    const bitmap = MAX_EDGE ? await shrink(decoded, MAX_EDGE) : decoded;
     const resized = bitmap !== decoded;
     if (resized) decoded.close();
 
@@ -535,11 +536,10 @@
     const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.8);
     if (thumbBitmap !== bitmap) thumbBitmap.close();
 
-    // Only re-encode when we actually changed the pixels — a JPEG that was
-    // already small enough can be persisted exactly as it arrived.
-    const stored = !resized && blob.type === 'image/jpeg'
-      ? blob
-      : await encode(bitmap, 'image/jpeg', 0.92);
+    // Only re-encode when we actually changed the pixels. Untouched, the file
+    // is persisted exactly as it arrived — no second pass through a lossy
+    // encoder, whatever format it came in.
+    const stored = resized ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
 
     const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
 
