@@ -186,11 +186,17 @@ input, textarea, .val, #bg-hex {
 .pagesbar.is-reordering .photos-btn,
 .pagesbar.is-reordering .pagesbar-end { display: none; }
 
-/* The strip takes on the width the left end gave up, so the pages hold their
-   place on screen while the space around them opens. --fold-left is measured
-   in JS at the moment the drag starts. */
+/* The strip takes on exactly the width each end gave up, as padding on that
+   side. Two things fall out of it. The pages hold their place on screen while
+   the space around them opens — that's the left. And the strip's scrollable
+   length grows by as much as its viewport did, so how far it can scroll is
+   unchanged — that's the right, and without it a strip already scrolled to
+   the end gets clamped back by the width of the undo pair the instant you
+   pick a page up, jolting every thumbnail sideways. Both are measured in JS
+   at the moment the drag starts. */
 .pagesbar.is-reordering .filmstrip {
   padding-left: calc(12px + var(--fold-left, 0px));
+  padding-right: calc(12px + var(--fold-right, 0px));
 }
 @media (prefers-reduced-motion: reduce) {
   .photos-btn,

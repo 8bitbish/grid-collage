@@ -698,9 +698,21 @@
     // strip takes on exactly that width as padding and the contents stay put.
     const bar = document.querySelector('.pagesbar');
     bar.style.setProperty('--fold-left', `${$('btn-photos').offsetWidth}px`);
+    bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth}px`);
     bar.classList.add('is-reordering');
     el.classList.add('is-lifted');
     el.style.transition = 'none';
+
+    // How far the strip can scroll, fixed now, before the page is moved.
+    //
+    // A transform that pushes a child to the right extends its container's
+    // scrollable area to the right — so dragging a page towards the end grows
+    // scrollWidth, the edge scroll chases the new end, that carries the page
+    // further right, and it grows again. Left to itself the strip scrolls for
+    // as long as you hold there. Measured once, the runaway has nowhere to go.
+    reorder.startScroll = strip.scrollLeft;
+    reorder.maxScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+
     reorder.raf = requestAnimationFrame(edgeScroll);
   }
 
@@ -720,7 +732,7 @@
     if (x > box.right - EDGE_ZONE) v = EDGE_SPEED * Math.min(1, (x - box.right + EDGE_ZONE) / EDGE_ZONE);
     else if (x < box.left + EDGE_ZONE) v = -EDGE_SPEED * Math.min(1, (box.left + EDGE_ZONE - x) / EDGE_ZONE);
 
-    if (v) strip.scrollLeft = clamp(strip.scrollLeft + v, 0, strip.scrollWidth - strip.clientWidth);
+    if (v) strip.scrollLeft = clamp(strip.scrollLeft + v, 0, reorder.maxScroll);
 
     // Every frame, scrolled or not. The strip also moves and widens while the
     // ends fold away, and a page only re-placed on a finger move would slide
