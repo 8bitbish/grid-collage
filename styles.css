@@ -464,12 +464,18 @@ body.is-picking .tile::after {
 
 /* Pinned, not part of the strip: the way into the photos has to stay put
    however far along the pages you have scrolled. */
+/* The count sits under the icon rather than beside it. Side by side it made
+   the button as wide as two pages of the strip, and the strip is the thing
+   that wants the room — this row is the only place the deck can be scrolled
+   through. */
 .photos-btn {
   flex: none;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 0 11px;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 8px;
   appearance: none;
   border: none;
   border-right: 1px solid var(--line);
@@ -486,11 +492,11 @@ body.is-picking .tile::after {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* No pill under the icon: at this size the background was most of what you
+   saw, and the number is the point. The colour carries the empty state. */
 .photos-count {
-  min-width: 18px;
-  padding: 1px 5px;
-  border-radius: 9px;
-  background: var(--surface-2);
+  min-width: 1em;
+  line-height: 1;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
@@ -499,7 +505,7 @@ body.is-picking .tile::after {
 }
 /* Nothing imported yet is the one time this wants to catch the eye. */
 .photos-btn.is-empty { color: var(--text); }
-.photos-btn.is-empty .photos-count { background: var(--accent); color: #fff; }
+.photos-btn.is-empty .photos-count { color: var(--accent); }
 .photos-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
 
 /* While a page is being dragged, both ends step out and hand their width to

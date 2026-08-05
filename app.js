@@ -79,15 +79,19 @@
   // "is the copy on my phone the one that was just deployed", so it is the
   // date of the deploy, with a letter after it if there is more than one in
   // a day. Bump it in the same commit as the change it ships.
-  const VERSION = '2026.08.05';
+  const VERSION = '2026.08.05b';
 
   /* --------------------------------------------------------------- state */
 
   const state = {
     // deck-wide
     ratio: RATIOS[0],
-    gap: 24,
-    padding: 24,
+    // A new deck starts with nothing turned on: no gap, no padding, square
+    // corners. The photos are the thing, and every one of these takes room
+    // away from them — you add them when you want them, rather than finding
+    // a border you never asked for and having to hunt down the slider.
+    gap: 0,
+    padding: 0,
     radius: 0,
     bg: '#ffffff',
     quality: 1080,
@@ -2732,8 +2736,8 @@
     state.current = 0;
     state.selected = -1;
     state.ratio = RATIOS[0];
-    state.gap = 24;
-    state.padding = 24;
+    state.gap = 0;
+    state.padding = 0;
     state.radius = 0;
     state.bg = '#ffffff';
     state.quality = 1080;
