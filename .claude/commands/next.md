@@ -13,6 +13,12 @@ conditions below say which. Anything short of one of those, keep going.
 Read `docs/BACKLOG.md` and `docs/task-template.md`. Take the topmost unchecked
 entry that has no `blocked:` line. Say which one you picked, then get on with it.
 
+Do not reorder the list here, dependency or not. The template allows it, but
+doing it in this command would mean choosing your own task, which is the single
+decision this one does not get to make. If the topmost entry turns out to sit
+above something it depends on, that is a stop condition — say so and leave the
+list alone.
+
 ## 2. Plan
 
 Explore the relevant files and write down the plan: the files you will touch,

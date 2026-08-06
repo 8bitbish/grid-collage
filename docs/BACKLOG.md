@@ -4,8 +4,9 @@ Work not yet started, in the order it should be picked up. `/add` appends to the
 bottom; `/next` takes the topmost unchecked entry with no `blocked:` line.
 
 The shape of an entry is defined in [`task-template.md`](task-template.md), and
-that file is the only place it is defined. Order is manual — only a human
-reorders this list.
+that file is the only place it is defined. Order is a judgement about what
+matters most and stays a human one — but an entry sitting above something it
+depends on is simply wrong, and that much can be put right without asking.
 
 ---
 

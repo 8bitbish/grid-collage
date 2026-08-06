@@ -35,8 +35,10 @@ questions entirely and go straight to writing the entry.
 ## 4. Write the entry
 
 Follow `docs/task-template.md` exactly. Append to the bottom of the backlog.
-Then tell me where in the order you think it belongs and why — but do not
-reorder it yourself.
+Then say where in the order you think it belongs and why. Move it there yourself
+only if the dependency runs the wrong way — something already listed depends on
+this entry, or this entry depends on something below it. Anything else is a
+judgement about priorities, and that one stays with whoever owns the list.
 
 ## 5. Commit it
 

@@ -19,7 +19,10 @@ read this file — if you change the schema, change it here only.
   "no layout shift on first paint" is.
 - **One PR per task.** If a task needs more than roughly one branch's worth of
   work, split it into separate entries rather than nesting sub-bullets.
-- **Order is manual.** New tasks append to the bottom. Only a human reorders.
+- **New tasks append to the bottom.** Moving one above an entry that depends on
+  it is allowed — say what moved and what the dependency was. Moving something
+  because it feels more important is a call about priorities, which is not one
+  to make on someone else's behalf.
 - **Ticking the box is the last step**, after the branch is pushed.
 - **Blocked tasks** get `blocked: <reason or task title>` on their own line.
   `/next` skips anything with a `blocked:` line.
