@@ -1008,7 +1008,18 @@
     }
 
     const wasEmpty = state.photos.length === 0;
-    if (images.length > 2) toast(`Importing ${images.length} photos…`);
+
+    // A dozen photos off a phone is several seconds of decoding with nothing
+    // to show for it until the end, and the old message said "importing 24
+    // photos" once and then vanished long before they had arrived. It stays
+    // now, and counts.
+    const counted = images.length > 1;
+    let done = 0;
+    const step = () => {
+      done += 1;
+      if (counted) startProgress(`Importing ${done} of ${images.length}…`, done, images.length);
+    };
+    if (counted) startProgress(`Importing ${images.length} files…`, 0, images.length);
 
     // A few at a time: all 20 at once spikes memory with 12MP decodes, one at
     // a time leaves the decoder idle between photos.
@@ -1021,6 +1032,14 @@
     const SHARP_ON_ARRIVAL = 4;
     const queue = [...images];
     const results = new Array(images.length);
+    const problems = [];
+    // Said last, so it is what stays on screen: a file that would not open is
+    // more worth reading than a count of the ones that did.
+    const sayProblems = () => {
+      if (!problems.length) return;
+      toast(problems.length === 1 ? problems[0]
+        : `${problems.length} of those files couldn't be read`);
+    };
     const worker = async () => {
       while (queue.length) {
         const index = images.length - queue.length;
@@ -1040,8 +1059,12 @@
           console.warn('Import failed', {
             name: file.name, type: file.type, size: file.size, kind, error: err,
           });
-          toast(whyNot(file, kind, err));
+          // Held rather than said here. What went wrong with one file out of
+          // twenty is the thing worth reading, and saying it now means the
+          // summary of the whole pile lands on top of it a moment later.
+          problems.push(whyNot(file, kind, err));
         }
+        step();
       }
     };
     // Two, not three. Each worker holds a whole decoded source while it makes
@@ -1050,7 +1073,13 @@
     // the time in exchange for another fifty megabytes at the worst possible
     // moment. Measured over two dozen 12MP photos: 2.6s peaking at 186MB
     // against 3.1s peaking at 135MB.
-    await Promise.all([worker(), worker()]);
+    // In a finally, because a bar left sitting at 60 per cent for the rest of
+    // the session would be worse than never having shown one.
+    try {
+      await Promise.all([worker(), worker()]);
+    } finally {
+      endProgress();
+    }
 
     // Added in the order they were chosen, whatever order they finished in.
     if (results.some(Boolean)) snapshot();
@@ -1065,9 +1094,11 @@
       importForChooser = false;
       renderChooser();
       refresh();
+      sayProblems();
       return;
     }
     afterImport(wasEmpty);
+    sayProblems();
   }
 
   // Dropping a pile of photos into an empty deck almost always means "one page
@@ -3224,12 +3255,59 @@
   /* ------------------------------------------------------------------ misc */
 
   let toastTimer;
+  // Something with a known number of steps holds the strip until it is
+  // finished, and shows how far through it is. Anything else that wants to
+  // say something meanwhile waits its turn: a message that arrived mid-import
+  // would replace the bar and then be replaced by the next tick a moment
+  // later, so nobody would read either.
+  let running = false;
+  let finishing = false;
+  const waiting = [];
+
   function toast(message) {
+    if (running) { waiting.push(message); return; }
     const el = $('toast');
-    el.textContent = message;
+    $('toast-text').textContent = message;
     el.classList.add('is-visible');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('is-visible'), 2600);
+  }
+
+  function startProgress(message, done, total) {
+    running = true;
+    clearTimeout(toastTimer);
+    const el = $('toast');
+    $('toast-text').textContent = message;
+    $('toast-bar').hidden = false;
+    $('toast-fill').style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
+    el.classList.add('is-progress', 'is-visible');
+  }
+
+  function endProgress() {
+    if (!running || finishing) return;
+    finishing = true;
+
+    // Let the bar arrive rather than yanking it off mid-sweep. The last step
+    // and the end land in the same tick, so the fill is set to full and then
+    // cleared before the browser has painted either — which reads as giving
+    // up somewhere in the nineties. It stays claimed for the length of that
+    // sweep, so anything said in the meantime still queues behind it.
+    $('toast-fill').style.width = '100%';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      running = false;
+      finishing = false;
+      $('toast').classList.remove('is-progress');
+      $('toast-bar').hidden = true;
+      $('toast-fill').style.width = '0%';
+
+      // Whatever tried to speak while it was working gets its turn now. The
+      // last one said is the one that stands: the summary of what happened
+      // to the whole pile comes after anything about a single file in it.
+      const held = waiting.splice(0);
+      if (held.length) toast(held[held.length - 1]);
+      else $('toast').classList.remove('is-visible');
+    }, 300);
   }
 
   /* --------------------------------------------------------- persistence */

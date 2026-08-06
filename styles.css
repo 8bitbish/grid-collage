@@ -1724,6 +1724,34 @@ input[type="range"]::-moz-range-thumb {
 }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
+/* Counting through a known number of things, so it stays put and shows how
+   far along it is. A pill with a bar wedged into it reads as a message that
+   has got stuck, so it squares off into a small card for as long as it has
+   something to report, then goes back to being a pill. */
+.toast.is-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: min(260px, calc(100vw - 48px));
+  padding: 10px 16px 12px;
+  border-radius: 14px;
+}
+.toast-bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.toast-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 140ms linear;
+}
+
 /* The library covers the stage, so while it's open the toast has to leave the
    stage with it — otherwise "this page is full" is announced behind a card.
    The homepage has no stage laid out at all, so it doesn't use the toast —

@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.06d">
+<link rel="stylesheet" href="styles.css?v=2026.08.06e">
 </head>
 <body class="on-home">
 
@@ -146,7 +146,13 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <!-- The bar only appears for something with a known number of steps to
+         get through — an import, so far. Everything else is one line that
+         says itself and goes. -->
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <span id="toast-text"></span>
+      <span class="toast-bar" id="toast-bar" hidden><i id="toast-fill"></i></span>
+    </div>
   </section>
 
   <!-- ------------------------------------------------ settings, at the foot -->
@@ -394,6 +400,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.06d"></script>
+<script src="app.js?v=2026.08.06e"></script>
 </body>
 </html>
