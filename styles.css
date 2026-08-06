@@ -903,7 +903,11 @@ body.is-picking .tile::after {
 /* Delete this page, in the page's own top-right corner. Placed by JS against
    the canvas rather than the stage: the canvas is centred by constraint and
    its corner moves with the deck's shape, so a CSS inset on the stage would
-   leave it floating out in the surround at anything but 1:1. */
+   leave it floating out in the surround at anything but 1:1.
+
+   Lives inside the track, so the track's transform carries it off with the
+   page during a swipe instead of leaving it pinned over a page that has
+   already gone. */
 .page-x {
   position: absolute;
   z-index: 6;
@@ -929,6 +933,15 @@ body.is-picking .tile::after {
   stroke-linecap: round;
 }
 .page-x[hidden] { display: none; }
+
+/* The neighbours' crosses appear and disappear with the peek canvases they
+   belong to, and never take a press: a finger landing mid-slide belongs to the
+   next page turn. The current page's cross goes inert for the same reason,
+   which is also what stops a cross being clicked as it leaves the screen. */
+.page-x-peek { visibility: hidden; pointer-events: none; }
+.canvas-wrap.is-sliding .page-x-peek { visibility: visible; }
+.canvas-wrap.is-sliding .page-x { pointer-events: none; }
+
 @media (hover: hover) {
   .page-x:hover { background: var(--accent); border-color: var(--accent); }
 }

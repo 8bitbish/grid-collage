@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.06e">
+<link rel="stylesheet" href="styles.css?v=2026.08.06f">
 </head>
 <body class="on-home">
 
@@ -141,10 +141,20 @@
         <canvas class="peek" id="canvas-prev" aria-hidden="true"></canvas>
         <canvas id="canvas" width="1080" height="1080" aria-label="Current page"></canvas>
         <canvas class="peek" id="canvas-next" aria-hidden="true"></canvas>
+        <!-- One cross per page in the track rather than one over the stage, so
+             that a swipe carries each away with the page it belongs to and the
+             page arriving already has its own. The neighbours' are decoration
+             on the way past, like the peek canvases they sit on. -->
+        <button class="page-x page-x-peek" id="btn-page-x-prev" type="button" tabindex="-1" aria-hidden="true" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <button class="page-x" id="btn-page-x" type="button" aria-label="Delete this page" title="Delete this page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <button class="page-x page-x-peek" id="btn-page-x-next" type="button" tabindex="-1" aria-hidden="true" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </div>
-      <button class="page-x" id="btn-page-x" type="button" aria-label="Delete this page" title="Delete this page">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
     </div>
     <!-- The bar only appears for something with a known number of steps to
          get through — an import, so far. Everything else is one line that
@@ -400,6 +410,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.06e"></script>
+<script src="app.js?v=2026.08.06f"></script>
 </body>
 </html>

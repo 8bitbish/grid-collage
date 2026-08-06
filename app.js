@@ -360,22 +360,34 @@
   // canvas is sized by constraint and centred, so where that corner lands
   // depends on the deck's shape and the space available — it has to be
   // measured, not expressed as an inset.
+  //
+  // There is one per page in the track, and each is measured against the track
+  // rather than against the stage. That difference is the whole trick: both
+  // rects are moved by the track's transform, so the gap between them reads the
+  // same mid-swipe as at rest, and the cross travels with its page without
+  // anything having to reposition it frame by frame. Measured against the stage
+  // instead, the canvas rect would carry the transform and the stage rect would
+  // not, and the two only agree at translateX(0).
+  const PAGE_X_INSET = 8;
+
   function placePageX() {
     const btn = $('btn-page-x');
     if (!btn) return;
     // Out of the way while a tile is selected: the dock is showing that tile's
     // own Delete, and two crosses meaning different things is one too many.
-    // Out of the way mid-slide too, or it hangs over a page that's leaving.
-    const hide = state.selected !== -1 || sliding || !state.photos.length;
-    btn.hidden = hide;
-    if (hide) return;
+    const hide = state.selected !== -1 || !state.photos.length;
+    const track = $('track').getBoundingClientRect();
 
-    const wrap = $('canvas-wrap').getBoundingClientRect();
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width) return;
-    const inset = 8;
-    btn.style.left = `${rect.right - wrap.left - btn.offsetWidth - inset}px`;
-    btn.style.top = `${rect.top - wrap.top + inset}px`;
+    [[btn, canvas], [$('btn-page-x-prev'), $('canvas-prev')], [$('btn-page-x-next'), $('canvas-next')]]
+      .forEach(([el, cv]) => {
+        if (!el) return;
+        el.hidden = hide || !cv || cv.hidden;
+        if (el.hidden) return;
+        const rect = cv.getBoundingClientRect();
+        if (!rect.width) { el.hidden = true; return; }
+        el.style.left = `${rect.right - track.left - el.offsetWidth - PAGE_X_INSET}px`;
+        el.style.top = `${rect.top - track.top + PAGE_X_INSET}px`;
+      });
   }
 
   function roundedPath(g, r, radius) {
@@ -2101,6 +2113,10 @@
         el.style.translate = `calc(-50% + ${side * step}px) -50%`;
       });
     $('canvas-wrap').classList.add('is-sliding');
+    // The neighbours have only just been given their size and offset, and their
+    // crosses are measured off them, so this is the moment those can be placed
+    // — before the peeks become visible rather than a frame after.
+    placePageX();
   }
 
   function setTrack(px, animate) {
@@ -2151,7 +2167,6 @@
     preparePeek();
     sliding = true;
     slideTarget = target;
-    placePageX();
     buzz('turn');
     // Straight away, not when the slide lands: state.current can't move until
     // the animation finishes (the render reads it), but the strip is showing
@@ -4727,7 +4742,15 @@
   });
 
   $('btn-export').addEventListener('click', exportDeck);
-  $('btn-page-x').addEventListener('click', () => { buzz('drop'); deletePage(state.current); });
+  // The CSS already makes every cross inert mid-slide, but a press is not the
+  // only way one gets clicked — anything calling click() on the element goes
+  // straight past pointer-events. Deleting the page a swipe is halfway through
+  // leaving is worth guarding twice.
+  $('btn-page-x').addEventListener('click', () => {
+    if (sliding) return;
+    buzz('drop');
+    deletePage(state.current);
+  });
   $('btn-home').addEventListener('click', goHome);
   // New means "a new one for these" while a share is waiting to be placed.
   const startNew = () => (pendingShare ? placeSharedIn(createProject()) : openProject(createProject()));
