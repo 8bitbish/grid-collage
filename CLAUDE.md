@@ -97,7 +97,12 @@ The code here is written to be read. Match it rather than your own habits.
 - `docs/BACKLOG.md` — what is next, in order.
 - `docs/task-template.md` — the shape of an entry. The only place it is defined.
 - `/add <rough idea>` — scopes it against the code and appends a proper entry.
-- `/next` — takes the topmost unblocked entry through to a pushed branch.
+- `/next` — takes the topmost unblocked entry through to a pushed branch, on
+  its own, without stopping to ask. It stops only on the conditions listed in
+  the command itself, and it never commits to `main`. Review happens on the
+  branch afterwards, so the acceptance criteria on an entry are doing the work
+  a conversation would otherwise do — write them so they can be checked, not
+  argued about.
 
 Anything noticed while working on something else goes into the backlog, not
 into the current branch.
