@@ -67,7 +67,7 @@ depends on is simply wrong, and that much can be put right without asking.
     from the file's own timestamp for video — see `takenAt()` and `ingest()`.
     Came out of the Google Photos investigation; never picked up.
 
-- [ ] **Make the delete-page cross travel with its page**
+- [x] **Make the delete-page cross travel with its page**
   why: the cross belongs to the page, but it is a sibling of the track rather
     than a passenger on it, so during a swipe the page slides out from under a
     cross that stays pinned where it was. On commit it vanishes outright and
