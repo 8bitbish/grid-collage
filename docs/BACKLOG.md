@@ -27,6 +27,31 @@ depends on is simply wrong, and that much can be put right without asking.
     video fixtures with ffmpeg. Both are environment setup, so the runner
     should say plainly what it needs rather than failing obscurely.
 
+- [ ] **Read the date a HEIC was taken out of its EXIF**
+  why: `takenAt()` gives up on anything that is not a JPEG, so every HEIC
+    falls back to `File.lastModified` — the moment the file reached this
+    device, not the moment the shutter went. An iPhone camera roll is the
+    likeliest source of photos this app ever sees and the one place the date
+    is currently wrong, which quietly undermines anything ordered by date.
+  acceptance:
+    - a HEIC whose EXIF `DateTimeOriginal` is known imports with
+      `photo.taken` equal to that timestamp rather than to its `lastModified`
+    - a HEIC carrying no EXIF still falls back to `lastModified`
+    - a JPEG's `taken` is byte-for-byte what it was before the change
+    - the two dates are printed for a real iPhone HEIC and the difference
+      between them recorded in the commit message
+  files: app.js (`takenAt`, the HEIC section, `ingest`)
+  notes: the ordering in `ingest` already works — `takenAt` is handed the
+    original blob at app.js:834, before the HEIC is re-encoded to JPEG, so
+    only the `0xffd8` check at the top of `takenAt` stands in the way. HEIF
+    keeps EXIF as an item inside its `meta` box; walking the boxes for it is
+    likely cheaper than asking libheif, which is already loaded by then but
+    for the pixels rather than the metadata. It sits here rather than where it
+    was written because the date-sort entry immediately after it has the same
+    wrong answer for the same reason. The two auto-build entries below need
+    this too, and for more than the date: reaching a HEIC's EXIF at all is
+    what gets at its location and its lens as well.
+
 - [ ] **Offer "Sort slides by date taken" in the Page panel**
   why: importing a folder builds one slide per photo in whatever order the
     picker handed them over, which is often not the order they were taken.
@@ -74,29 +99,6 @@ depends on is simply wrong, and that much can be put right without asking.
     `#canvas-wrap` and `pointerdown` already early-returns on
     `e.target.closest('button')`, so a cross inside the track stays exempt
     from starting a swipe.
-
-- [ ] **Read the date a HEIC was taken out of its EXIF**
-  why: `takenAt()` gives up on anything that is not a JPEG, so every HEIC
-    falls back to `File.lastModified` — the moment the file reached this
-    device, not the moment the shutter went. An iPhone camera roll is the
-    likeliest source of photos this app ever sees and the one place the date
-    is currently wrong, which quietly undermines anything ordered by date.
-  acceptance:
-    - a HEIC whose EXIF `DateTimeOriginal` is known imports with
-      `photo.taken` equal to that timestamp rather than to its `lastModified`
-    - a HEIC carrying no EXIF still falls back to `lastModified`
-    - a JPEG's `taken` is byte-for-byte what it was before the change
-    - the two dates are printed for a real iPhone HEIC and the difference
-      between them recorded in the commit message
-  files: app.js (`takenAt`, the HEIC section, `ingest`)
-  notes: the ordering in `ingest` already works — `takenAt` is handed the
-    original blob at app.js:834, before the HEIC is re-encoded to JPEG, so
-    only the `0xffd8` check at the top of `takenAt` stands in the way. HEIF
-    keeps EXIF as an item inside its `meta` box; walking the boxes for it is
-    likely cheaper than asking libheif, which is already loaded by then but
-    for the pixels rather than the metadata. Blocks the auto-build entry
-    below, and also the existing "sort slides by date taken" entry, which has
-    the same wrong answer for the same reason.
 
 - [ ] **Measure every photo as it is imported**
   why: choosing good photos out of a large tray needs numbers, and there is
@@ -177,7 +179,7 @@ depends on is simply wrong, and that much can be put right without asking.
     they are trusted. Likely the largest entry here, and worth splitting once
     the entry above has landed and the real shape is visible.
 
-- [ ] **Say where an `/add` entry gets committed**
+- [x] **Say where an `/add` entry gets committed**
   why: `/add` forbids commits, which is right on a laptop and wrong in a
     hosted session, where the container is reclaimed and anything uncommitted
     is destroyed. The two rules met for the first time this week and the
