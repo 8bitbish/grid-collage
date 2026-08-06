@@ -67,3 +67,8 @@ via the `docs/task-template.md` schema and carry on.** Never fix them in this
 branch. This is the rule that keeps tasks reviewable, and it matters more
 without a human gate, not less — an unattended run is exactly where a small
 fix quietly becomes a second change nobody reviewed.
+
+The fix stays out of this branch; the entry describing it has nowhere else to
+go, so it rides this task's pull request and reaches `main` when that does.
+List what you appended in the summary. If the branch is later abandoned the
+entry goes with it, and that line is the only trace left.

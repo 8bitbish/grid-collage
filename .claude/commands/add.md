@@ -38,10 +38,32 @@ Follow `docs/task-template.md` exactly. Append to the bottom of the backlog.
 Then tell me where in the order you think it belongs and why — but do not
 reorder it yourself.
 
+## 5. Commit it
+
+`docs/BACKLOG.md` is the only path this command may stage. Stage it by name and
+commit that path alone — never `git add -A` or `git add .`, or an entry written
+while something else is half-finished will sweep that work into the commit
+beside it. Whatever else was dirty when you started stays dirty afterwards.
+
+Leaving it uncommitted is not an option either. On a laptop that would be
+fine, but in a hosted session the container is reclaimed and anything
+uncommitted goes with it, entry included.
+
+Where the commit lands:
+
+- **On `main`, or free to switch to it** — commit there. This is a queue
+  mutation, not a change to be reviewed: it cannot break the app, and you
+  already settled its wording before writing it. It is also the only place the
+  entry does anything, because `/next` cuts its branch from `main` and reads
+  the backlog off that.
+- **Pinned to a branch you may not leave**, as a hosted session usually is —
+  commit there, and say in your summary that the entry has to be merged to
+  `main` before `/next` can ever pick it up.
+
 ## Constraints
 
-- **This command is read-only apart from appending to `docs/BACKLOG.md`.**
+- **`docs/BACKLOG.md` is the only file this command may change.**
   If you spot something worth fixing while looking around, add it to the
   backlog as a separate entry. Do not fix it now, however small.
-- No new branches, no commits.
+- No new branches.
 - If the task belongs in Jira rather than this repo's backlog, say so and stop.
