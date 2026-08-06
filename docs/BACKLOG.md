@@ -175,3 +175,34 @@ reorders this list.
     with a comment saying so, and want calibrating against a real deck before
     they are trusted. Likely the largest entry here, and worth splitting once
     the entry above has landed and the real shape is visible.
+
+- [ ] **Say where an `/add` entry gets committed**
+  why: `/add` forbids commits, which is right on a laptop and wrong in a
+    hosted session, where the container is reclaimed and anything uncommitted
+    is destroyed. The two rules met for the first time this week and the
+    command lost. Worse, the destination matters more than the command
+    admits: `/next` reads the backlog off the branch it cuts, so an entry
+    that has not reached `main` does not exist as far as it is concerned.
+  acceptance:
+    - `add.md` names `docs/BACKLOG.md` as the only path it may stage, and says
+      to commit that path alone
+    - running `/add` with unrelated modified files in the tree leaves every
+      one of them modified and uncommitted afterwards
+    - `add.md` says where the commit lands, and states plainly that an entry
+      not on `main` is invisible to `/next` until it is merged
+    - `next.md`'s scope-discipline paragraph says which branch a
+      noticed-while-working entry lands on, and acknowledges that it travels
+      with that task's pull request
+    - CLAUDE.md's "Managing work" section agrees with both commands, with no
+      instruction living in only one of the three
+  files: .claude/commands/add.md, .claude/commands/next.md, CLAUDE.md
+  notes: the hook that forced this is `~/.claude/stop-hook-git-check.sh`,
+    outside the repository and shared by every hosted session, so it cannot
+    be fixed from here and should not be worked around — its purpose is
+    exactly the right one, which is that an ephemeral container loses
+    uncommitted work. The commands were written for a persistent working
+    tree and need to say what they do without one. Two smaller things fall
+    out of the same reading: an `/add` that stages everything would commit
+    whatever code was in flight beside the entry, and `/next` currently tells
+    itself to put noticed items "in the backlog, not into the current branch"
+    while standing on a task branch, which is not a thing it can do.
