@@ -932,6 +932,14 @@ body.is-picking .tile::after {
   stroke-width: 2.2;
   stroke-linecap: round;
 }
+/* A 34px disc is the right thing to see and the wrong thing to aim at: being
+   round it hit-tests as a 17px radius, and a tap 20px off centre lands on the
+   canvas and selects the tile. The reach is grown to a 44px circle in app.js
+   instead of here — a pseudo-element did grow the hit area, but a press landing
+   on the part of it outside the button's own box fires pointerdown and no click
+   at all, so the button appeared to work and silently did nothing. One
+   mechanism, in one place, that can be measured. See overPageX. */
+
 .page-x[hidden] { display: none; }
 
 /* The neighbours' crosses appear and disappear with the peek canvases they

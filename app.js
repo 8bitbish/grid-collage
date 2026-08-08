@@ -178,6 +178,9 @@
   const pointers = new Map();
   let gesture = null;
   let swipe = null;
+  // A press that landed on the delete cross, waiting to see whether it turns
+  // out to be a tap or the start of a drag.
+  let crossPress = null;
   let sheetUrl = null;
 
   /* ------------------------------------------------------------ geometry */
@@ -369,6 +372,46 @@
   // instead, the canvas rect would carry the transform and the stage rect would
   // not, and the two only agree at translateX(0).
   const PAGE_X_INSET = 8;
+  // How far past the visible disc a press still counts, matching the 5px the
+  // pseudo-element in styles.css adds. 17 + 5 gives the 44px a finger wants.
+  const PAGE_X_REACH = 5;
+
+  // Whether a press landed on the current page's cross, measured against its
+  // rect rather than taken from the event's target.
+  //
+  // The button is inside the track now, which carries will-change: transform —
+  // so it lives in a compositing layer it did not before, and a layer whose
+  // absolutely-positioned children have a history of painting without taking
+  // taps on iOS. This is the belt to that braces: if the press is routed to the
+  // button, the handler on the button deals with it and this is never consulted.
+  // If the browser hands the press to the canvas underneath instead, this is
+  // what stops the cross being decoration.
+  function overPageX(e) {
+    const btn = $('btn-page-x');
+    if (!btn || btn.hidden || sliding) return false;
+    const r = btn.getBoundingClientRect();
+    if (!r.width) return false;
+    // Radially, because the disc is round: the corner of its box is several
+    // pixels outside anything anyone can see.
+    const dx = e.clientX - (r.left + r.width / 2);
+    const dy = e.clientY - (r.top + r.height / 2);
+    return Math.hypot(dx, dy) <= r.width / 2 + PAGE_X_REACH;
+  }
+
+  // Deleting the current page, from wherever the press was noticed.
+  //
+  // Both routes really do fire for one tap: measured, a single touch on the
+  // cross runs the pointer sequence below *and* delivers a click to the button,
+  // capture notwithstanding. So the guard is not defensive tidiness, it is the
+  // only reason one tap deletes one page.
+  let lastPageDelete = 0;
+  function requestDeletePage() {
+    const now = performance.now();
+    if (now - lastPageDelete < 400) return;
+    lastPageDelete = now;
+    buzz('drop');
+    deletePage(state.current);
+  }
 
   function placePageX() {
     const btn = $('btn-page-x');
@@ -2225,6 +2268,21 @@
     // listeners are here rather than on the canvas, a press on it would be
     // read as the start of a swipe and the pointer capture would take the
     // click away from it.
+    // The cross is decided here rather than by waiting for a click on it, and
+    // before the check below, because waiting does not work. Two ways a press
+    // reaches the button and produces no click: landing on hit area grown past
+    // the button's own box, and — apparently — landing on it at all inside the
+    // track's compositing layer on iOS, which is what made the cross look
+    // decorative on a phone while every measurement on a desktop passed.
+    //
+    // Capturing the pointer means the tap is settled on release, so a drag that
+    // starts here can still be abandoned by sliding off.
+    if (overPageX(e)) {
+      crossPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0 };
+      try { stageInput.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+      return;
+    }
+
     if (e.target.closest('button')) return;
 
     const p = toCanvas(e);
@@ -2278,6 +2336,11 @@
   });
 
   stageInput.addEventListener('pointermove', (e) => {
+    if (crossPress && e.pointerId === crossPress.id) {
+      crossPress.moved = Math.max(crossPress.moved,
+        Math.hypot(e.clientX - crossPress.x, e.clientY - crossPress.y));
+      return;
+    }
     if (swipe && e.pointerId === swipe.id) {
       const dx = e.clientX - swipe.x;
       const dy = e.clientY - swipe.y;
@@ -2354,6 +2417,13 @@
   }, { passive: false });
 
   const liftPointer = (e) => {
+    if (crossPress && e.pointerId === crossPress.id) {
+      const wasTap = crossPress.moved < 8 && e.type === 'pointerup';
+      crossPress = null;
+      try { stageInput.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+      if (wasTap) requestDeletePage();
+      return;
+    }
     if (swipe && e.pointerId === swipe.id) {
       const dx = e.clientX - swipe.x;
 
@@ -4742,14 +4812,14 @@
   });
 
   $('btn-export').addEventListener('click', exportDeck);
-  // The CSS already makes every cross inert mid-slide, but a press is not the
-  // only way one gets clicked — anything calling click() on the element goes
-  // straight past pointer-events. Deleting the page a swipe is halfway through
-  // leaving is worth guarding twice.
+  // A press is settled by the pointer sequence in the stage handlers, and this
+  // still fires afterwards for the same tap — so it is the second caller the
+  // guard in requestDeletePage exists for, not a fallback. It matters on its own
+  // only for a keyboard: Enter or Space on a focused cross sends a click and no
+  // pointer events at all.
   $('btn-page-x').addEventListener('click', () => {
     if (sliding) return;
-    buzz('drop');
-    deletePage(state.current);
+    requestDeletePage();
   });
   $('btn-home').addEventListener('click', goHome);
   // New means "a new one for these" while a share is waiting to be placed.
