@@ -1,8 +1,8 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
 
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 
 // A server that can be told to "deploy". A real deploy moves the ?v= stamp in
@@ -26,7 +26,7 @@ const srv=http.createServer((q,r)=>{
 });
 await new Promise(r=>srv.listen(8171,r));
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true});
 const p=await ctx.newPage();
 await autoEnter(p);
@@ -64,7 +64,7 @@ console.log('  what it says:', JSON.stringify(await p.evaluate(()=>({
     const d=document.querySelector('.dock').getBoundingClientRect();
     return t.bottom <= innerHeight + 1 && t.top < d.bottom;})(),
 }))));
-await p.locator('#update-toast').screenshot({path:'/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/shots/update-toast.png'});
+await p.locator('#update-toast').screenshot({path:`${SHOTS}/update-toast.png`});
 
 console.log('\n== Later ==');
 await p.click('#ut-later');

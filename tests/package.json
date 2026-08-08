@@ -1,0 +1,12 @@
+{
+  "name": "grid-collage-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for the app one directory up. Deliberately not at the repository root: the root is what gets deployed, and it has no dependencies and no build step.",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

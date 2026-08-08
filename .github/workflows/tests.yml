@@ -1,0 +1,54 @@
+name: Browser tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    # Several tests import twelve 12-megapixel photos on purpose to measure what
+    # a decode costs, and one waits out a service worker update. Sequential, so
+    # the whole suite is slower than the sum of its parts looks.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Playwright's own browser, matched to the version in tests/package.json.
+      # Nothing is pinned to a build number: paths.mjs searches
+      # PLAYWRIGHT_BROWSERS_PATH first and falls back to this, which is why the
+      # suite runs both here and on a container with a browser preinstalled.
+      - name: Install the suite and a browser
+        working-directory: tests
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      # ffmpeg with lavfi, libvpx, libvorbis and libx264. Without it six tests
+      # skip for want of fixtures, and the runner says which and why rather than
+      # failing obscurely.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Generate the fixtures too big for git
+        working-directory: tests
+        run: ./fixtures/make.sh
+
+      - name: Run the suite
+        working-directory: tests
+        run: node run.mjs
+
+      # The screenshots several tests take, which are worth having when a run
+      # fails on a machine nobody can open.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: tests/shots/
+          if-no-files-found: ignore

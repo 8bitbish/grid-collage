@@ -1,11 +1,11 @@
 // Does an edited asset actually reach a returning visitor without a version bump?
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = '/home/user/grid-collage';
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 
 let override = null; // { pathname, body }
@@ -23,7 +23,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(8127, r));
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext();
 const page = await context.newPage();
 await autoEnter(page);

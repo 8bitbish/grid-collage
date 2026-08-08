@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
@@ -10,7 +10,7 @@ await new Promise(r=>srv.listen(8176,r));
 const files=[0,1,2,3].map(i=>path.resolve(`fixtures/photo${i}.jpg`));
 const j=o=>JSON.stringify(o);
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:3});
 const p=await ctx.newPage();
 await autoEnter(p);
@@ -68,7 +68,7 @@ console.log('  on screen now:', j(await p.evaluate(()=>{
   const i=document.querySelector('.pm-pick img'); const r=i.getBoundingClientRect();
   return { naturalW:i.naturalWidth, needDevicePx: Math.round(r.width*devicePixelRatio),
            stretch:+(r.width*devicePixelRatio/i.naturalWidth).toFixed(2) };})));
-await p.locator('.pm-card').screenshot({path:'/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/shots/library-sharp.png'});
+await p.locator('.pm-card').screenshot({path:`${SHOTS}/library-sharp.png`});
 
 console.log('\nerrors:', errs.length?errs.join(' | '):'none');
 await b.close(); srv.close();

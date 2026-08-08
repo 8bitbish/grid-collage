@@ -1,12 +1,13 @@
 // The guarantee: at no rotation, zoom or pan may the background show through
 // a filled tile. Driven through the real app's gesture path.
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
+import { TALL } from './image.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = '/home/user/grid-collage';
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
@@ -17,7 +18,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(8131, r));
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 900 } });
 const page = await context.newPage();
 await autoEnter(page);
@@ -49,7 +50,7 @@ await page.evaluate(() => {
 
 
 // A tall photo, so the aspect mismatch with a square-ish tile is severe.
-const jpg = fs.readFileSync('/tmp/grid-collage-big-top-4x5.jpg');
+const jpg = TALL();
 await page.setInputFiles('#file-input', [{ name: 'a.jpg', mimeType: 'image/jpeg', buffer: jpg }]);
 await page.waitForFunction(() => document.querySelectorAll('.pm-item').length===1);
 

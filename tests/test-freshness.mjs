@@ -3,9 +3,10 @@
    while downloading the new one for next time. These are the properties
    that stop it going back to that. */
 import { chromium } from 'playwright';
+import { CHROME, ROOT as REPO, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
 
-const NEW='/home/user/grid-collage';
+const NEW = REPO;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 let ROOT=NEW;
@@ -40,7 +41,7 @@ console.log('== the stamps agree with each other ==');
     /document\.currentScript/.test(fs.readFileSync(NEW+'/app.js','utf8')));
 }
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 
 console.log('\n== a deploy shows up on the first launch, not the second ==');
 for (const from of ['9a0254a','2d27f57','a480308']) {
@@ -120,7 +121,12 @@ console.log('\n== an app left open picks it up without being told ==');
   await p.waitForTimeout(1800);
 
   fs.rmSync('/tmp/newver',{recursive:true,force:true});
-  fs.cpSync(NEW,'/tmp/newver',{recursive:true});
+  // The copy is a second deploy of the app, so it wants the app and nothing
+  // else. Without the filter this drags in .git and, once anyone has installed
+  // the suite's own dependencies, tests/node_modules — hundreds of megabytes
+  // copied per run for files the served copy never reads.
+  fs.cpSync(NEW,'/tmp/newver',{recursive:true,
+    filter:(src)=>!/(^|\/)(\.git|tests|node_modules)(\/|$)/.test(src.slice(NEW.length))});
   fs.writeFileSync('/tmp/newver/index.html',
     fs.readFileSync('/tmp/newver/index.html','utf8').replaceAll(V,'9999.99.99z'));
   ROOT='/tmp/newver';

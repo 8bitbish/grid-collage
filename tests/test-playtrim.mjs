@@ -3,10 +3,10 @@
    first second and blue for the next two, so what the canvas is showing at
    any moment says exactly where in the clip the preview is. */
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
 
-const ROOT='/home/user/grid-collage';
-const OUT='/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/shots';
+const OUT = SHOTS;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
@@ -28,7 +28,7 @@ function png(w,h,rgb){const raw=Buffer.alloc((w*3+1)*h);
 
 const webm = fs.readFileSync('fixtures/clip.webm');
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2});
 const p=await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));

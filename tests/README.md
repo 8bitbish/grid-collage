@@ -1,84 +1,119 @@
 # Browser tests
 
-**These are preserved sources, not yet a working suite.** They were written
-outside this repository and ran there against hardcoded paths. They are
-committed here so they cannot be lost with a container; making them run from a
-clone is the task in `docs/BACKLOG.md`.
+37 standalone Node scripts that serve the repository over http, drive Chromium
+through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
+failure. No test framework. Playwright is the only dependency.
 
-Do not assume a green run from this directory. Nothing here has been run since
-it was moved.
-
-## What is here
-
-37 test files, ~5,100 lines. Each is a standalone Node script that serves the
-repository over http, drives the bundled Chromium through Playwright, prints a
-`✓`/`✗` line per assertion and exits non-zero on failure. There is no test
-framework and no `package.json`; Playwright is the only import.
-
-- `runall.sh` — runs 21 of them in sequence. Sixteen more are not in it; see below.
-- `enter.mjs` — `autoEnter`, injected into every test. Creates a project and
-  opens it, so tests start in the editor rather than on the homepage.
-- `fixtures/` — only the two small ones are committed. See below.
-
-## Three things stop it running from a clone
-
-Each is mechanical. All 37 files need the same treatment.
-
-1. **The browser path is hardcoded**, 37 times:
-   `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`. That is where the
-   container this was written in kept it. Should come from
-   `PLAYWRIGHT_BROWSERS_PATH` or Playwright's own resolution.
-2. **The repository path is hardcoded**, 37 times: `/home/user/grid-collage`,
-   used as the http root. Should be derived from the test file's own location.
-3. **A scratch directory is hardcoded**, 11 times, for screenshots — a
-   `/tmp/claude-0/…/scratchpad/shots` path that no longer exists anywhere.
-
-## Fixtures
-
-**28 of the 37 tests need no fixture file at all** — they generate flat PNGs
-in-process and hand them to the file input, which is why the fixture problem is
-smaller than it looks. The nine that do:
-
-| fixture | size | needed by | committed |
-| --- | --- | --- | --- |
-| `clip.webm` | 20 KB | playtrim, poster, replaceplay, video | yes |
-| `photo.heic` | 1.8 KB | heic | yes |
-| `photo0-11.jpg` | 5.6–5.9 MB each, 67 MB total | bulk, heic, progress, progressive, replaceplay, thumbupgrade | **no** |
-| `clip.mp4` | 2.4 MB | video | **no** |
-| `many/clip0-11.webm` | 2.8 MB total | bulk | **no** |
-
-The 12 JPEGs are 4032×3024 (12.2 MP) — the point of them is to be a realistic
-phone photo, since the memory tests measure what a 12 MP decode costs. Their
-*content* does not matter; nothing samples their pixels. They are the reason
-this directory cannot simply be committed whole, and they should be generated
-rather than stored.
-
-`many/clip*.webm` are 1080×1920 flat-colour VP8, four seconds, made with:
+## Running them
 
 ```sh
-ffmpeg -f lavfi -i "color=c=<hex>:s=1080x1920:d=4:r=30" \
-       -f lavfi -i "sine=frequency=<hz>:duration=4" \
-       -c:v libvpx -b:v 1500k -c:a libvorbis -shortest clipN.webm
+cd tests
+npm install
+npx playwright install chromium     # skip if a browser is already installed
+node run.mjs                        # the whole suite
+node run.mjs swipe tile             # just those
+JOBS=4 node run.mjs                 # four at a time
 ```
 
-`clip.webm` is 640×640, red for its first second then blue for two more, 3.07s
-total. Several tests depend on exactly that: a window longer than the clip has
-to show both colours for the canvas to count as following the video. Any
-replacement must keep the two-colour structure or those tests become
-meaningless rather than failing honestly.
+Every test binds its own port, so running them together is safe. One at a time
+is the default anyway: several import twelve 12-megapixel photos on purpose, and
+four Chromiums doing that at once is how a machine starts swapping.
 
-`clip.mp4` is 1080×1920 H.264 + AAC. It exists because the bundled Chromium
-**cannot decode H.264** — `test-video` uses it to check the app degrades
-properly rather than to check playback.
+`run.mjs` exits non-zero if any test that was supposed to pass did not, and says
+plainly what it skipped and why. It replaced `runall.sh`, which listed 21 of the
+37 and opened by `cd`-ing into a scratch directory belonging to a different
+session, so it could not run anywhere — including where it was written.
 
-## The sixteen not in runall.sh
+### Fixtures
 
-`runall.sh` lists 21. These sixteen were run alongside it by hand and are not in
-any runner:
+Six tests need files too big for git. Generate them first:
 
-awkward, bulk, freshness, gridorder, heic, home, manifest-fresh, playtrim,
-poster, progress, progressive, replaceplay, sharepick, swr, update-path, video
+```sh
+./fixtures/make.sh                  # needs ffmpeg with lavfi, libvpx, libvorbis, libx264
+```
 
-Thirteen of those were run regularly. **Three — `manifest-fresh`, `progressive`
-and `swr` — are in no run list and have not been run in a long time.** They may
-well be stale. Treat them as unverified until they have been run once.
+Without them those six skip and the runner names them. The ffmpeg bundled with
+Playwright cannot do it — it is built `--disable-everything` and has libvpx but
+no lavfi, so it can neither read a synthetic source nor write H.264.
+
+The two small fixtures are committed: `clip.webm` (20 KB) and `photo.heic`
+(1.8 KB). The rest — twelve 4032×3024 JPEGs, twelve 1080×1920 clips and one
+H.264 `clip.mp4` — come to about 70 MB and are generated.
+
+`clip.webm` is 640×640, red for its first second then blue for two more, 3.07s.
+Several tests depend on exactly that: a window longer than the clip has to show
+both colours for the canvas to count as following the video. A replacement must
+keep the two-colour structure or those tests stop meaning anything rather than
+failing honestly.
+
+`clip.mp4` is H.264 on purpose — the bundled Chromium cannot decode it, and
+`test-video` uses it to check the app degrades properly rather than to check
+playback.
+
+## Where it stands
+
+Measured on a container with no ffmpeg, so six tests skipped:
+
+| | count |
+| --- | --- |
+| passed | 22 |
+| assertions | 374 |
+| failing | 5 — photodates, playtrim, reorder, share, update-path |
+| assert nothing | 3 — dock-haptics, iframe, manifest-fresh |
+| known stale | 1 — swr |
+| skipped for fixtures | 6 — bulk, progress, progressive, replaceplay, thumbupgrade, video |
+
+None of the five failures were caused by the change that brought the suite in.
+They were checked against the app as it stood before it and failed identically,
+with the same errors.
+
+**Three tests assert nothing.** `dock-haptics`, `iframe` and `manifest-fresh`
+print observations a person used to read and emit no `✓` or `✗`, so they exit 0
+whatever they saw — `iframe` reports a 404 in its own output and still passes.
+The runner counts them separately rather than as passes, because a suite that
+reports green over a test which cannot fail is worse than one test short.
+
+**`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
+failure in two full-suite runs, on `nothing left running on the homepage`.
+Something earlier in the suite, or simply a warm machine, changes the timing.
+
+**`swr` is stale, as suspected.** It dies on
+`getComputedStyle: parameter 1 is not of type 'Element'` before its first
+assertion. `manifest-fresh` and `progressive` were suspected with it;
+`manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
+the six that need fixtures, so it has still never run here.
+
+## What was fixed to make them run
+
+Three paths were hardcoded to the container the tests were written in, in all 37
+files. They now come from `paths.mjs`:
+
+- **the Chromium binary** — searched for under `PLAYWRIGHT_BROWSERS_PATH`,
+  newest build first, then handed back to Playwright. Deliberately not pinned:
+  the container that produced these ships `chromium-1194` while the npm package
+  expects `1234` and refuses the browser next to it, so either number breaks the
+  other machine.
+- **the repository root** — one level up from `paths.mjs`, whatever the clone is
+  called. Two tests keep a mutable `ROOT` of their own to fake a deploy, so they
+  import it as `REPO`.
+- **a screenshot directory** — now `tests/shots/`, already gitignored. The old
+  path was worse than a wrong path: Playwright creates a screenshot's parent
+  directory on demand, so writing to a dead scratch directory failed silently
+  and littered another session's disk while the tests passed.
+
+Two more were not in the old README's list of three, because nothing in the
+suite ever wrote them — they were files their author had made by hand:
+
+- `/tmp/grid-collage-big-top-4x5.jpg`, read by `cover`, `iframe` and `pwa`.
+  They only needed a photo tall enough to mismatch a square tile badly and never
+  sample its colour except to check it is not the background, so `image.mjs`
+  builds one in process. That is what 28 of the tests already do.
+- `grid-collage-artifact.html`, read by `iframe`. The app as one self-contained
+  page, which `test-iframe` now generates from the repository — so it cannot
+  drift out of date against the app it is a copy of, which the handmade one was
+  free to do.
+
+And `test-freshness` copies the repository to fake a second deploy. That copy now
+skips `.git`, `tests` and `node_modules`: without the filter it would drag in
+hundreds of megabytes per run, once anyone had installed the suite's own
+dependencies.

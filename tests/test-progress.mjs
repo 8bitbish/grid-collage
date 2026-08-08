@@ -1,10 +1,10 @@
 /* Importing a pile of files takes several seconds. What does the app say
    while it is happening, and does it stop saying it afterwards? */
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{
@@ -23,7 +23,7 @@ fs.rmSync(STAGE,{recursive:true,force:true}); fs.mkdirSync(STAGE,{recursive:true
 const stage=(name,from)=>{const to=path.join(STAGE,name); fs.copyFileSync(from,to); return to;};
 const photos=(n)=>Array.from({length:n},(_,i)=>stage(`p${i}.jpg`,`fixtures/photo${i%12}.jpg`));
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 
 async function open() {
   const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true});

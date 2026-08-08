@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
@@ -21,7 +21,7 @@ const files=[
   {name:'b.png',mimeType:'image/png',buffer:png(600,600,[20,200,90],[20,200,90])}, // solid green
 ];
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:1200,height:900},hasTouch:true});
 const p=await ctx.newPage();
 await autoEnter(p);

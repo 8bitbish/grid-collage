@@ -2,10 +2,10 @@
    colours so a decode can be checked against something rather than just
    "it didn't throw". */
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 
-const ROOT='/home/user/grid-collage';
-const OUT='/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/shots';
+const OUT = SHOTS;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.wasm':'application/wasm',
          '.webmanifest':'application/manifest+json','.png':'image/png'};
 let served=[];
@@ -21,7 +21,7 @@ const ok=(label,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓
 const heic = fs.readFileSync('fixtures/photo.heic');
 console.log('the fixture:', heic.length, 'bytes,', heic.subarray(8,12).toString(), 'brand');
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2});
 const p=await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));

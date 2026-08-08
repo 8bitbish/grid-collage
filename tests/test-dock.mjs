@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
@@ -16,7 +16,7 @@ function png(w,h,[r0,g0,b0]){const raw=Buffer.alloc((w*3+1)*h);
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),ch('IHDR',ih),ch('IDAT',zlib.deflateSync(raw)),ch('IEND',Buffer.alloc(0))]);}
 const files=[[220,60,90],[60,170,120],[70,110,220],[240,180,60]].map((c,i)=>({name:`p${i}.png`,mimeType:'image/png',buffer:png(800,800,c)}));
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 for (const [label, vp, touch, dsf] of [['phone',{width:390,height:844},true,2],['desktop',{width:1440,height:900},false,1]]) {
 const ctx=await b.newContext({viewport:vp,hasTouch:touch,isMobile:touch,deviceScaleFactor:dsf});
 const p=await ctx.newPage();

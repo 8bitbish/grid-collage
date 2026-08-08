@@ -1,18 +1,35 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
+import { TALL } from './image.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = '/home/user/grid-collage';
-const ART = '/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/grid-collage-artifact.html';
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
+
+/* The artifact is the app as one self-contained page: no separate requests, so
+   no ?v= stamp for app.js to read its own version off, which is why it carries
+   data-v instead. See the VERSION comment in app.js.
+
+   Built here from the repository rather than read off disk. It used to be a
+   handmade file in a scratch directory belonging to the container this test was
+   written in, so it was both unobtainable and free to drift out of date against
+   the app it was meant to be a copy of. Generated, it cannot. */
+function artifact() {
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const stamp = (read('index.html').match(/app\.js\?v=([^"]+)/) || [, 'dev'])[1];
+  return read('index.html')
+    .replace(/<link rel="stylesheet" href="styles\.css[^"]*">/, `<style>${read('styles.css')}</style>`)
+    .replace(/<script src="app\.js[^"]*"><\/script>/,
+      `<script data-v="${stamp}">${read('app.js')}</script>`);
+}
 
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   if (url === '/artifact') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(fs.readFileSync(ART));
+    res.end(artifact());
     return;
   }
   if (url === '/host') {
@@ -29,10 +46,10 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(8125, r));
 
-const png = fs.readFileSync('/tmp/grid-collage-big-top-4x5.jpg');
+const png = TALL();
 const files = [{ name: 'a.jpg', mimeType: 'image/jpeg', buffer: png }];
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: CHROME });
 const page = await browser.newPage();
 await autoEnter(page);
 const messages = [];

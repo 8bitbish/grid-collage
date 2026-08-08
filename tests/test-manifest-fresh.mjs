@@ -1,9 +1,9 @@
 // A changed manifest must reach the browser on the very next load, or an
 // installed app never learns about a new share target.
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 let override=null;
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];
@@ -13,7 +13,7 @@ const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
 await new Promise(r=>srv.listen(8139,r));
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext();
 const p=await ctx.newPage();
 await autoEnter(p);

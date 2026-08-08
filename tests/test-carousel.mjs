@@ -1,11 +1,11 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-const ROOT = '/home/user/grid-collage';
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
@@ -45,7 +45,7 @@ function png(w, h, [r, g, b]) {
 const COLOURS = [[220, 40, 40], [40, 200, 90], [50, 90, 230], [240, 190, 40], [200, 60, 210], [40, 210, 210]];
 const files = COLOURS.map((c, i) => ({ name: `p${i}.png`, mimeType: 'image/png', buffer: png(400, 500, c) }));
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 }, hasTouch: true, acceptDownloads: true });
 const page = await context.newPage();
 await autoEnter(page);

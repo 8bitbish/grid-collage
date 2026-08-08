@@ -6,10 +6,10 @@
    file's own first frame and the first frame of a trim at 1.5s are tellable
    apart on sight. */
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 
-const ROOT='/home/user/grid-collage';
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{
@@ -31,7 +31,7 @@ const name=(c)=>{
 };
 const clip=fs.readFileSync('fixtures/clip.webm');
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 
 // ---------------------------------------------------------------------------
 async function open(blockFrames) {

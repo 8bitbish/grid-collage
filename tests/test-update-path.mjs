@@ -2,9 +2,10 @@
    next launch actually render? This is the path that has never been tested,
    and it is the one every phone takes. */
 import { chromium } from 'playwright';
+import { CHROME, ROOT as REPO, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
 
-const NEW='/home/user/grid-collage';
+const NEW = REPO;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 let ROOT=NEW;
@@ -24,7 +25,7 @@ await new Promise(r=>srv.listen(8207,r));
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 
 for (const from of ['9a0254a','2d27f57','a480308']) {
   console.log(`\n=== installed on ${from}, then this deploy lands ===`);

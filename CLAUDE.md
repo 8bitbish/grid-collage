@@ -36,11 +36,26 @@ Before pushing anything:
 node --check app.js            # and sw.js if you touched it
 ```
 
-That is the only check that currently lives in this repository, which is not
-enough — the browser suite that actually covers this app is still outside it.
-Bringing it in is the top item in [`docs/BACKLOG.md`](docs/BACKLOG.md). Until
-that is done, a change to behaviour needs verifying by hand in a browser, and
-the commit message should say how it was verified.
+Then the browser suite, which is what actually covers this app:
+
+```sh
+cd tests && npm install && node run.mjs
+```
+
+37 tests, no framework, Playwright the only dependency. It exits non-zero on any
+failure and says plainly what it skipped and why — six tests need fixtures too
+big for git, which `tests/fixtures/make.sh` generates and which need ffmpeg. CI
+runs the lot on every push and pull request.
+
+Read [`tests/README.md`](tests/README.md) before trusting a green run. Five
+tests fail for reasons that predate the suite arriving here, three assert
+nothing at all, and one is stale — all named there, with numbers. The runner
+counts those separately rather than as passes, so the figure it prints is the
+number of tests that actually asserted something and were right.
+
+The app itself still has no dependencies and no build step; `tests/` has its own
+`package.json` precisely so the repository root stays the thing that gets
+deployed.
 
 Whatever you do, verify by measuring rather than by reasoning about it. Most of
 the bugs in this app's history looked correct on the page and were caught by

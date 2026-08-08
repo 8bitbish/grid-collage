@@ -1,8 +1,8 @@
 import { chromium } from 'playwright';
+import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
 
-const ROOT='/home/user/grid-collage';
-const OUT='/tmp/claude-0/-home-user-itsu/843237ee-b763-567a-aa2e-8be0fb208083/scratchpad/shots';
+const OUT = SHOTS;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];
   // Same origin, none of the app: somewhere to build a pre-projects database
@@ -35,7 +35,7 @@ function crc32(buf){ if(!tbl){tbl=[];for(let n=0;n<256;n++){let c=n;for(let k=0;
   let c=0xffffffff; for(const b of buf) c=tbl[(c^b)&255]^(c>>>8); return c^0xffffffff; }
 const shot=(name,rgb)=>({name,mimeType:'image/png',buffer:png(600,600,rgb)});
 
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2});
 const p=await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
