@@ -10,7 +10,7 @@ depends on is simply wrong, and that much can be put right without asking.
 
 ---
 
-- [ ] **Bring the browser test suite into the repo**
+- [x] **Bring the browser test suite into the repo**
   why: `/next` is told to "run the checks defined in CLAUDE.md", and right now
     the only check that lives here is `node --check app.js`. The 34 Playwright
     tests that actually cover this app sit outside the repository, so nobody
@@ -26,6 +26,37 @@ depends on is simply wrong, and that much can be put right without asking.
   notes: the suite currently needs Chromium via Playwright and generates its
     video fixtures with ffmpeg. Both are environment setup, so the runner
     should say plainly what it needs rather than failing obscurely.
+
+- [ ] **Get the browser suite to a green run**
+  why: the suite now runs from a clone and in CI, but five tests fail, three
+    assert nothing and one is stale, so the run CI performs is red on every
+    push and will train everyone to ignore it. All of it predates the suite
+    arriving in the repository — the five were run against the app as it stood
+    before and failed identically — so this is inherited work, not a
+    regression, and it is the last thing between here and a check worth having.
+  acceptance:
+    - `photodates`, `reorder`, `share` and `update-path` either pass or are
+      deleted with a note saying what they used to cover
+    - `dock-haptics`, `iframe` and `manifest-fresh` either assert something or
+      go; a test that exits 0 whatever it observes is not a test
+    - `swr` passes or goes
+    - `playtrim` passes ten consecutive full-suite runs, or the timing
+      assumption that makes it flaky is written down in the test
+    - `node run.mjs` exits 0 on a machine with ffmpeg, with no tolerance list
+    - the counts in `tests/README.md` and CLAUDE.md match what the runner
+      prints
+  files: tests/
+  notes: measured numbers and the failure reason for each are in
+    `tests/README.md`. `reorder` fails on a null `boundingBox()` for `.film` in
+    its second touch-emulation context, which looks like the app still being on
+    the homepage there — `querySelectorAll` finds the films because hidden
+    elements are still in the DOM, which is why its wait passes and the
+    measurement then does not. `update-path` prints "the old build installed"
+    three times, so it is one cause rather than three. `playtrim` passed three
+    runs in isolation and failed one of two in-suite, so whatever it is depends
+    on what ran before it. Do not add a known-failing tolerance list to make CI
+    green — that was deliberately not done, because it is the decision that
+    turns a red suite into a permanently amber one nobody reads.
 
 - [ ] **Read the date a HEIC was taken out of its EXIF**
   why: `takenAt()` gives up on anything that is not a JPEG, so every HEIC
