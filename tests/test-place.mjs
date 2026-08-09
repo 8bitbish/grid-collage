@@ -192,6 +192,42 @@ ok('the pixel measurements survived the change to the record',
   Object.values(rows).every((r) => r && r.taken),
   `${Object.keys(rows).length} rows read back`);
 
+/* The Data button in the library, which is the only way these numbers leave the
+   app — and it is worth checking it carries them rather than a header and some
+   empty cells. */
+await page.click('#btn-photos');
+await page.waitForSelector('#pm-data', { state: 'visible' });
+await page.click('#pm-data');
+await page.waitForSelector('#pm-data-out', { state: 'visible' });
+const dump = await page.inputValue('#pm-data-text');
+const note = await page.textContent('#pm-data-note');
+const lines = dump.trim().split('\n');
+const cols = lines[0].split('\t');
+const byName = {};
+for (const line of lines.slice(1)) {
+  const cells = line.split('\t');
+  byName[cells[0]] = Object.fromEntries(cols.map((c, i) => [c, cells[i]]));
+}
+const tk = byName['tokyo.jpg'] || {};
+const br = byName['bare.jpg'] || {};
+
+ok('the exported text has a row per photo and the columns needed to cluster',
+  lines.length === files.length + 1
+  && ['takenISO', 'taken', 'lat', 'lon', 'sharpness', 'hash'].every((c) => cols.includes(c)),
+  `${lines.length - 1} rows, ${cols.length} columns: ${cols.join(' ')}`);
+
+ok('the exported location matches what was read',
+  near(Number(tk.lat), WANT_LAT) && near(Number(tk.lon), WANT_LON) && tk.focal35 === '52',
+  `lat ${tk.lat} lon ${tk.lon} focal35 ${tk.focal35}`);
+
+ok('a photo with no location exports empty cells, not zeros',
+  br.lat === '' && br.lon === '' && br.takenISO !== '',
+  `lat "${br.lat}" lon "${br.lon}" takenISO "${br.takenISO}"`);
+
+ok('the note says how much of the tray is usable before anyone reads the numbers',
+  /3 photos/.test(note) && /2 with a location/.test(note) && /3 measured/.test(note),
+  note);
+
 await browser.close();
 server.close();
 console.log(`\n${bad ? `${bad} failed` : 'all green'}`);

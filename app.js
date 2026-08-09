@@ -2275,6 +2275,54 @@
 
   let libraryOpen = false;
 
+  // Everything the app knows about the tray, as tab-separated text.
+  //
+  // The clustering the deck builder needs — which photos belong to one event —
+  // turns on how far apart in time and place a real library's photos actually
+  // are, and no amount of reasoning here answers that. This is how a real set's
+  // numbers get out without the photos going anywhere: no pixels, no thumbnails,
+  // nothing but what was already measured.
+  //
+  // Tab-separated on purpose. It pastes into a spreadsheet, reads by eye, and
+  // parses in one line, which JSON manages only the last of.
+  function exportData() {
+    const head = ['name', 'kind', 'takenISO', 'taken', 'lat', 'lon', 'focal35',
+      'w', 'h', 'sharpness', 'focusFalloff', 'lum', 'lumSpread', 'sat',
+      'hueX', 'hueY', 'warm', 'clipHi', 'clipLo', 'hash'];
+    const rows = state.photos.map((p) => {
+      const s = p.stats || {};
+      // A missing number is an empty cell rather than a zero: zero is a real
+      // sharpness and a real latitude, and the difference matters to anything
+      // deciding what to do about it.
+      const cell = (v) => (v === null || v === undefined ? '' : v);
+      return [
+        p.name || '', p.kind || 'photo',
+        p.taken ? new Date(p.taken).toISOString() : '', cell(p.taken),
+        cell(p.lat), cell(p.lon), cell(p.focal35),
+        cell(p.w), cell(p.h),
+        cell(s.sharpness), cell(s.focusFalloff), cell(s.lum), cell(s.lumSpread),
+        cell(s.sat), cell(s.hueX), cell(s.hueY), cell(s.warm),
+        cell(s.clipHi), cell(s.clipLo), cell(s.hash),
+      ].join('\t');
+    });
+    return [head.join('\t'), ...rows].join('\n');
+  }
+
+  function showData() {
+    const text = exportData();
+    $('pm-data-text').value = text;
+    $('pm-data-out').hidden = false;
+    const withPlace = state.photos.filter((p) => p.lat !== null && p.lat !== undefined).length;
+    const withStats = state.photos.filter((p) => p.stats && p.stats.hash).length;
+    // Said up front, because these two counts decide whether the numbers below
+    // are worth anything: photos imported before the measuring pass carry none,
+    // and a library with no coordinates has to be grouped on time alone.
+    $('pm-data-note').textContent = `${state.photos.length} photos · `
+      + `${withPlace} with a location · ${withStats} measured`;
+    $('pm-data-text').focus();
+    $('pm-data-text').select();
+  }
+
   function openLibrary() {
     libraryOpen = true;
     stopPlayers();
@@ -5099,6 +5147,22 @@
   $('btn-photos').addEventListener('click', openLibrary);
   $('pm-close').addEventListener('click', closeLibrary);
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
+  $('pm-data').addEventListener('click', showData);
+  $('pm-data-hide').addEventListener('click', () => { $('pm-data-out').hidden = true; });
+  $('pm-data-copy').addEventListener('click', async () => {
+    const text = $('pm-data-text').value;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Copied');
+    } catch {
+      // Safari refuses the clipboard outside a few narrow circumstances, and an
+      // installed app is one of the places it refuses. The text is already
+      // selected in the box, so say that rather than failing silently.
+      $('pm-data-text').focus();
+      $('pm-data-text').select();
+      toast('Selected — copy it from the box');
+    }
+  });
   // Tapping the dimmed area behind the card is the other way out.
   $('photos-modal').addEventListener('pointerdown', (e) => {
     if (e.target === $('photos-modal')) closeLibrary();
