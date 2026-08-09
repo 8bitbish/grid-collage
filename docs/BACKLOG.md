@@ -107,11 +107,15 @@ depends on is simply wrong, and that much can be put right without asking.
     turns a red suite into a permanently amber one nobody reads.
 
 - [ ] **Read the date a HEIC was taken out of its EXIF**
-  why: `takenAt()` gives up on anything that is not a JPEG, so every HEIC
-    falls back to `File.lastModified` — the moment the file reached this
-    device, not the moment the shutter went. An iPhone camera roll is the
-    likeliest source of photos this app ever sees and the one place the date
-    is currently wrong, which quietly undermines anything ordered by date.
+  why: `takenAt()` gives up on anything that is not a JPEG, so a HEIC falls
+    back to `File.lastModified` — the moment the file reached this device, not
+    the moment the shutter went.
+    Narrower than it first looks, and the correction matters for where this sits
+    in the order. The file input asks for `image/*`, and iOS transcodes a HEIC to
+    JPEG when you pick a photo that way, EXIF intact — so the ordinary route
+    through the picker already gets the right date, demonstrated on a device.
+    What is left is the routes that hand over the original file: the share sheet,
+    and picking out of Files or iCloud Drive.
   acceptance:
     - a HEIC whose EXIF `DateTimeOriginal` is known imports with
       `photo.taken` equal to that timestamp rather than to its `lastModified`
@@ -125,11 +129,23 @@ depends on is simply wrong, and that much can be put right without asking.
     only the `0xffd8` check at the top of `takenAt` stands in the way. HEIF
     keeps EXIF as an item inside its `meta` box; walking the boxes for it is
     likely cheaper than asking libheif, which is already loaded by then but
-    for the pixels rather than the metadata. It sits here rather than where it
-    was written because the date-sort entry immediately after it has the same
-    wrong answer for the same reason. The two auto-build entries below need
-    this too, and for more than the date: reaching a HEIC's EXIF at all is
-    what gets at its location and its lens as well.
+    for the pixels rather than the metadata — and libheif is the safer of the two,
+    because it already parses real iPhone HEICs correctly today, which is the
+    whole reason it is vendored. A hand-rolled ISOBMFF walker would be new code
+    reading untrusted binary with nothing real to test it against.
+
+    Scoping got as far as proving the route and no further. libheif exposes the
+    metadata functions, but as raw wasm exports rather than cwrapped ones, so the
+    type filter needs a real C string and `heif_image_handle_get_metadata`
+    returns a struct by value, which against a raw ABI means the caller passes a
+    hidden out-pointer first. Neither can be settled without a HEIC that actually
+    carries EXIF, and `tests/fixtures/photo.heic` carries none — its box tree is
+    ftyp/meta/mdat with no Exif item. So this wants one straight-out-of-camera
+    HEIC in `tests/fixtures/`, not passed through anything that re-encodes.
+
+    It sat above the date-sort entry on the strength of "an iPhone camera roll is
+    the likeliest source", which turned out to be wrong — see why above. Both are
+    fine where they are now; neither blocks the other in the common case.
 
 - [ ] **Offer "Sort slides by date taken" in the Page panel**
   why: importing a folder builds one slide per photo in whatever order the
