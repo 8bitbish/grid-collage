@@ -19,6 +19,14 @@
 html, body {
   margin: 0;
   height: 100%;
+  /* Installed on an iPhone, height: 100% resolves short of the screen, so the
+     dock stopped above the home indicator and the strip below it showed the
+     page canvas — which is body's own near-black propagated up, and reads as a
+     black bar. dvh is the whole screen under viewport-fit=cover. It is a
+     min-height rather than a height so it can only ever add the missing piece,
+     and anything that has not heard of dvh drops the line and keeps the 100%
+     above, which was already right everywhere else. */
+  min-height: 100dvh;
   /* No blue flash behind a tap. The app gives its own feedback — the pressed
      state, the selection ring, a buzz — and the system square lands on the
      wrong shape anyway. Keyboard focus is unaffected: that's :focus-visible. */
