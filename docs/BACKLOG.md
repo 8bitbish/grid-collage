@@ -27,6 +27,54 @@ depends on is simply wrong, and that much can be put right without asking.
     video fixtures with ffmpeg. Both are environment setup, so the runner
     should say plainly what it needs rather than failing obscurely.
 
+- [ ] **Close the 47px strip below the dock on an installed iPhone**
+  why: installed on an iPhone, roughly 47 CSS pixels of screen below the dock
+    are not the app, and read as a black bar. It is only cosmetic and it is only
+    that platform in that display mode, but it is the first thing you see at the
+    bottom of every screen.
+  acceptance:
+    - on an installed iPhone there is no strip below the dock in a different
+      colour from it, checked on a device and said so plainly in the commit
+    - `document.body.getBoundingClientRect().bottom` equals `screen.height`, or
+      the strip is painted the same colour as the dock and the reason it cannot
+      be filled is written down instead
+    - the page still does not scroll as a document, and `.pagesbar` still clears
+      the status bar — both were fixed and both are easy to undo by accident
+      here
+  files: styles.css (`html, body`, `.dock`), index.html (the apple-* meta and
+    the viewport), manifest.webmanifest
+  notes: measured on the device, and these are the only numbers anyone should
+    start from — screen 844, innerHeight 797, clientHeight 797, 100dvh 797,
+    body 797, documentElement.scrollHeight 797, safe-area insets 47 top and 34
+    bottom, standalone true. 844 − 797 = 47, exactly the top inset, and the page
+    fills the view exactly at whatever height it is given. So the strip is
+    outside the view and no stylesheet reaches it.
+
+    Six things were tried and none worked, so do not repeat them: `min-height:
+    100dvh` (inert — 100% already wins); `height: 100dvh` (actively worse, it is
+    797 where 100% is the full view, and it is what put the bar back after it
+    had seemed to go); `overflow: hidden` and `overscroll-behavior: none` on
+    html (correctly stops the document scrolling, does nothing to the strip);
+    `apple-mobile-web-app-status-bar-style` from black-translucent to black (the
+    measured inset stayed 47/34 either way, on a clean install); and reinstalling
+    under each of the two status-bar styles.
+
+    Worth knowing: the strip was already there before any of that, and the one
+    version that appeared to fix it only left the page scrollable, so it could be
+    pushed out of sight. A change that "fixes" this by making the page taller
+    than the viewport has not fixed it.
+
+    Untried, in the order worth trying: dropping `viewport-fit=cover`, which is
+    what makes the view full-bleed and short in the first place; and matching the
+    manifest's `background_color` to the dock's `--surface` so the strip stops
+    being a different colour from what is above it. Both need a fresh install to
+    judge, because iOS reads those at install and never again.
+
+    This cannot be closed from a hosted session — there is no way to reproduce an
+    installed iPhone from one, which is why six attempts were guesses. The next
+    person should put the phone on a Mac and use Safari Web Inspector, and read
+    the live values rather than reason about them.
+
 - [ ] **Get the browser suite to a green run**
   why: the suite now runs from a clone and in CI, but five tests fail, three
     assert nothing and one is stale, so the run CI performs is red on every
