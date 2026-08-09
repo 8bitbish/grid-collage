@@ -3989,46 +3989,6 @@
   // installed copy picked up the change yet" — and a date answers that
   // without anyone having to remember what 1.7.2 meant. Bumped by hand on
   // the way out; there is no build step to stamp it.
-  // TEMPORARY, and the whole reason it exists is that the bottom of the editor
-  // on an installed iPhone cannot be measured from anywhere else. Two guesses at
-  // it were wrong, so the numbers get read off the device instead: what the
-  // viewport says it is, what the screen says it is, what 100dvh actually
-  // resolves to, and what the safe-area insets actually are. Delete this and the
-  // helper below once the black bar is understood.
-  function viewportFacts() {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;'
-      + 'top:0;left:0;width:1px;height:100dvh';
-    document.body.appendChild(probe);
-    const dvh = probe.getBoundingClientRect().height;
-    probe.style.height = 'env(safe-area-inset-bottom, 0px)';
-    const insetBottom = probe.getBoundingClientRect().height;
-    probe.style.height = 'env(safe-area-inset-top, 0px)';
-    const insetTop = probe.getBoundingClientRect().height;
-    probe.remove();
-    const doc = document.documentElement;
-    return `inner ${innerHeight} · client ${doc.clientHeight} · screen ${screen.height}`
-      + ` · dvh ${Math.round(dvh)} · body ${Math.round(document.body.getBoundingClientRect().height)}`
-      + ` · scrollH ${doc.scrollHeight} · inset ${Math.round(insetTop)}/${Math.round(insetBottom)}`
-      + ` · standalone ${navigator.standalone === true || matchMedia('(display-mode: standalone)').matches}`;
-  }
-
-  // Its own line rather than appended to the hint: test-home and test-freshness
-  // both assert that the hint is exactly the version and nothing else, and they
-  // are right to — that string is how a deploy is identified.
-  function showViewportFacts() {
-    const hint = $('home-hint');
-    if (!hint) return;
-    let el = $('home-facts');
-    if (!el) {
-      el = document.createElement('p');
-      el.id = 'home-facts';
-      el.className = 'home-hint';
-      hint.after(el);
-    }
-    el.textContent = viewportFacts();
-  }
-
   const HOME_HINT = `v${VERSION}`;
   const SHARE_HINT = 'Tap a carousel to add them, or start a new one';
 
@@ -4040,7 +4000,6 @@
     // to read is no use for checking whether the app updated.
     $('home-hint').hidden = false;
     $('home-hint').textContent = pendingShare ? SHARE_HINT : HOME_HINT;
-    showViewportFacts();   // TEMPORARY — see viewportFacts
 
     const bytes = projects.reduce((n, p) => n + (p.bytes || 0), 0);
     $('home-sub').textContent = projects.length
