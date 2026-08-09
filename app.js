@@ -577,6 +577,184 @@
     });
   }
 
+  /* --------------------------------------------- what a photo is like */
+  //
+  // A handful of numbers about a photo, taken once, inside ingest() while the
+  // full-resolution decode is still in hand. That moment is the only one where
+  // native pixels exist — the bitmap is closed a few lines later and everything
+  // afterwards works from a 1440px proxy — so measuring anywhere else means
+  // decoding every photo a second time.
+  //
+  // Sharpness is measured at native resolution and nothing else is. Downscaling
+  // is a low-pass filter: it removes exactly the high-frequency detail that
+  // tells a sharp photo from a soft one, so a thumbnail cannot answer the
+  // question. Tone is the opposite and survives being shrunk, so it is read off
+  // a 64px draw for almost nothing.
+  //
+  // None of these are verdicts. A photo of a flat sky scores low for sharpness
+  // without being blurred, which is why these are for ranking photos against
+  // each other within one import and never for an absolute pass or fail.
+
+  const SHARP_TILE = 128;   // one window, drawn 1:1 so no resampling softens it
+  const SHARP_GRID = 3;     // 3x3 of them across the frame
+  const TONE_EDGE = 64;
+  const HASH_W = 9;         // 9x8 greys give 8x8 = 64 comparisons
+  const HASH_H = 8;
+
+  function scratch(w, h) {
+    if (window.OffscreenCanvas) return new OffscreenCanvas(w, h);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    return c;
+  }
+
+  const lumaAt = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+  // Variance of the Laplacian — the standard way to put a number on focus. A
+  // sharp edge swings the second derivative hard, a soft one barely at all, so
+  // the spread of the response is the measure and its mean is not.
+  function focusScore(d, w, h) {
+    let sum = 0;
+    let sumSq = 0;
+    let n = 0;
+    for (let y = 1; y < h - 1; y += 1) {
+      for (let x = 1; x < w - 1; x += 1) {
+        const i = (y * w + x) * 4;
+        const v = 4 * lumaAt(d, i) - lumaAt(d, i - 4) - lumaAt(d, i + 4)
+          - lumaAt(d, i - w * 4) - lumaAt(d, i + w * 4);
+        sum += v;
+        sumSq += v * v;
+        n += 1;
+      }
+    }
+    if (!n) return 0;
+    return sumSq / n - (sum / n) ** 2;
+  }
+
+  // bitmap must be the native-resolution decode. small may be any already-shrunk
+  // copy of it — the proxy ingest has just made is ideal — and only tone and the
+  // hash are read from it, both of which survive being downscaled. Passing the
+  // full bitmap for both works and costs about 60ms more on a 12MP photo, all of
+  // it spent resampling twelve megapixels down to 64x64 and 9x8 twice over.
+  function measure(bitmap, small = bitmap) {
+    const { width: W, height: H } = bitmap;
+
+    // Sharpness, from a grid of windows copied out at 1:1. The whole frame at
+    // native size would be twelve megapixels of arithmetic for a number that
+    // nine small windows answer just as well.
+    const tile = scratch(SHARP_TILE, SHARP_TILE);
+    const tg = tile.getContext('2d', { willReadFrequently: true });
+    const tiles = [];
+    const step = SHARP_GRID + 1;
+    for (let gy = 1; gy <= SHARP_GRID; gy += 1) {
+      for (let gx = 1; gx <= SHARP_GRID; gx += 1) {
+        const sx = clamp(Math.round(W * gx / step - SHARP_TILE / 2), 0, Math.max(0, W - SHARP_TILE));
+        const sy = clamp(Math.round(H * gy / step - SHARP_TILE / 2), 0, Math.max(0, H - SHARP_TILE));
+        const sw = Math.min(SHARP_TILE, W);
+        const sh = Math.min(SHARP_TILE, H);
+        tg.clearRect(0, 0, SHARP_TILE, SHARP_TILE);
+        tg.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+        tiles.push(focusScore(tg.getImageData(0, 0, sw, sh).data, sw, sh));
+      }
+    }
+    // The sharpest window, not the average: a portrait with a soft background is
+    // a sharp photo, and averaging it with the bokeh says otherwise.
+    const sharpness = Math.max(...tiles);
+    // Centre against the outside. High means the middle is in focus and the rest
+    // is not, which is a subject or a close-up; flat means a landscape.
+    const middle = tiles[4] || 0;
+    const outside = tiles.filter((_, i) => i !== 4).reduce((a, v) => a + v, 0) / 8 || 1;
+    const focusFalloff = middle / outside;
+
+    // Everything else off a 64px draw.
+    const tone = scratch(TONE_EDGE, TONE_EDGE);
+    const sg = tone.getContext('2d', { willReadFrequently: true });
+    sg.drawImage(small, 0, 0, TONE_EDGE, TONE_EDGE);
+    const d = sg.getImageData(0, 0, TONE_EDGE, TONE_EDGE).data;
+
+    let lum = 0;
+    let lumSq = 0;
+    let sat = 0;
+    let hueX = 0;
+    let hueY = 0;
+    let warm = 0;
+    let clipHi = 0;
+    let clipLo = 0;
+    const px = TONE_EDGE * TONE_EDGE;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const l = lumaAt(d, i);
+      lum += l;
+      lumSq += l * l;
+      if (l > 250) clipHi += 1;
+      if (l < 5) clipLo += 1;
+      warm += r - b;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const s = max ? (max - min) / max : 0;
+      sat += s;
+      // Hue is circular, so it is summed as a vector and weighted by saturation
+      // — a grey pixel has no hue to vote with and would otherwise drag the
+      // average towards whatever red happens to be.
+      if (max !== min) {
+        let hue;
+        if (max === r) hue = ((g - b) / (max - min) + 6) % 6;
+        else if (max === g) hue = (b - r) / (max - min) + 2;
+        else hue = (r - g) / (max - min) + 4;
+        const a = hue * Math.PI / 3;
+        hueX += Math.cos(a) * s;
+        hueY += Math.sin(a) * s;
+      }
+    }
+
+    // dHash: each grey compared with the one to its right. Structure rather than
+    // colour, which is what makes it match two frames of the same burst and not
+    // two different photos that happen to share a palette.
+    const hc = scratch(HASH_W, HASH_H);
+    const hg = hc.getContext('2d', { willReadFrequently: true });
+    hg.drawImage(small, 0, 0, HASH_W, HASH_H);
+    const hd = hg.getImageData(0, 0, HASH_W, HASH_H).data;
+    let hash = '';
+    for (let y = 0; y < HASH_H; y += 1) {
+      for (let x = 0; x < HASH_W - 1; x += 1) {
+        const a = lumaAt(hd, (y * HASH_W + x) * 4);
+        const b2 = lumaAt(hd, (y * HASH_W + x + 1) * 4);
+        hash += a > b2 ? '1' : '0';
+      }
+    }
+
+    return {
+      sharpness: Math.round(sharpness),
+      focusFalloff: Math.round(focusFalloff * 100) / 100,
+      // Tone, in the order the deck builder wants it: how bright, how contrasty,
+      // how colourful, which way the colour points, and how warm.
+      lum: Math.round(lum / px),
+      lumSpread: Math.round(Math.sqrt(Math.max(0, lumSq / px - (lum / px) ** 2))),
+      sat: Math.round((sat / px) * 100) / 100,
+      hueX: Math.round((hueX / px) * 1000) / 1000,
+      hueY: Math.round((hueY / px) * 1000) / 1000,
+      warm: Math.round(warm / px),
+      clipHi: Math.round((clipHi / px) * 1000) / 1000,
+      clipLo: Math.round((clipLo / px) * 1000) / 1000,
+      // 64 characters of '0' and '1'. A string because that is what survives a
+      // trip through IndexedDB and JSON without anyone thinking about it, and 64
+      // bits does not fit in a Number anyway.
+      hash,
+    };
+  }
+
+  // Hamming distance between two dHashes: 0 is the same frame, and anything
+  // under about 10 is the same moment shot twice.
+  function hashDistance(a, b) {
+    if (!a || !b || a.length !== b.length) return Infinity;
+    let n = 0;
+    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) n += 1;
+    return n;
+  }
+
   /* ------------------------------------------------------------ date taken */
   //
   // File.lastModified is the file's own timestamp, which is whenever it
@@ -888,6 +1066,10 @@
 
     const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
 
+    // Before the bitmap is let go below — this is the only place native pixels
+    // exist, and measuring later would mean decoding the file again.
+    const stats = measure(bitmap, proxyBitmap);
+
     // What stays in memory is the proxy, and the full-size decode is let go
     // now that everything that needed it has been made. Twenty 12MP photos
     // held at full size is the better part of a gigabyte of pixels, which is
@@ -903,6 +1085,7 @@
       id: uid(),
       name,
       taken,
+      stats,
       bitmap: keep,
       small: false,
       full: keep === bitmap,
@@ -936,6 +1119,10 @@
     // held for every clip in the tray. The proxy is all the preview and the
     // thumbnails ever need, and the export reads real frames rather than
     // this, so the full-size one goes.
+    // Measured off the poster, which is the only frame anything ever composes
+    // for a clip, so the numbers describe exactly what a layout would show.
+    const stats = measure(bitmap, proxyBitmap);
+
     const w = bitmap.width;
     const h = bitmap.height;
     const keep = proxyBitmap !== bitmap ? proxyBitmap : bitmap;
@@ -946,6 +1133,7 @@
       name,
       kind: 'video',
       duration,
+      stats,
       // No EXIF to read; a video's own timestamps are the encoder's, not the
       // camera's, so the file's date is the honest answer.
       taken: blob.lastModified || Date.now(),
@@ -3459,6 +3647,9 @@
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
       id: photo.id, project: current.id, name: photo.name, taken: photo.taken,
+      // Measured once at import and stored, because the pixels it was measured
+      // from no longer exist by the time anything reads it back.
+      stats: photo.stats || null,
       kind: photo.kind || 'photo', duration: photo.duration || 0,
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
       proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
@@ -3851,6 +4042,11 @@
           // Read back at proxy size, so not on its thumbnail. Residency
           // decides from here which of them stay that way.
           small: false,
+          // Absent on anything imported before the measuring pass existed. Left
+          // absent rather than recomputed: the numbers only mean anything
+          // measured at native resolution, and by here the original is a blob
+          // nobody has decoded.
+          stats: row.stats || null,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };

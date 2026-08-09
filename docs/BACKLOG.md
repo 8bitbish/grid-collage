@@ -76,9 +76,9 @@ depends on is simply wrong, and that much can be put right without asking.
     the live values rather than reason about them.
 
 - [ ] **Get the browser suite to a green run**
-  why: the suite now runs from a clone and in CI, but five tests fail, three
-    assert nothing and one is stale, so the run CI performs is red on every
-    push and will train everyone to ignore it. All of it predates the suite
+  why: the suite now runs from a clone and in CI, but four tests fail, one is
+    flaky, three assert nothing and one is stale, so the run CI performs is red
+    on every push and will train everyone to ignore it. All of it predates the suite
     arriving in the repository — the five were run against the app as it stood
     before and failed identically — so this is inherited work, not a
     regression, and it is the last thing between here and a check worth having.

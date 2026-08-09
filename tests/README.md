@@ -1,6 +1,6 @@
 # Browser tests
 
-37 standalone Node scripts that serve the repository over http, drive Chromium
+38 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -56,9 +56,10 @@ Measured on a container with no ffmpeg, so six tests skipped:
 
 | | count |
 | --- | --- |
-| passed | 22 |
-| assertions | 374 |
-| failing | 5 — photodates, playtrim, reorder, share, update-path |
+| passed | 24 |
+| assertions | 379 |
+| failing | 4 — photodates, reorder, share, update-path |
+| flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 3 — dock-haptics, iframe, manifest-fresh |
 | known stale | 1 — swr |
 | skipped for fixtures | 6 — bulk, progress, progressive, replaceplay, thumbupgrade, video |
@@ -74,8 +75,10 @@ The runner counts them separately rather than as passes, because a suite that
 reports green over a test which cannot fail is worse than one test short.
 
 **`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
-failure in two full-suite runs, on `nothing left running on the homepage`.
-Something earlier in the suite, or simply a warm machine, changes the timing.
+failure in two full-suite runs, on `nothing left running on the homepage`, and a
+pass in the run the table above comes from. Something earlier in the suite, or
+simply a warm machine, changes the timing — so a green `playtrim` is not evidence
+of anything either way.
 
 **`swr` is stale, as suspected.** It dies on
 `getComputedStyle: parameter 1 is not of type 'Element'` before its first
