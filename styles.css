@@ -18,20 +18,23 @@
 
 html, body {
   margin: 0;
-  /* Installed on an iPhone, height: 100% resolves short of the screen, so the
-     dock stopped above the home indicator and the strip below it showed the
-     page canvas — body's own near-black propagated up, which reads as a black
-     bar. dvh is the whole screen under viewport-fit=cover; the 100% above it is
-     what anything that has not heard of dvh keeps, and that was already right
-     everywhere else.
+  /* Deliberately 100% and not 100dvh, which is the opposite of what it looks
+     like it should be.
+     Installed on an iPhone with viewport-fit=cover the web view is the whole
+     screen, but innerHeight and dvh both report it as the screen less the status
+     bar — measured on the device: screen 844, innerHeight 797, dvh 797,
+     safe-area-inset-top 47. So 100dvh is 47px SHORT of the view and leaves a
+     strip at the bottom showing the page canvas, which is body's own near-black
+     propagated up and reads as a black bar under the dock. 100% resolves against
+     the containing block, gets the full 844, and fills it.
+     Three versions were spent shipping dvh at this and putting the bar there,
+     which is worth writing down so nobody helpfully modernises it back.
 
-     A height and not a min-height, which is the mistake the version before this
-     one shipped: a min-height lets the box grow past the viewport, and with
-     html having no overflow of its own that growth is a page that scrolls. The
-     two lines below shut both doors — this app is one fixed screen, and nothing
-     in it should ever move as a document. */
+     The page being taller than the viewport iOS claims is also what let the
+     whole document scroll, so overflow is shut here rather than by making the
+     page shorter. This app is one fixed screen; nothing in it moves as a
+     document. */
   height: 100%;
-  height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
   /* No blue flash behind a tap. The app gives its own feedback — the pressed
