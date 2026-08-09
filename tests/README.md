@@ -1,6 +1,6 @@
 # Browser tests
 
-38 standalone Node scripts that serve the repository over http, drive Chromium
+39 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -56,17 +56,18 @@ Measured on a container with no ffmpeg, so six tests skipped:
 
 | | count |
 | --- | --- |
-| passed | 24 |
-| assertions | 379 |
+| passed | 25 |
+| assertions | 391 |
 | failing | 4 — photodates, reorder, share, update-path |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 3 — dock-haptics, iframe, manifest-fresh |
 | known stale | 1 — swr |
 | skipped for fixtures | 6 — bulk, progress, progressive, replaceplay, thumbupgrade, video |
 
-None of the five failures were caused by the change that brought the suite in.
+None of the four failures were caused by the change that brought the suite in.
 They were checked against the app as it stood before it and failed identically,
-with the same errors.
+with the same errors, and `photodates` failed the same way again after EXIF
+reading was extended — so it is not that either.
 
 **Three tests assert nothing.** `dock-haptics`, `iframe` and `manifest-fresh`
 print observations a person used to read and emit no `✓` or `✗`, so they exit 0

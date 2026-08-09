@@ -785,6 +785,20 @@
       const n = v.getUint32(entry + 4, little);
       if (type === 4) {                       // LONG: an offset to another IFD
         out[tag] = v.getUint32(entry + 8, little);
+      } else if (type === 3) {                // SHORT, in the first two bytes
+        out[tag] = v.getUint16(entry + 8, little);
+      } else if (type === 5) {                // RATIONAL: pairs of LONGs
+        // Eight bytes each, so anything but a single one is stored elsewhere and
+        // the entry holds its offset. A GPS coordinate is three of them —
+        // degrees, minutes, seconds — which is why this returns an array.
+        const at2 = n * 8 > 4 ? base + v.getUint32(entry + 8, little) : entry + 8;
+        const parts = [];
+        for (let k = 0; k < n && at2 + k * 8 + 8 <= v.byteLength; k++) {
+          const num = v.getUint32(at2 + k * 8, little);
+          const den = v.getUint32(at2 + k * 8 + 4, little);
+          parts.push(den ? num / den : 0);
+        }
+        out[tag] = parts;
       } else if (type === 2) {                // ASCII
         const at2 = n > 4 ? base + v.getUint32(entry + 8, little) : entry + 8;
         let text = '';
@@ -799,16 +813,45 @@
 
   const TAG_DATETIME = 0x0132;          // IFD0, when the file was last written
   const TAG_EXIF_IFD = 0x8769;
+  const TAG_GPS_IFD = 0x8825;
   const TAG_ORIGINAL = 0x9003;          // when the shutter went
   const TAG_DIGITIZED = 0x9004;
+  const TAG_FOCAL35 = 0xa405;           // focal length as 35mm film would see it
+  const TAG_LAT_REF = 0x0001;           // 'N' or 'S'
+  const TAG_LAT = 0x0002;               // degrees, minutes, seconds
+  const TAG_LON_REF = 0x0003;
+  const TAG_LON = 0x0004;
 
-  async function takenAt(file) {
+  // Degrees-minutes-seconds to a single number, negative below the equator or
+  // west of Greenwich. Cameras write the hemisphere as a separate letter, so
+  // without it every photo taken in the southern hemisphere lands in the
+  // northern one.
+  function degrees(dms, ref) {
+    if (!Array.isArray(dms) || !dms.length) return null;
+    const [d = 0, m = 0, s = 0] = dms;
+    const v = d + m / 60 + s / 3600;
+    if (!Number.isFinite(v)) return null;
+    return /^[SW]/i.test(ref || '') ? -v : v;
+  }
+
+  // Everything worth having out of a file's EXIF, in one pass: when the shutter
+  // went, where, and how wide the lens was. Was takenAt and returned only the
+  // date — the rest is here rather than in a second function because the walk to
+  // find the block is the whole cost and doing it twice for one file would be
+  // silly.
+  //
+  // Absent fields come back null. A file with no EXIF, or one this cannot read,
+  // returns an object of nulls rather than throwing, so every caller can treat
+  // "no answer" and "no file" the same way.
+  const NO_EXIF = { taken: null, lat: null, lon: null, focal35: null };
+
+  async function readExif(file) {
     try {
       // The EXIF block sits at the very front of a JPEG; a slice is enough and
       // saves reading a 12MP file into memory to find six bytes.
       const head = await file.slice(0, 128 * 1024).arrayBuffer();
       const v = new DataView(head);
-      if (v.byteLength < 16 || v.getUint16(0) !== 0xffd8) return null;   // not a JPEG
+      if (v.byteLength < 16 || v.getUint16(0) !== 0xffd8) return NO_EXIF;   // not a JPEG
 
       let p = 2;
       while (p + 4 <= v.byteLength) {
@@ -821,22 +864,41 @@
             && v.getUint32(p + 4, false) === 0x45786966) {               // "Exif"
           const base = p + 10;                                           // TIFF header
           const order = v.getUint16(base, false);
-          if (order !== 0x4949 && order !== 0x4d4d) return null;
+          if (order !== 0x4949 && order !== 0x4d4d) return NO_EXIF;
           const little = order === 0x4949;
           const ifd0 = readIFD(v, base, base + v.getUint32(base + 4, little),
-            little, [TAG_DATETIME, TAG_EXIF_IFD]);
+            little, [TAG_DATETIME, TAG_EXIF_IFD, TAG_GPS_IFD]);
+
+          let taken = null;
+          let focal35 = null;
           if (ifd0[TAG_EXIF_IFD]) {
             const sub = readIFD(v, base, base + ifd0[TAG_EXIF_IFD], little,
-              [TAG_ORIGINAL, TAG_DIGITIZED]);
-            const t = exifStamp(sub[TAG_ORIGINAL] || sub[TAG_DIGITIZED] || '');
-            if (t) return t;
+              [TAG_ORIGINAL, TAG_DIGITIZED, TAG_FOCAL35]);
+            taken = exifStamp(sub[TAG_ORIGINAL] || sub[TAG_DIGITIZED] || '');
+            focal35 = sub[TAG_FOCAL35] || null;
           }
-          return exifStamp(ifd0[TAG_DATETIME] || '');
+          // The file's own written date, which is a worse answer than the
+          // shutter's but a better one than nothing.
+          if (!taken) taken = exifStamp(ifd0[TAG_DATETIME] || '');
+
+          let lat = null;
+          let lon = null;
+          if (ifd0[TAG_GPS_IFD]) {
+            const gps = readIFD(v, base, base + ifd0[TAG_GPS_IFD], little,
+              [TAG_LAT_REF, TAG_LAT, TAG_LON_REF, TAG_LON]);
+            lat = degrees(gps[TAG_LAT], gps[TAG_LAT_REF]);
+            lon = degrees(gps[TAG_LON], gps[TAG_LON_REF]);
+            // Both or neither: half a coordinate places a photo in the sea off
+            // west Africa, which is where a zero latitude and longitude is.
+            if (lat === null || lon === null) { lat = null; lon = null; }
+          }
+
+          return { taken, lat, lon, focal35 };
         }
         p += 2 + size;
       }
     } catch { /* unreadable, or not a shape we know */ }
-    return null;
+    return NO_EXIF;
   }
 
   // Decode once, at a sane size, and keep the ImageBitmap. Every later draw is
@@ -1064,7 +1126,10 @@
     // is an ordinary photo from then on.
     const stored = resized || kind === 'heic' ? await encode(bitmap, 'image/jpeg', 0.92) : blob;
 
-    const taken = (await takenAt(blob)) || blob.lastModified || Date.now();
+    // Read from the original blob, before the HEIC re-encode above throws its
+    // metadata away.
+    const exif = await readExif(blob);
+    const taken = exif.taken || blob.lastModified || Date.now();
 
     // Before the bitmap is let go below — this is the only place native pixels
     // exist, and measuring later would mean decoding the file again.
@@ -1085,6 +1150,12 @@
       id: uid(),
       name,
       taken,
+      // Where it was taken and how wide the lens was, where the file says so.
+      // Kept flat beside taken rather than inside stats, because these are read
+      // off the file and stats is what was measured from the pixels.
+      lat: exif.lat,
+      lon: exif.lon,
+      focal35: exif.focal35,
       stats,
       bitmap: keep,
       small: false,
@@ -3648,8 +3719,10 @@
     put(STORE_PHOTOS, {
       id: photo.id, project: current.id, name: photo.name, taken: photo.taken,
       // Measured once at import and stored, because the pixels it was measured
-      // from no longer exist by the time anything reads it back.
+      // from no longer exist by the time anything reads it back — and neither
+      // does the EXIF, which a HEIC loses on the way in.
       stats: photo.stats || null,
+      lat: photo.lat ?? null, lon: photo.lon ?? null, focal35: photo.focal35 ?? null,
       kind: photo.kind || 'photo', duration: photo.duration || 0,
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
       proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
@@ -4047,6 +4120,7 @@
           // measured at native resolution, and by here the original is a blob
           // nobody has decoded.
           stats: row.stats || null,
+          lat: row.lat ?? null, lon: row.lon ?? null, focal35: row.focal35 ?? null,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };

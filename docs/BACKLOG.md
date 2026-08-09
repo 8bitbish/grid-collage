@@ -195,7 +195,7 @@ depends on is simply wrong, and that much can be put right without asking.
     `e.target.closest('button')`, so a cross inside the track stays exempt
     from starting a swipe.
 
-- [ ] **Measure every photo as it is imported**
+- [x] **Measure every photo as it is imported**
   why: choosing good photos out of a large tray needs numbers, and there is
     exactly one moment the full-resolution pixels exist — inside `ingest()`,
     between the decode and letting it go. Measured anywhere else it costs a
