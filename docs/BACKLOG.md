@@ -213,12 +213,9 @@ depends on is simply wrong, and that much can be put right without asking.
       recomputes nothing
     - importing adds no second decode: the pass reads the bitmap `ingest()`
       is already holding
-    - the photo library can be sorted sharpest first, so the measurements are
-      useful before anything else consumes them
     - the added milliseconds per photo are measured and recorded in the
       commit message
-  files: app.js (`ingest`, `readIFD`, the photo record, persistence, the
-    photo library), index.html (library sort control)
+  files: app.js (`ingest`, `readIFD`, the photo record, persistence)
   notes: sharpness has to be measured at native resolution. Downscaling is
     itself a low-pass filter, so it destroys exactly the high-frequency
     signal a variance-of-Laplacian measures and a 384px thumbnail cannot tell
