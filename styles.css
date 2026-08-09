@@ -449,12 +449,18 @@ body.is-picking .tile::after {
 }
 
 /* pages along the top, with the photo library pinned to the left of them */
+/* The topmost thing on screen in the editor, and with viewport-fit=cover that
+   means it is under the status bar unless it says otherwise. The homepage and
+   the photo sheet both already did — .home-head and .pm-head carry the same
+   line — which is exactly why the editor was the one place the clock sat on top
+   of the page buttons. */
 .pagesbar {
   flex: none;
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* The way back to the projects, at the far left where a back arrow belongs.
