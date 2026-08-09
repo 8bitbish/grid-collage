@@ -18,15 +18,22 @@
 
 html, body {
   margin: 0;
-  height: 100%;
   /* Installed on an iPhone, height: 100% resolves short of the screen, so the
      dock stopped above the home indicator and the strip below it showed the
-     page canvas — which is body's own near-black propagated up, and reads as a
-     black bar. dvh is the whole screen under viewport-fit=cover. It is a
-     min-height rather than a height so it can only ever add the missing piece,
-     and anything that has not heard of dvh drops the line and keeps the 100%
-     above, which was already right everywhere else. */
-  min-height: 100dvh;
+     page canvas — body's own near-black propagated up, which reads as a black
+     bar. dvh is the whole screen under viewport-fit=cover; the 100% above it is
+     what anything that has not heard of dvh keeps, and that was already right
+     everywhere else.
+
+     A height and not a min-height, which is the mistake the version before this
+     one shipped: a min-height lets the box grow past the viewport, and with
+     html having no overflow of its own that growth is a page that scrolls. The
+     two lines below shut both doors — this app is one fixed screen, and nothing
+     in it should ever move as a document. */
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
   /* No blue flash behind a tap. The app gives its own feedback — the pressed
      state, the selection ring, a buzz — and the system square lands on the
      wrong shape anyway. Keyboard focus is unaffected: that's :focus-visible. */
@@ -52,6 +59,26 @@ body {
 input, textarea, .val, #bg-hex {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* Every sideways strip in the app, in one place because they all want the same
+   thing. Each is overflow-x: auto and none of them said what a finger going the
+   other way should do, so the gesture was handed to the nearest vertical
+   scroller — the document — and on an installed iPhone that is the whole page
+   rubber-banding under your thumb. It was reported on the pages bar and the
+   dock, which are simply the two that are always on screen; the drawers below
+   had it too.
+   pan-x keeps the sideways scroll and the press-and-drag that reorders pages,
+   and refuses everything else. The preview does not appear here because
+   .canvas-wrap already says touch-action: none, which is why dragging on the
+   picture never moved the page. */
+.filmstrip,
+.dock-root,
+.dock-panel,
+.tile-actions,
+.choose-strip,
+.layouts {
+  touch-action: pan-x;
 }
 
 /* -------------------------------------------------------- install banner */
