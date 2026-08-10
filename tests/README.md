@@ -57,12 +57,22 @@ Measured with the fixtures generated, so all 39 ran:
 | | count |
 | --- | --- |
 | passed | 34 |
-| assertions | 460 |
+| assertions | 466 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
+
+The assertion count is the 460 that table was measured at plus the six `dock`
+gained for the slider fade. A second full run, on a different machine with the
+fixtures generated, came to **35 passed and 491** with nothing failing, and the
+gap is worth reading rather than averaging: `gridorder`'s 25 assertions are the
+whole of it, dead in the run above and alive in this one, exactly as the note on
+two suites at once predicts. `iframe` also happened to win its race that time —
+one run in three does — which moves it from failing to asserting nothing and
+leaves the finding below intact. Neither figure is wrong; they are the same suite
+on two machines, which is the reason both are here.
 
 **Six of the seven that used to fail were the scaffolding, not the app.** Every
 one was checked against the app as it stood before the suite arrived and failed
