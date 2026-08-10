@@ -35,7 +35,21 @@ html, body {
 }
 
 body {
-  background: var(--bg);
+  /* --surface, not --bg, and that is what this colour is for: the strip of
+     screen the web view is never given — the status bar on an installed
+     iPhone — is painted by WebKit from the page's background, and it reads
+     body's rather than the root element's. Both were measured. Setting the
+     manifest's background_color to red left the strip alone; setting html
+     alone left it alone too, with body's colour still showing underneath;
+     setting body is what moved it. So body carries the colour the strip
+     should be, which is the bar sitting directly beneath it.
+     Nothing else sees this: .app and .home are flex:1 children that fill the
+     view, and they carry --bg, the background the app actually has.
+     The same colour is repeated as theme-color in index.html and theme_color
+     in the manifest, which is what Android reads for its status bar. Neither
+     of those can see a CSS variable, so all three move together or not at
+     all. */
+  background: var(--surface);
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -484,6 +498,12 @@ body.is-picking .tile::after {
 /* -------------------------------------------------------------- layout */
 /* An app shell: header, pages, preview, dock. Nothing scrolls the page, so
    using a control can never push the preview off screen. */
+/* The app's own background, held here rather than on body, because body's is
+   what paints the strip outside the view. These two are the whole screen —
+   one or the other is always shown — so between them they cover everything
+   the strip does not. */
+.app, .home { background: var(--bg); }
+
 .app {
   flex: 1;
   min-height: 0;

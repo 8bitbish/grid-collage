@@ -80,7 +80,11 @@ console.log('\n== being quick has not cost offline ==');
   }));
   console.log('  with the network gone:', JSON.stringify(dark));
   ok('it still opens', dark.text.length>0);
-  ok('with its stylesheet', dark.styled==='rgb(13, 13, 16)', dark.styled);
+  // --surface rather than --bg since the status bar work: body carries the
+  // colour of the strip outside the web view on an installed iPhone, and the
+  // app's own background moved down to .app and .home. The check is unchanged
+  // — that the cached stylesheet is still being applied with no network.
+  ok('with its stylesheet', dark.styled==='rgb(22, 22, 28)', dark.styled);
   ok('and its script', dark.version==='v'+V, dark.version);
   offline=false;
   await ctx.close();
