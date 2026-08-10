@@ -113,6 +113,81 @@ await p.touchscreen.tap(item.x+item.width/2, item.y+item.height/2);
 await p.waitForTimeout(600);
 const reel=await buzzes();
 console.log('tap a reel option  ->', JSON.stringify(reel), '(ticks as it scrolls, no extra tap tick)');
+await tap('#choose-back'); await buzzes();
+
+// Deleting is the one thing in the dock a tap cannot take back, and it used to
+// feel exactly like picking a colour. A pattern rather than a single number is
+// what makes it unmistakable — a longer buzz reads as a slow tap.
+{
+  const dbl = (v)=>Array.isArray(v) && v.length===4 && v[1]===14;
+  await tap('.dock-item[data-tile="delete"]');
+  const tile=await buzzes();
+  console.log('delete a tile      ->', JSON.stringify(tile), tile.some(dbl)?'✓ the double':'✗ wanted the double');
+  if(!tile.some(dbl)) process.exitCode=1;
+
+  // Back out to the settings list however deep the delete left us.
+  for (let i=0; i<3 && !(await p.locator('#dock-root').isVisible()); i++) {
+    await p.click('#dock-back'); await p.waitForTimeout(200);
+  }
+  await buzzes();
+  await tap('.dock-item[data-drawer="page"]'); await buzzes();
+  await tap('#btn-delete-page');
+  const pg=await buzzes();
+  console.log('delete a page      ->', JSON.stringify(pg), pg.some(dbl)?'✓ the double':'✗ wanted the double');
+  if(!pg.some(dbl)) process.exitCode=1;
+  await tap('#dock-back'); await buzzes();
+}
+
+// A select is answered in a picker of the system's own, so the tap never lands
+// on anything the dock can hear. The buzz belongs to the answer coming back.
+{
+  await tap('.dock-item[data-drawer="export"]'); await buzzes();
+  await p.selectOption('#format','image/png');
+  await p.waitForTimeout(200);
+  const sel=await buzzes();
+  console.log('choose a format    ->', JSON.stringify(sel), sel.length===1?'✓ one tick':'✗ wanted one tick');
+  if(sel.length!==1) process.exitCode=1;
+  await tap('#dock-back'); await buzzes();
+}
 
 console.log('errors:', errs.length?errs.join(' | '):'none');
+await ctx.close();
+
+// The trim handles are the one pair in the app that can refuse to move while a
+// thumb keeps pushing, and a screen cannot say so fast enough to be useful.
+// Its own context, because this wants a clip rather than three photos.
+{
+  const c2=await b.newContext({viewport:{width:420,height:860},hasTouch:true});
+  const q=await c2.newPage();
+  await q.addInitScript(()=>{ window.__buzz=[]; navigator.vibrate=(v)=>{window.__buzz.push(v);return true;}; });
+  await q.goto('http://localhost:8160/');
+  await q.click('#home-first');
+  await q.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
+  await q.setInputFiles('#file-input',[{name:'clip.webm',mimeType:'video/webm',
+    buffer:fs.readFileSync(path.join(import.meta.dirname,'fixtures','clip.webm'))}]);
+  await q.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:20000});
+  await q.waitForTimeout(1200);
+  const box=await q.locator('#canvas').boundingBox();
+  await q.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
+  await q.waitForTimeout(500);
+  await q.click('#tile-trim-btn');
+  await q.waitForTimeout(400);
+  await q.evaluate(()=>{window.__buzz=[];});
+
+  // Drive the start handle past the end one, which it is not allowed to pass.
+  const bar=await q.locator('#trim-start').boundingBox();
+  const y=Math.round(bar.y+bar.height/2);
+  await q.mouse.move(bar.x+4, y);
+  await q.mouse.down();
+  for (let x=Math.round(bar.x+4); x<bar.x+bar.width; x+=10) { await q.mouse.move(x,y); await q.waitForTimeout(8); }
+  await q.mouse.up();
+  await q.waitForTimeout(300);
+  const run=await q.evaluate(()=>{const v=window.__buzz;window.__buzz=[];return v;});
+  const limits=run.filter(v=>Array.isArray(v)&&v[2]===45).length;
+  console.log(`push a handle past the other -> ${JSON.stringify(run)}`,
+    limits===1?'✓ one buzz for arriving, not one a frame':`✗ ${limits} limit buzzes, wanted 1`);
+  if(limits!==1) process.exitCode=1;
+  await c2.close();
+}
+
 await b.close(); srv.close();

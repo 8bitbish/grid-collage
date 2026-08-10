@@ -42,7 +42,7 @@ Then the browser suite, which is what actually covers this app:
 cd tests && npm install && node run.mjs
 ```
 
-39 tests, no framework, Playwright the only dependency. It exits non-zero on any
+40 tests, no framework, Playwright the only dependency. It exits non-zero on any
 failure and says plainly what it skipped and why — six tests need fixtures too
 big for git, which `tests/fixtures/make.sh` generates and which need ffmpeg. CI
 runs the lot on every push and pull request.

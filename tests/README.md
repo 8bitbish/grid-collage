@@ -1,6 +1,6 @@
 # Browser tests
 
-39 standalone Node scripts that serve the repository over http, drive Chromium
+40 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -52,17 +52,22 @@ playback.
 
 ## Where it stands
 
-Measured with the fixtures generated, so all 39 ran:
+Measured with the fixtures generated, so all 40 ran:
 
 | | count |
 | --- | --- |
-| passed | 34 |
-| assertions | 460 |
+| passed | 36 |
+| assertions | 561 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
+
+`reach` is the fortieth, and it is the one to run after touching the dock: it
+measures the hit box of every control in it at four viewports rather than
+looking at a screenshot of them. On the commit before it arrived, 28 of its 72
+assertions failed.
 
 **Six of the seven that used to fail were the scaffolding, not the app.** Every
 one was checked against the app as it stood before the suite arrived and failed
