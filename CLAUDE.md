@@ -161,6 +161,23 @@ is a View-only seat and cannot be written to.
   throws `Can only set component property definitions on a product component`.
   Bind the instance's property to the copy variable rather than the text node,
   or the properties panel and the canvas disagree.
+- **Build it, screenshot it, compare it, fix it — then screenshot again.** A
+  `use_figma` call that returns node ids has told you the API accepted the
+  script, not that the result looks like the app. Take the screenshot large
+  (`maxDimension` well past the node's real size, then `sips -Z` it bigger
+  again) — at thumbnail size everything looks fine.
+
+  This is not a nicety. The add-a-page slot came out as a 50×22 pill, because
+  setting `layoutMode` after `resize()` quietly turns hugging back on and the
+  frame collapsed around its `+`. The screenshot showed it instantly; the
+  return value showed nothing. Fixing that then revealed a second fault the
+  first had hidden — the same slot was clipped out of the strip altogether,
+  because four 50px thumbnails and their gaps do not fit 200px of filmstrip.
+  Both were only ever going to be found by looking.
+
+  Where the app scrolls and Figma cannot, show fewer items rather than letting
+  the overflow hide something. A clipped-off add button misrepresents the one
+  thing the variant exists to demonstrate.
 
 ## Working here
 
