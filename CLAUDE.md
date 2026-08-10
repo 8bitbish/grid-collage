@@ -105,23 +105,7 @@ The code here is written to be read. Match it rather than your own habits.
 - Commit messages explain the change and how it was verified, with the numbers
   where there are numbers. The log is the record of why this app is the way it
   is; treat it as documentation.
-- One task per branch. See `docs/BACKLOG.md` and the `/next` command.
-
-## Managing work
-
-- `docs/BACKLOG.md` — what is next, in order.
-- `docs/task-template.md` — the shape of an entry. The only place it is defined.
-- `/add <rough idea>` — scopes it against the code and appends a proper entry,
-  committing `docs/BACKLOG.md` and nothing else.
-- `/next` — takes the topmost unblocked entry through to a pushed branch, on
-  its own, without stopping to ask. It stops only on the conditions listed in
-  the command itself, and it never commits to `main`. Review happens on the
-  branch afterwards, so the acceptance criteria on an entry are doing the work
-  a conversation would otherwise do — write them so they can be checked, not
-  argued about.
-
-Anything noticed while working on something else becomes a backlog entry rather
-than a second change in the branch you are on. The entry still has to be
-committed somewhere, and on a task branch that means it travels with that
-branch's pull request — so the queue only really exists on `main`, and `/next`
-cannot see an entry that has not reached it.
+- One task per branch, and never commit to `main` directly.
+- Anything noticed while working on something else is worth raising rather than
+  fixing in the branch you are on. Keeping a change to one thing is what makes
+  the log worth reading.
