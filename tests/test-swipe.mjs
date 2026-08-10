@@ -44,11 +44,21 @@ const box=await p.locator('#canvas').boundingBox();
 const cy=box.y+box.height/2;
 const cdp=await ctx.newCDPSession(p);
 const touch=(type,pts)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:pts.map(([x,y],i)=>({x,y,id:i}))});
+// Chrome delivers pointermove aligned to the animation frame, so dispatching
+// two moves back to back gets one pointermove carrying the second position —
+// or, if the frame has not come round yet, none at all. Both showed up here as
+// app bugs that were not: the 1:1 assertion read the track while the second
+// move was still queued and saw only the first, and the dawdle-then-flick case
+// lost its whole tail to coalescing, leaving one sample where the velocity
+// needs two. A move followed by its frame is also closer to what a finger does
+// — a real one cannot move twice inside 16ms either.
+const move=async(x)=>{ await touch('touchMove',[[x,cy]]);
+  await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))); };
 
 // slow drag: track should follow the finger 1:1 and reveal the next page
 await touch('touchStart',[[300,cy]]);
-await touch('touchMove',[[280,cy]]);
-await touch('touchMove',[[220,cy]]);
+await move(280);
+await move(220);
 const mid = await trackX();
 console.log('dragged 80px left -> track at', mid, Math.abs(mid+80)<12 ? '✓ follows the finger' : '✗ not 1:1');
 console.log('  neighbouring page revealed:', await peekVisible() ? '✓' : '✗');
@@ -59,7 +69,7 @@ console.log('  released past threshold ->', await pager(), '| track reset to', a
 // short slow drag should spring back, not turn the page
 const before = await pager();
 await touch('touchStart',[[300,cy]]);
-for (const x of [292,285,280,276,274]) { await touch('touchMove',[[x,cy]]); await p.waitForTimeout(40); }
+for (const x of [292,285,280,276,274]) { await move(x); await p.waitForTimeout(40); }
 await touch('touchEnd',[]);
 await p.waitForTimeout(400);
 console.log(`short slow drag: ${before} -> ${await pager()}`, before===(await pager())?'✓ sprang back':'✗ turned the page');
@@ -70,8 +80,8 @@ const before2 = await pager();
 // tens of ms of jitter, so the displacement has to be big enough that even
 // the slowest delivery is still a flick.
 await touch('touchStart',[[300,cy]]);
-await touch('touchMove',[[280,cy]]);
-await touch('touchMove',[[245,cy]]);
+await move(280);
+await move(245);
 await touch('touchEnd',[]);
 await p.waitForTimeout(450);
 console.log(`quick flick: ${before2} -> ${await pager()}`, before2!==(await pager())?'✓ flick turned it':'✗ flick ignored');
@@ -80,9 +90,9 @@ console.log(`quick flick: ${before2} -> ${await pager()}`, before2!==(await page
 {
   const b3 = await pager();
   await touch('touchStart',[[300,cy]]);
-  for (const x of [297,294,292,290,288]) { await touch('touchMove',[[x,cy]]); await p.waitForTimeout(70); }
-  await touch('touchMove',[[268,cy]]);
-  await touch('touchMove',[[240,cy]]);
+  for (const x of [297,294,292,290,288]) { await move(x); await p.waitForTimeout(70); }
+  await move(268);
+  await move(240);
   await touch('touchEnd',[]);
   await p.waitForTimeout(450);
   console.log(`slow drag then flick: ${b3} -> ${await pager()}`, b3!==(await pager())?'✓ the flick counted':'✗ averaged away');
@@ -96,7 +106,7 @@ for (let i=0;i<8;i++){
 }
 console.log('back to start:', await pager());
 await touch('touchStart',[[100,cy]]);
-await touch('touchMove',[[220,cy]]);
+await move(220);
 const band = await trackX();
 console.log(`dragged 120px past the first page -> track at ${band}`, band>0 && band<70 ? '✓ resists' : '✗ no resistance');
 await touch('touchEnd',[]);

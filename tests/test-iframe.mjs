@@ -67,7 +67,14 @@ console.log('photo loaded inside iframe: yes');
 let downloaded = false;
 page.on('download', () => { downloaded = true; });
 await frame.click('.dock-item[data-drawer="export"]');
-await new Promise(r=>setTimeout(r,300));
+// Export stays disabled until a photo is actually in the tray, and a film
+// thumbnail appears a beat before that — so the 300ms sleep this replaces was
+// a coin toss. It came down heads often enough to look fine and tails often
+// enough to be one of the suite's standing failures, always on this line.
+await frame.waitForFunction(() => {
+  const b = document.getElementById('btn-export');
+  return b && !b.disabled;
+}, null, { timeout: 15000 });
 await frame.click('#btn-export');
 await page.waitForTimeout(2500);
 
