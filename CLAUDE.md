@@ -109,3 +109,95 @@ The code here is written to be read. Match it rather than your own habits.
 - Anything noticed while working on something else is worth raising rather than
   fixing in the branch you are on. Keeping a change to one thing is what makes
   the log worth reading.
+- **Stage by path, never `git add -A`.** More than one person works this tree
+  and there is usually something half-finished in it. Look at `git diff` before
+  committing and take only the paths that are yours.
+
+## The design file
+
+The app's design lives in one Figma file, and every call to the Figma connector
+takes a `fileKey`. This is the one:
+
+```
+Grid Collage — vvTNILQSm10sgKMBqGTHYY
+https://www.figma.com/design/vvTNILQSm10sgKMBqGTHYY
+```
+
+**Work in that file. Do not create a new one.** Nothing about a Figma file is
+discoverable from a repository, so without this written down every session
+starts by making a second file, and then there are two design systems that
+disagree. It holds the token collection, the component sets, the icon set and
+the screens.
+
+The file is in the 3 SIDED CUBE plan, in drafts. The other plan on the account
+is a View-only seat and cannot be written to.
+
+## The design system in that file
+
+- **Variables mirror `styles.css` where the CSS has a name for something.** The
+  nine custom properties are flat variables — `bg`, `surface`, `accent` — each
+  carrying `var(--bg)` as its code syntax so Dev Mode shows the CSS name. Groups
+  (`type/`, `copy/`) are Figma-only organisation for things the stylesheet
+  never named: the font sizes are literals scattered through the CSS, and the
+  labels live in `index.html`.
+- **Seed a bound paint with the token's own colour, never black.** A bound paint
+  falls back to its base when it cannot resolve, and black on a dark UI simply
+  disappears. This hid a real bug for a while: every stroked icon looked correct
+  whether or not its binding worked, because `--muted` is the same `#8d8d9c`
+  already baked into the SVGs.
+- **Icons are the app's own set**, not Material Symbols. That was measured and
+  rejected: at default weight the filled shapes sit heavier than the 1.7–2.2px
+  strokes, and four of eight candidates were worse on meaning — `space_bar` for
+  gap is a keyboard glyph, `rounded_corner` reads as marching ants at 22px.
+- **Icon components must scale.** Both the wrapper frame and the vectors inside
+  need `SCALE` constraints, or resizing the container crops the artwork instead
+  of shrinking it. `createNodeFromSvg` gives the wrapper `MIN/MIN` and clipping,
+  so this has to be set by hand every time.
+- **Stroke weight in Figma is in final pixels. In the app it is in viewBox
+  units, and the two are not the same number.** `styles.css` sets `stroke-width`
+  anywhere from 1.7 to 2.2 inside a 24-unit `viewBox`, and the browser divides
+  it by the render scale — so what actually lands on screen is about 1.5 CSS px
+  at every icon size. The scatter in the source is what produces the consistency
+  in the output, and it is deliberate: 2.2 at 16px and 1.7 at 22px both draw
+  ~1.5. Figma scales geometry on resize but *not* stroke, so copying the source
+  numbers across made every icon 20–28% too heavy. Icons here carry 1.5, the
+  drawn width.
+
+  The limit that follows: one component cannot reproduce per-context
+  compensation, so an icon used well outside the 19–22px band will look wrong
+  and wants an instance-level override rather than a new component.
+- **Component states come from the CSS, not from taste.** `.btn:active` is
+  `translateY(1px) scale(0.97)` with no colour change at all, so the Pressed
+  variant differs only in size and looks like a mistake until you read the rule.
+  Some things brighten rather than scale, and the stylesheet says why.
+- Text properties go on the **component set**, not on a variant — a variant
+  throws `Can only set component property definitions on a product component`.
+  Bind the instance's property to the copy variable rather than the text node,
+  or the properties panel and the canvas disagree.
+- **Build it, screenshot it, compare it, fix it — then screenshot again.** A
+  `use_figma` call that returns node ids has told you the API accepted the
+  script, not that the result looks like the app. Take the screenshot large
+  (`maxDimension` well past the node's real size, then `sips -Z` it bigger
+  again) — at thumbnail size everything looks fine.
+
+  This is not a nicety. The add-a-page slot came out as a 50×22 pill, because
+  setting `layoutMode` after `resize()` quietly turns hugging back on and the
+  frame collapsed around its `+`. The screenshot showed it instantly; the
+  return value showed nothing. Fixing that then revealed a second fault the
+  first had hidden — the same slot was clipped out of the strip altogether,
+  because four 50px thumbnails and their gaps do not fit 200px of filmstrip.
+  Both were only ever going to be found by looking.
+
+  Where the app scrolls and Figma cannot, show fewer items rather than letting
+  the overflow hide something. A clipped-off add button misrepresents the one
+  thing the variant exists to demonstrate.
+
+## Working here
+
+- **Take the sensible default and get on with it.** Ask only when two readings
+  lead to genuinely different work; otherwise pick, say which way you went, and
+  keep moving.
+- **Do not take focus.** Simulators and emulators get driven headless or through
+  the background, because somebody is usually working on the same machine.
+- **Task tracking is not in this repository.** It used to be, and three systems
+  describing the same work was worse than none. Do not add a backlog file back.
