@@ -57,23 +57,29 @@ Measured on a container with no ffmpeg, so six tests skipped:
 | | count |
 | --- | --- |
 | passed | 25 |
-| assertions | 391 |
-| failing | 4 — photodates, reorder, share, update-path |
+| assertions | 395 |
+| failing | 6 — iframe, photodates, reorder, share, swipe, update-path |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
-| assert nothing | 3 — dock-haptics, iframe, manifest-fresh |
+| assert nothing | 2 — iframe, manifest-fresh |
 | known stale | 1 — swr |
 | skipped for fixtures | 6 — bulk, progress, progressive, replaceplay, thumbupgrade, video |
 
-None of the four failures were caused by the change that brought the suite in.
-They were checked against the app as it stood before it and failed identically,
-with the same errors, and `photodates` failed the same way again after EXIF
-reading was extended — so it is not that either.
+None of the failures were caused by the change that brought the suite in. They
+were checked against the app as it stood before it and failed identically, with
+the same errors, and `photodates` failed the same way again after EXIF reading
+was extended — so it is not that either. `swipe` and `iframe` are on that list
+now because they were run against `main` in a worktree of their own while the
+dock sliders were being rebuilt: `swipe` fails `dragged 80px left -> track at
+-20 ✗ not 1:1` and `iframe` times out clicking a disabled element on both, so
+neither belongs to that change either.
 
-**Three tests assert nothing.** `dock-haptics`, `iframe` and `manifest-fresh`
-print observations a person used to read and emit no `✓` or `✗`, so they exit 0
-whatever they saw — `iframe` reports a 404 in its own output and still passes.
-The runner counts them separately rather than as passes, because a suite that
-reports green over a test which cannot fail is worse than one test short.
+**Two tests assert nothing.** `iframe` and `manifest-fresh` print observations a
+person used to read and emit no `✓` or `✗`, so they exit 0 whatever they saw —
+`iframe` reports a 404 in its own output and still passes. The runner counts them
+separately rather than as passes, because a suite that reports green over a test
+which cannot fail is worse than one test short. `dock-haptics` used to be the
+third: it now counts the ticks a full sweep of a slider gives, and a dozen is
+the number, so it can fail.
 
 **`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
 failure in two full-suite runs, on `nothing left running on the homepage`, and a

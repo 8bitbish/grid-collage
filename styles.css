@@ -1282,13 +1282,41 @@ body.is-picking .tile::after {
 }
 .dock-panel::-webkit-scrollbar { display: none; }
 
+/* Sliders. The geometry lives here as variables because three separate things
+   have to agree on where the knob is — the fill behind it, the readout above
+   it, and the knob itself — and only one of them is an element we can position.
+   --frac is the only one app.js writes: a range input's value is invisible to
+   CSS, so the fraction has to be handed over on every input event.
+   --at is where the knob's centre actually sits, which is not --frac of the
+   width: the knob travels between its own two edges, so the ends are inset by
+   half a knob. Filling to a plain percentage instead left the bar running out
+   ahead of the knob by 11px at the far end, which reads as a bar that has
+   stopped tracking. */
 .dock-slider {
+  --knob: 22px;
+  --rail: 6px;
+  --frac: 0;
+  --at: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--frac));
+  /* Where the fill grows from: the very end of the rail, not the knob's resting
+     centre. Starting it half a knob in left eleven pixels of empty rail showing
+     to the left of the fill, which reads as a bar that has come adrift. Nothing
+     is lost at the other end either — at the top of the range the knob covers
+     exactly the half-knob the fill stops short of.
+     Sorted into two stops so the gradient's offsets stay in order whichever side
+     of the origin the knob is on: a gradient with a later stop before an earlier
+     one is silently clamped, not honoured. */
+  --from: 0px;
+  --lo: min(var(--from), var(--at));
+  --hi: max(var(--from), var(--at));
+
+  position: relative;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 4px;
   overflow: visible;
   max-width: 460px;
 }
+.dock-slider.from-centre { --from: 50%; }
 
 .dock-label {
   font-size: 11.5px;
@@ -1299,6 +1327,38 @@ body.is-picking .tile::after {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  /* The track's 44px reach passes under this row, and a label that swallowed
+     the first touch of a drag would be the whole point of widening it lost. */
+  pointer-events: none;
+}
+.dock-slider.is-sliding .dock-label { color: var(--text); }
+.dock-slider.is-sliding .val { color: var(--accent); }
+
+/* Rides the knob, and only while a thumb is on the track. It escapes upward
+   out of the dock rather than taking a row of its own, because the dock's
+   height is fixed and every row it does not take is preview. */
+.slider-read {
+  position: absolute;
+  left: var(--at);
+  bottom: calc(100% + 4px);
+  transform: translate(-50%, 4px) scale(0.9);
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: opacity 110ms, transform 110ms;
+}
+.dock-slider.is-sliding .slider-read {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
 }
 
 .dock-tile { gap: 12px; overflow: visible; padding: 0; }
@@ -1331,8 +1391,11 @@ body.is-picking .tile::after {
 .tile-sub .dock-slider { flex: 1; }
 .tile-sub .btn { flex: none; }
 /* The zoom panel is both at once. .tile-sub's centring would otherwise beat
-   .dock-slider's stretch, leaving the label adrift and the track overhanging. */
-.tile-sub.dock-slider { align-items: stretch; }
+   .dock-slider's stretch, leaving the label adrift and the track overhanging —
+   and its 14px gap, meant for buttons standing side by side, beats the 4px a
+   label wants above its own track for the same reason: the two rules have equal
+   weight and .tile-sub is written later. Both are put back here. */
+.tile-sub.dock-slider { align-items: stretch; gap: 4px; }
 
 /* Choosing a photo: the pages bar stands down and the dock takes two rows,
    so the options are big enough to judge. */
@@ -1503,6 +1566,9 @@ body.is-picking .tile::after {
   cursor: pointer;
 }
 
+/* The trim pair keeps the thin bars: they are stacked two deep over one clip,
+   and each has to span the full width so start and end are measured on the same
+   scale. Everything else in the dock uses the tall version below. */
 input[type="range"] {
   appearance: none;
   width: 100%;
@@ -1527,6 +1593,89 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   background: var(--text);
   cursor: grab;
+}
+
+/* A range input is hit-tested on its own box, not on the thumb sticking out of
+   it, so the 4px above was a 4px target: measured on a 420px phone the whole
+   gap control was a strip 4 pixels tall, and a thumb is nearer 40 across. The
+   box is 44px here — the same number the icon buttons cite as the smallest a
+   thumb hits reliably — and the negative margin spends the drawer's own padding
+   on it rather than the dock's fixed height, so the bar does not grow. What you
+   see is the 6px rail drawn by the track pseudo-element inside that box. */
+.dock-slider input[type="range"] {
+  height: 44px;
+  /* The sides have to be nought rather than left alone. Chrome's own sheet puts
+     2px there, which is enough to leave the input's box two pixels right of the
+     panel's — and the panel is what the fill and the readout measure themselves
+     against, so both sat two pixels off the knob until this was measured. */
+  margin: -10px 0;
+  background: none;
+  border-radius: 0;
+  /* The reach now overlaps the drawer's padding and the label row above it.
+     Handing the gesture to an ancestor part way through a drag is the one thing
+     that would undo that, and a slider is never the thing that should scroll. */
+  touch-action: none;
+}
+
+/* The two engines' track pseudo-elements are spelled out separately rather than
+   as one selector list: a list containing a pseudo-element the browser does not
+   know is thrown away whole, so pairing them would leave both engines with no
+   track at all. */
+.dock-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: var(--rail);
+  border-radius: calc(var(--rail) / 2);
+  background: linear-gradient(to right,
+    var(--line) 0 var(--lo),
+    var(--accent) var(--lo) var(--hi),
+    var(--line) var(--hi) 100%);
+}
+.dock-slider input[type="range"]::-moz-range-track {
+  height: var(--rail);
+  border-radius: calc(var(--rail) / 2);
+  background: linear-gradient(to right,
+    var(--line) 0 var(--lo),
+    var(--accent) var(--lo) var(--hi),
+    var(--line) var(--hi) 100%);
+}
+
+/* Big enough to see under a finger, and it grows into a ring while held, which
+   is the only acknowledgement the control can give: the preview behind it is
+   busy showing the value, not the grab. */
+.dock-slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--knob);
+  height: var(--knob);
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+  /* WebKit puts the thumb's top on the track's top; every other engine centres
+     it. Half the difference is what brings it back onto the rail. */
+  margin-top: calc((var(--rail) - var(--knob)) / 2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 90ms, box-shadow 90ms;
+}
+.dock-slider input[type="range"]::-moz-range-thumb {
+  width: var(--knob);
+  height: var(--knob);
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 90ms, box-shadow 90ms;
+}
+/* --accent at 22%, written out because rgba() cannot read a variable. */
+.dock-slider.is-sliding input[type="range"]::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+}
+.dock-slider.is-sliding input[type="range"]::-moz-range-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+}
+.dock-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--accent);
 }
 
 /* ------------------------------------------------------------ layouts */
@@ -1892,6 +2041,13 @@ body.is-library .toast {
   .dock-item { min-width: 58px; font-size: 10px; gap: 2px; padding: 4px 6px; }
   .dock-item svg { width: 18px; height: 18px; }
   .drawer-body { padding: 6px 10px; }
+  /* A 62px dock leaves 42px inside the drawer, and a label above a slider came
+     to 45. The reach stays 44px: what gives way is the label, which loses a
+     point of type and two of the gap under it. The negative margin cannot go
+     past the 10px of padding it is spending — at -11 the bottom of the reach
+     measured half a pixel below the dock itself. */
+  .dock-slider { gap: 2px; }
+  .dock-label { font-size: 10.5px; }
 }
 
 /* ------------------------------------------------------------ trimming */

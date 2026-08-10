@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.10c">
+<link rel="stylesheet" href="styles.css?v=2026.08.10d">
 </head>
 <body class="on-home">
 
@@ -217,19 +217,26 @@
         <div class="segmented" id="ratios"></div>
       </div>
 
+      <!-- The readout appears twice on purpose. The one in the label row is the
+           resting state, and the one riding the knob is for the moment a thumb
+           is over the track, when the corner of the dock is the last place
+           anybody is looking. -->
       <div class="dock-panel dock-slider" id="dp-gap" hidden>
         <label class="dock-label" for="gap">Gap between tiles <span class="val" id="gap-val">0</span></label>
         <input type="range" id="gap" min="0" max="120" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
       <div class="dock-panel dock-slider" id="dp-padding" hidden>
         <label class="dock-label" for="padding">Padding round the edge <span class="val" id="padding-val">0</span></label>
         <input type="range" id="padding" min="0" max="160" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
       <div class="dock-panel dock-slider" id="dp-corners" hidden>
         <label class="dock-label" for="radius">Corner radius <span class="val" id="radius-val">0</span></label>
         <input type="range" id="radius" min="0" max="120" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
       <div class="dock-panel" id="dp-background" hidden>
@@ -298,7 +305,8 @@
 
         <div class="tile-sub dock-slider" id="tile-zoom" hidden>
           <label class="dock-label" for="zoom">Zoom <span class="val" id="zoom-val">100%</span></label>
-          <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+          <input type="range" id="zoom" min="100" max="800" step="1" value="100" data-read="%">
+          <span class="slider-read" aria-hidden="true">100%</span>
         </div>
 
         <!-- Cutting a clip blind would be useless, so both handles seek the
@@ -322,9 +330,12 @@
 
         <div class="tile-sub" id="tile-rotate" hidden>
           <button class="btn btn-ghost btn-sm" id="btn-rot90" type="button">Turn 90&deg;</button>
-          <div class="dock-slider">
+          <!-- The one slider whose fill runs from the middle: nought is square,
+               and a bar growing out of the left end would say -180 was. -->
+          <div class="dock-slider from-centre">
             <label class="dock-label" for="angle">Angle <span class="val" id="cell-angle">0&deg;</span></label>
-            <input type="range" id="angle" min="-180" max="180" step="1" value="0">
+            <input type="range" id="angle" min="-180" max="180" step="1" value="0" data-read="&deg;">
+            <span class="slider-read" aria-hidden="true">0&deg;</span>
           </div>
         </div>
 
@@ -425,6 +436,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.10c"></script>
+<script src="app.js?v=2026.08.10d"></script>
 </body>
 </html>

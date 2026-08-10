@@ -160,6 +160,10 @@
     drop: 14,
     snap: 6,
     turn: 5,
+    // A slider's detents. Shorter than anything else here because a drag fires
+    // a dozen of them in a second or two and they have to read as texture
+    // under the thumb rather than as a dozen separate announcements.
+    tick: 4,
     limit: [0, 18, 45, 18],
   };
   function buzz(kind) {
@@ -2383,6 +2387,8 @@
     $('zoom').value = Math.round(p.zoom * 100);
     $('zoom-val').textContent = `${Math.round(p.zoom * 100)}%`;
     $('angle').value = degrees > 180 ? degrees - 360 : degrees;
+    paintSlider($('zoom'));
+    paintSlider($('angle'));
   }
 
   function select(i) {
@@ -3282,6 +3288,7 @@
     ['gap', 'padding', 'radius'].forEach((key) => {
       $(key).value = state[key];
       $(`${key}-val`).textContent = state[key];
+      paintSlider($(key));
     });
     $('quality').value = String(state.quality);
     $('format').value = state.format;
@@ -3297,11 +3304,75 @@
     if (btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', 'true');
   }
 
+  // How many detents a full sweep of a slider has. Emphatically not the number
+  // of steps: the gap slider takes sixty of those end to end, and sixty buzzes
+  // in one drag is a rattle rather than a control. Twelve are close enough
+  // together to feel like notches under the thumb and far enough apart that
+  // each one arrives as its own tick.
+  const NOTCHES = 12;
+
+  // Where the knob is, handed to the stylesheet. CSS can see a range input's
+  // width but not its value, so the fill behind the knob and the readout above
+  // it both wait on this. Anything that sets a slider's value — an undo, a
+  // project opening, another tile being selected — has to call this after, or
+  // the control keeps drawing the value it used to hold.
+  function paintSlider(input) {
+    const panel = input.closest('.dock-slider');
+    if (!panel) return;
+    const min = Number(input.min);
+    const span = Number(input.max) - min || 1;
+    const value = Number(input.value);
+    panel.style.setProperty('--frac', clamp((value - min) / span, 0, 1));
+    const read = panel.querySelector('.slider-read');
+    if (read) read.textContent = `${Math.round(value)}${input.dataset.read || ''}`;
+  }
+
+  // The part of a drag that is only feedback: the fill, the readout, the knob
+  // knowing it is held, and the notches. The value itself is the caller's
+  // business — this deliberately never touches state, which is why zoom and
+  // angle can share it with the three deck sliders despite writing to
+  // different places.
+  function feedback(id) {
+    const input = $(id);
+    const panel = input.closest('.dock-slider');
+    let notch = null;
+    let atEnd = false;
+
+    input.addEventListener('pointerdown', () => {
+      panel.classList.add('is-sliding');
+      notch = null;
+      atEnd = false;
+      buzz('pick');
+    });
+    const release = () => panel.classList.remove('is-sliding');
+    input.addEventListener('pointerup', release);
+    input.addEventListener('pointercancel', release);
+
+    input.addEventListener('input', () => {
+      paintSlider(input);
+      const min = Number(input.min);
+      const span = Number(input.max) - min || 1;
+      const frac = clamp((Number(input.value) - min) / span, 0, 1);
+      // Notches are crossed rather than landed on. Comparing which band the
+      // value is in against the band it was in last frame is what gives one
+      // tick per notch however fast the drag is travelling — checking for a
+      // value on a notch instead misses every notch a quick sweep jumps over.
+      const band = Math.round(frac * NOTCHES);
+      const end = frac === 0 || frac === 1;
+      if (end && !atEnd) buzz('limit');
+      else if (!end && notch !== null && band !== notch) buzz('tick');
+      atEnd = end;
+      notch = band;
+    });
+  }
+
   function slider(id, key) {
     const input = $(id);
     const label = $(`${id}-val`);
     input.value = state[key];
     label.textContent = state[key];
+    paintSlider(input);
+    feedback(id);
     input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
     input.addEventListener('pointerup', endRun);
     input.addEventListener('input', () => {
@@ -5115,6 +5186,7 @@
     render();
     syncPanel();
   });
+  feedback('angle');
   $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
   $('angle').addEventListener('pointerup', endRun);
   $('angle').addEventListener('input', (e) => {
@@ -5179,6 +5251,7 @@
   });
   $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
+  feedback('zoom');
   $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
   $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
@@ -5186,6 +5259,11 @@
     if (!cell) return;
     snapshot('zoom');
     cell.zoom = Number(e.target.value) / 100;
+    // The label in the corner was only ever brought up to date by syncPanel,
+    // which a drag never reaches, so it sat on whatever it said when the panel
+    // opened. Harmless while it was the only readout; now that one rides the
+    // knob it would be one number contradicting another an inch away.
+    $('zoom-val').textContent = `${Math.round(Number(e.target.value))}%`;
     settle(state.selected);
     render();
   });

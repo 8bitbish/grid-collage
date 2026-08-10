@@ -51,12 +51,31 @@ await tap('.swatch', 1);
 console.log('pick a colour      ->', JSON.stringify(await buzzes()));
 await tap('#dock-back'); await buzzes();
 
-// a slider drag must stay silent
+// A slider used to stay silent. It has detents now: one buzz for taking hold
+// of the knob, one per notch crossed, and the firmer double at either end.
+// Twelve notches to a sweep is the number that matters — the step count is 60,
+// and buzzing every step is a rattle rather than a control.
 await tap('.dock-item[data-drawer="gap"]'); await buzzes();
 const s=await p.locator('#gap').boundingBox();
 await p.touchscreen.tap(s.x+10, s.y+s.height/2);
 await p.waitForTimeout(200);
-console.log('drag the slider    ->', JSON.stringify(await buzzes()), '(expect none)');
+console.log('touch the track    ->', JSON.stringify(await buzzes()), '(one for the grab)');
+{
+  const cdp=await ctx.newCDPSession(p);
+  const y=Math.round(s.y+s.height/2);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:Math.round(s.x+2),y}]});
+  for (let x=Math.round(s.x+2); x<s.x+s.width-2; x+=6) {
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});
+    await p.waitForTimeout(12);
+  }
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await p.waitForTimeout(250);
+  const run=await buzzes();
+  const ticks=run.filter(v=>v===4).length;
+  const ends=run.filter(v=>Array.isArray(v)).length;
+  console.log(`sweep end to end   -> ${run.length} buzzes: 1 grab, ${ticks} ticks, ${ends} at the limit`,
+    ticks>=10&&ticks<=13?'✓ a dozen notches':`✗ ${ticks} notches, wanted about 12`);
+}
 await tap('#dock-back'); await buzzes();
 
 // scrolling the settings row must stay silent
