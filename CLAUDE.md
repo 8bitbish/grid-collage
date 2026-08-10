@@ -109,3 +109,65 @@ The code here is written to be read. Match it rather than your own habits.
 - Anything noticed while working on something else is worth raising rather than
   fixing in the branch you are on. Keeping a change to one thing is what makes
   the log worth reading.
+- **Stage by path, never `git add -A`.** More than one person works this tree
+  and there is usually something half-finished in it. Look at `git diff` before
+  committing and take only the paths that are yours.
+
+## The design file
+
+The app's design lives in one Figma file, and every call to the Figma connector
+takes a `fileKey`. This is the one:
+
+```
+Grid Collage — vvTNILQSm10sgKMBqGTHYY
+https://www.figma.com/design/vvTNILQSm10sgKMBqGTHYY
+```
+
+**Work in that file. Do not create a new one.** Nothing about a Figma file is
+discoverable from a repository, so without this written down every session
+starts by making a second file, and then there are two design systems that
+disagree. It holds the token collection, the component sets, the icon set and
+the screens.
+
+The file is in the 3 SIDED CUBE plan, in drafts. The other plan on the account
+is a View-only seat and cannot be written to.
+
+## The design system in that file
+
+- **Variables mirror `styles.css` where the CSS has a name for something.** The
+  nine custom properties are flat variables — `bg`, `surface`, `accent` — each
+  carrying `var(--bg)` as its code syntax so Dev Mode shows the CSS name. Groups
+  (`type/`, `copy/`) are Figma-only organisation for things the stylesheet
+  never named: the font sizes are literals scattered through the CSS, and the
+  labels live in `index.html`.
+- **Seed a bound paint with the token's own colour, never black.** A bound paint
+  falls back to its base when it cannot resolve, and black on a dark UI simply
+  disappears. This hid a real bug for a while: every stroked icon looked correct
+  whether or not its binding worked, because `--muted` is the same `#8d8d9c`
+  already baked into the SVGs.
+- **Icons are the app's own set**, not Material Symbols. That was measured and
+  rejected: at default weight the filled shapes sit heavier than the 1.7–2.2px
+  strokes, and four of eight candidates were worse on meaning — `space_bar` for
+  gap is a keyboard glyph, `rounded_corner` reads as marching ants at 22px.
+- **Icon components must scale.** Both the wrapper frame and the vectors inside
+  need `SCALE` constraints, or resizing the container crops the artwork instead
+  of shrinking it. `createNodeFromSvg` gives the wrapper `MIN/MIN` and clipping,
+  so this has to be set by hand every time.
+- **Component states come from the CSS, not from taste.** `.btn:active` is
+  `translateY(1px) scale(0.97)` with no colour change at all, so the Pressed
+  variant differs only in size and looks like a mistake until you read the rule.
+  Some things brighten rather than scale, and the stylesheet says why.
+- Text properties go on the **component set**, not on a variant — a variant
+  throws `Can only set component property definitions on a product component`.
+  Bind the instance's property to the copy variable rather than the text node,
+  or the properties panel and the canvas disagree.
+
+## Working here
+
+- **Take the sensible default and get on with it.** Ask only when two readings
+  lead to genuinely different work; otherwise pick, say which way you went, and
+  keep moving.
+- **Do not take focus.** Simulators and emulators get driven headless or through
+  the background, because somebody is usually working on the same machine.
+- **Task tracking is not in this repository.** It used to be, and three systems
+  describing the same work was worse than none. Do not add a backlog file back.
