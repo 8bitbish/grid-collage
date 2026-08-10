@@ -57,6 +57,29 @@ for (const [name, sel] of [['shape','#ratios'],['gap','#gap'],['padding','#paddi
 }
 console.log('');
 
+// A slider at the top of its range must not be wearing the sideways-scroll
+// fade. The readout rides the knob, so at the maximum it hangs past the panel's
+// right edge, and that counted as slack to scroll: fade-r went on and masked
+// the last 20px of the panel, taking the right half of the knob, half of its
+// accent halo and the last digit of the number in the corner with it. Checked
+// alongside the fact the panel cannot scroll at all, which is the reason a fade
+// there was never right — it promises more to see where there is none.
+for (const [name, id] of [['gap','gap'],['padding','padding'],['corners','radius']]) {
+  await p.click(`.dock-item[data-drawer="${name}"]`);
+  const m = await p.evaluate((id) => {
+    const input = document.getElementById(id);
+    input.value = input.max;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const panel = input.closest('.dock-slider');
+    panel.scrollLeft = 999;
+    return { masked: getComputedStyle(panel).maskImage !== 'none', scrolled: panel.scrollLeft,
+             over: panel.scrollWidth - panel.clientWidth };
+  }, id);
+  console.log(`${name} at max -> ${m.over}px past the panel, scrollLeft ${m.scrolled}`,
+    !m.masked && m.scrolled === 0 ? '✓ no fade over the knob' : `✗ masked=${m.masked}`);
+  await p.click('#dock-back');
+}
+
 // selecting a tile opens the tile drawer by itself
 const box=await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x+box.width*0.3, box.y+box.height*0.3);

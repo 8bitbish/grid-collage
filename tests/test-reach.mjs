@@ -105,9 +105,19 @@ for (const [label, vp, floor] of [
   await p.click('.dock-item[data-drawer="export"]');
   const exp = await p.evaluate(() => {
     const r = document.getElementById('btn-export').getBoundingClientRect();
-    return { right: Math.round(r.right), width: window.innerWidth };
+    const panel = document.getElementById('dp-export');
+    const cs = getComputedStyle(panel);
+    return { right: Math.round(r.right), width: window.innerWidth,
+             scrolls: panel.scrollWidth - panel.clientWidth,
+             masked: (cs.maskImage || cs.webkitMaskImage || 'none') !== 'none' };
   });
   ok('Export is on screen', exp.right <= exp.width, `right edge ${exp.right} of ${exp.width}`);
+  // The panel sets overflow: visible so its settings rail can scroll inside it,
+  // which means the panel itself never can — and a row that cannot scroll must
+  // not be wearing the sideways-scroll fade. That is the fault 059493d found on
+  // the sliders, and the mask would take the right-hand edge of Export with it.
+  ok('and the panel around it is not masked', !exp.masked && exp.scrolls <= 2,
+     `${exp.scrolls}px of slack, mask ${exp.masked ? 'on' : 'off'}`);
   await p.click('#dock-back');
 
   // The tile drawer and its sub-panels.
