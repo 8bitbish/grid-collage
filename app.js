@@ -5395,14 +5395,36 @@
     || window.matchMedia('(display-mode: window-controls-overlay)').matches
     || window.navigator.standalone === true;
 
-  // The dock has to leave room for the home indicator, and the stylesheet
-  // cannot work out on its own whether there is one: dropping viewport-fit=cover
-  // is what closed the strip below the dock, and it also stopped the safe-area
-  // insets being reported, so env() no longer answers the question. The class
-  // is set from the same signal the install bar trusts, and for the same
-  // reason — display-mode alone does not answer it on iOS, which is the only
-  // platform this matters on.
-  const markInstalled = () => document.documentElement.classList.toggle('is-installed', installed());
+  // Room for the home indicator, and only where there is one. The first
+  // version of this asked "installed, and a touch screen", which is also true
+  // of Android — where the navigation bar is drawn outside the web view, so
+  // nothing needs reserving and the space simply piled up under the dock.
+  //
+  // navigator.standalone is what separates them. It is iOS's own signal, it
+  // predates display-mode, and Android has never set it — the same reason
+  // installed() above has to check both.
+  //
+  // Which iPhone this is gets read off the device rather than assumed.
+  // Dropping viewport-fit=cover stopped env() reporting any inset, but iOS
+  // still takes the status bar out of the view, and how much it takes says
+  // what kind of screen this is: 47 measured here on a notch, 59 on a Dynamic
+  // Island, 20 on a phone with a home button — and a home button means there
+  // is no indicator at the bottom to leave room for.
+  //
+  // Read in portrait only, and remembered. screen.height does not turn with
+  // the device on iOS, so the difference means nothing on its side: a phone
+  // with a home button would clear the threshold there for the wrong reason.
+  // An app first opened in landscape therefore leaves no room until it is
+  // turned upright once, which is the lesser mistake — landscape reserves
+  // less anyway.
+  let hasIndicator = false;
+
+  function markInstalled() {
+    if (navigator.standalone === true && innerHeight > innerWidth) {
+      hasIndicator = screen.height - innerHeight > 21;
+    }
+    document.documentElement.classList.toggle('has-home-indicator', hasIndicator);
+  }
 
   let installPrompt = null;
 

@@ -1169,14 +1169,11 @@ body.is-picking .tile::after {
    to come from the stylesheet, and 34px is exactly what it reserved.
    max() rather than a plain length so a browser that does report an inset
    still wins: this can only ever add room, never take it away.
-   Only for an installed touch app, because that is the only place the
-   indicator exists — in a tab the browser's own chrome is down there, and on
-   the desktop app it would be dead space under the dock. The case it cannot
-   tell apart is a touch device with no indicator, an SE or an older iPad,
-   which gets room it does not need. */
-@media (pointer: coarse) {
-  .is-installed .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px); }
-}
+   Whether the class is there at all is decided on the device — see
+   markInstalled in app.js. It is not "is this installed on a touch screen",
+   which was the first attempt and put this space under the dock on Android
+   too, where the navigation bar is outside the view and none is wanted. */
+.has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px); }
 
 .dock-root {
   flex: 1;
@@ -1891,7 +1888,7 @@ body.is-library .toast {
      that is already short of height. Later in the file than the rule above, so
      this is the one that lands in landscape. The portrait number was measured;
      this one is what iOS documents and has not been checked on a device. */
-  .is-installed .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 21px); }
+  .has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 21px); }
   .dock-item { min-width: 58px; font-size: 10px; gap: 2px; padding: 4px 6px; }
   .dock-item svg { width: 18px; height: 18px; }
   .drawer-body { padding: 6px 10px; }
