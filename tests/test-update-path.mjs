@@ -4,8 +4,30 @@
 import { chromium } from 'playwright';
 import { CHROME, ROOT as REPO, SHOTS } from './paths.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const NEW = REPO;
+
+/* The three builds this installs before the deploy lands. They used to be read
+   from /tmp/oldver/<sha>, a directory nothing in the suite created — the fourth
+   hardcoded path of the kind paths.mjs exists to end, and the reason every run
+   reported "✗ the old build installed" three times: the server 404'd the whole
+   old shell, so no worker ever took control and there was nothing installed to
+   upgrade from. The rest of the test then passed against the new build, which is
+   how it stayed on the failing list looking like a deploy problem.
+   Checked out from the history instead, where they have been all along. Kept
+   between runs because git archive on three revisions is slower than the test. */
+const OLD = path.join(import.meta.dirname, '.oldver');
+const SHAS = ['9a0254a', '2d27f57', 'a480308'];
+for (const sha of SHAS) {
+  const dir = path.join(OLD, sha);
+  if (fs.existsSync(path.join(dir, 'index.html'))) continue;
+  fs.mkdirSync(dir, { recursive: true });
+  // Two processes rather than a shell pipeline, so a failure names itself.
+  const tar = execFileSync('git', ['archive', '--format=tar', sha], { cwd: REPO, maxBuffer: 1 << 28 });
+  execFileSync('tar', ['-x', '-C', dir], { input: tar, maxBuffer: 1 << 28 });
+  console.log(`checked out ${sha} into ${path.relative(REPO, dir)}`);
+}
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 let ROOT=NEW;
@@ -27,9 +49,9 @@ const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'�
 
 const b=await chromium.launch({executablePath: CHROME});
 
-for (const from of ['9a0254a','2d27f57','a480308']) {
+for (const from of SHAS) {
   console.log(`\n=== installed on ${from}, then this deploy lands ===`);
-  ROOT = `/tmp/oldver/${from}`;
+  ROOT = path.join(OLD, from);
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
   const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,160)));
