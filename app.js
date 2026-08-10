@@ -5395,6 +5395,15 @@
     || window.matchMedia('(display-mode: window-controls-overlay)').matches
     || window.navigator.standalone === true;
 
+  // The dock has to leave room for the home indicator, and the stylesheet
+  // cannot work out on its own whether there is one: dropping viewport-fit=cover
+  // is what closed the strip below the dock, and it also stopped the safe-area
+  // insets being reported, so env() no longer answers the question. The class
+  // is set from the same signal the install bar trusts, and for the same
+  // reason — display-mode alone does not answer it on iOS, which is the only
+  // platform this matters on.
+  const markInstalled = () => document.documentElement.classList.toggle('is-installed', installed());
+
   let installPrompt = null;
 
   function syncInstallBar() {
@@ -5432,7 +5441,11 @@
   // Installing while the tab is open switches it to standalone without a
   // reload on some browsers, so the bar has to notice.
   const displayQuery = window.matchMedia('(display-mode: standalone)');
-  if (displayQuery.addEventListener) displayQuery.addEventListener('change', syncInstallBar);
+  if (displayQuery.addEventListener) {
+    displayQuery.addEventListener('change', syncInstallBar);
+    displayQuery.addEventListener('change', markInstalled);
+  }
 
   syncInstallBar();
+  markInstalled();
 })();
