@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.10e">
+<link rel="stylesheet" href="styles.css?v=2026.08.10f">
 </head>
 <body class="on-home">
 
@@ -239,6 +239,10 @@
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
+      <!-- The presets are the part that scrolls and the custom colour is the part
+           that does not. Both used to sit in the panel's own scroller, which put
+           the one control that can reach a colour the row does not offer off the
+           right-hand edge on every phone measured. -->
       <div class="dock-panel" id="dp-background" hidden>
         <div class="swatches" id="swatches"></div>
         <label class="colour-row">
@@ -247,21 +251,27 @@
         </label>
       </div>
 
-      <div class="dock-panel" id="dp-page" hidden>
-        <button class="btn btn-ghost btn-sm" id="btn-duplicate" type="button">Duplicate page</button>
-        <button class="btn btn-ghost btn-sm btn-danger" id="btn-delete-page" type="button">Delete page</button>
+      <div class="dock-panel dock-actions" id="dp-page" hidden>
+        <button class="btn btn-ghost" id="btn-duplicate" type="button">Duplicate page</button>
+        <button class="btn btn-ghost btn-danger" id="btn-delete-page" type="button" data-buzz="warn">Delete page</button>
       </div>
 
-      <div class="dock-panel" id="dp-export" hidden>
-        <select id="quality" class="select">
-          <option value="1080">1080px (Instagram)</option>
-          <option value="1440">1440px</option>
-          <option value="2160">2160px</option>
-        </select>
-        <select id="format" class="select">
-          <option value="image/jpeg">JPG</option>
-          <option value="image/png">PNG</option>
-        </select>
+      <!-- Same split as the background panel: the two settings share what room
+           is left and scroll if they must, and Export is pinned outside that
+           scroller. A panel whose whole purpose is one button cannot be a panel
+           you have to swipe sideways to reach the button in. -->
+      <div class="dock-panel dock-export" id="dp-export" hidden>
+        <div class="export-settings" id="export-settings">
+          <select id="quality" class="select">
+            <option value="1080">1080px (Instagram)</option>
+            <option value="1440">1440px</option>
+            <option value="2160">2160px</option>
+          </select>
+          <select id="format" class="select">
+            <option value="image/jpeg">JPG</option>
+            <option value="image/png">PNG</option>
+          </select>
+        </div>
         <button class="btn btn-primary" id="btn-export" type="button">Export</button>
       </div>
 
@@ -297,7 +307,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.3 5.7"/><path d="M4 5v7h7"/></svg>
             <span>Reset</span>
           </button>
-          <button class="dock-item dock-item-danger" type="button" data-tile="delete">
+          <button class="dock-item dock-item-danger" type="button" data-tile="delete" data-buzz="warn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
             <span>Delete</span>
           </button>
@@ -318,6 +328,7 @@
             <span class="trim-arrow" aria-hidden="true">→</span>
             <span class="val" id="trim-to">0:00</span>
             <span class="trim-span" id="trim-span"></span>
+            <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
           </div>
           <div class="trim-bars">
             <label class="sr" for="trim-start">Start</label>
@@ -325,7 +336,6 @@
             <label class="sr" for="trim-end">End</label>
             <input type="range" id="trim-end" min="0" max="1000" step="1" value="1000">
           </div>
-          <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
         </div>
 
         <div class="tile-sub" id="tile-rotate" hidden>
@@ -436,6 +446,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.10e"></script>
+<script src="app.js?v=2026.08.10f"></script>
 </body>
 </html>

@@ -165,6 +165,11 @@
     // under the thumb rather than as a dozen separate announcements.
     tick: 4,
     limit: [0, 18, 45, 18],
+    // Something that cannot be taken back by tapping it again. Two pulses
+    // rather than one longer one: length reads as emphasis and is easy to
+    // mistake for a slow tap, where a second pulse is unmistakably not the
+    // buzz every other button in the dock gives.
+    warn: [0, 14, 32, 22],
   };
   function buzz(kind) {
     if (!navigator.vibrate) return;
@@ -3233,7 +3238,15 @@
     RATIOS.forEach((ratio) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = ratio.label;
+      // A rectangle in the option's own proportion, above the numbers. Every
+      // ratio here is square or taller, so the height is the constant and the
+      // width is what says which is which: 15px for 1:1 down to 8 for 9:16.
+      const shape = document.createElement('span');
+      shape.className = 'seg-shape';
+      shape.style.width = `${Math.round((15 * ratio.w) / ratio.h)}px`;
+      shape.setAttribute('aria-hidden', 'true');
+      btn.appendChild(shape);
+      btn.appendChild(document.createTextNode(ratio.label));
       btn.dataset.id = ratio.id;
       btn.setAttribute('aria-label', `Post shape ${ratio.label}`);
       btn.setAttribute('aria-pressed', String(ratio.id === state.ratio.id));
@@ -3408,6 +3421,11 @@
     const choosing = name === 'replace';
     document.querySelector('.app').classList.toggle('is-choosing', choosing);
     $('dock').classList.toggle('is-choosing', choosing);
+    // Trimming wants the same room for a different reason: it is the one panel
+    // with three rows to fit, and in the 62px a drawer normally gives they came
+    // to 4px of bar apiece. The pages bar stays up for this one, unlike the
+    // chooser — which page is being cut still matters.
+    $('dock').classList.toggle('is-trimming', name === 'trim');
     if (choosing) renderChooser();
     // Page thumbnails aren't visible while choosing, so they catch up on the
     // way out rather than being redrawn for every photo scrolled past.
@@ -3593,10 +3611,19 @@
     $('trim-to').textContent = clockLabel(to);
     $('trim-span').textContent = `${span.toFixed(1)}s of ${clockLabel(whole)}`;
     $('trim-reset').disabled = from === 0 && Math.abs(to - whole) < 0.05;
+    // The kept span, drawn on both rails. CSS can see neither range input's
+    // value, so where that span starts and ends is handed over here — the same
+    // arrangement as --frac on the dock sliders.
+    const bars = document.querySelector('.trim-bars');
+    bars.style.setProperty('--fa', at(from) / TRIM_STEPS);
+    bars.style.setProperty('--fb', at(to) / TRIM_STEPS);
   }
 
   // Seconds from a slider position, against the clip's own length.
   const trimAt = (el, whole) => (Number(el.value) / TRIM_STEPS) * whole;
+
+  // Whether the handle being dragged is already sitting against the other one.
+  let trimHeld = false;
 
   function dragTrim(which) {
     const i = state.selected;
@@ -3609,8 +3636,14 @@
     let to = trimAt($('trim-end'), whole);
     // Never let the handles cross, and never let a clip go to nothing.
     const floor = 0.2;
-    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); }
-    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); }
+    let held = false;
+    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); held = true; }
+    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); held = true; }
+    // The handle has stopped moving while the thumb has not, which is the one
+    // thing on this panel a screen cannot say quickly enough. Once per arrival:
+    // a drag that keeps pushing at the floor would otherwise buzz every frame.
+    if (held && !trimHeld) buzz('limit');
+    trimHeld = held;
 
     snapshot('trim');
     cell.t0 = from;
@@ -3691,7 +3724,12 @@
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions'].map($),
+    // The last two are panels that scroll a rail inside themselves rather than
+    // scrolling whole: the background presets beside a colour well that stays
+    // put, and the export settings beside an Export button that does. The
+    // panel around each of them no longer moves, so it is the rail that has to
+    // carry the fade or nothing would say there was more.
+    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -5109,9 +5147,16 @@
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
-  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
-  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
+  // The three controls in the dock that a tap never lands on, so the delegated
+  // tick below never reaches them: two selects and the colour well all hand
+  // over to a picker of the system's own and come back with an answer. The
+  // buzz belongs to the answer arriving, which is what change means on all
+  // three — an input event on a colour well fires for every step of a drag
+  // round the wheel, and buzzing those would be the rattle the sliders avoid.
+  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); buzz('tap'); });
+  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); buzz('tap'); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
+  $('bg').addEventListener('change', () => buzz('tap'));
 
   // One tick for every control in the dock — drilling into a setting, picking
   // an option, stepping back out. Delegated rather than wired per button, so
@@ -5138,7 +5183,11 @@
     root.addEventListener('pointerup', (e) => {
       if (!pending) return;
       const still = Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 8;
-      if (still && pending.btn.contains(e.target)) buzz('tap');
+      // data-buzz is how a button says it deserves something other than the
+      // ordinary tick — the deleters ask for the double. Declared on the button
+      // rather than wired up here, so the rule stays one delegated listener
+      // however many of them there come to be.
+      if (still && pending.btn.contains(e.target)) buzz(pending.btn.dataset.buzz || 'tap');
       pending = null;
     });
     root.addEventListener('pointercancel', () => { pending = null; });
@@ -5180,7 +5229,7 @@
   });
   ['start', 'end'].forEach((which) => {
     const el = $(`trim-${which}`);
-    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); });
+    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); trimHeld = false; });
     el.addEventListener('input', () => dragTrim(which));
     el.addEventListener('pointerup', endTrimDrag);
     el.addEventListener('change', endTrimDrag);

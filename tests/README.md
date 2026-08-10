@@ -1,6 +1,6 @@
 # Browser tests
 
-39 standalone Node scripts that serve the repository over http, drive Chromium
+40 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -52,27 +52,32 @@ playback.
 
 ## Where it stands
 
-Measured with the fixtures generated, so all 39 ran:
+Measured with the fixtures generated, so all 40 ran:
 
 | | count |
 | --- | --- |
-| passed | 34 |
-| assertions | 466 |
+| passed | 36 |
+| assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
-The assertion count is the 460 that table was measured at plus the six `dock`
-gained for the slider fade. A second full run, on a different machine with the
-fixtures generated, came to **35 passed and 491** with nothing failing, and the
-gap is worth reading rather than averaging: `gridorder`'s 25 assertions are the
-whole of it, dead in the run above and alive in this one, exactly as the note on
-two suites at once predicts. `iframe` also happened to win its race that time —
-one run in three does — which moves it from failing to asserting nothing and
-leaves the finding below intact. Neither figure is wrong; they are the same suite
-on two machines, which is the reason both are here.
+`reach` is the fortieth, and it is the one to run after touching the dock: it
+measures the hit box of every control in it at four viewports rather than
+looking at a screenshot of them. Run against the commit before it arrived, 29 of
+its 76 assertions fail.
+
+Read the count as a range rather than a fact about the suite. The table above is
+one machine with the fixtures generated; the run before `reach` arrived came to
+**34 passed and 466** on another, and a third came to **35 and 491** with nothing
+failing at all. The gap is worth reading rather than averaging: `gridorder`'s 25
+assertions are most of it, dead in one run and alive in the next, exactly as the
+note on two suites at once predicts, and `iframe` wins its race about one run in
+three, which moves it between failing and asserting nothing. None of the figures
+is wrong; they are the same suite on different machines, which is why they are
+all here.
 
 **Six of the seven that used to fail were the scaffolding, not the app.** Every
 one was checked against the app as it stood before the suite arrived and failed
