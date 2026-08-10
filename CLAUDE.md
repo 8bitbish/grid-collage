@@ -153,6 +153,19 @@ is a View-only seat and cannot be written to.
   need `SCALE` constraints, or resizing the container crops the artwork instead
   of shrinking it. `createNodeFromSvg` gives the wrapper `MIN/MIN` and clipping,
   so this has to be set by hand every time.
+- **Stroke weight in Figma is in final pixels. In the app it is in viewBox
+  units, and the two are not the same number.** `styles.css` sets `stroke-width`
+  anywhere from 1.7 to 2.2 inside a 24-unit `viewBox`, and the browser divides
+  it by the render scale — so what actually lands on screen is about 1.5 CSS px
+  at every icon size. The scatter in the source is what produces the consistency
+  in the output, and it is deliberate: 2.2 at 16px and 1.7 at 22px both draw
+  ~1.5. Figma scales geometry on resize but *not* stroke, so copying the source
+  numbers across made every icon 20–28% too heavy. Icons here carry 1.5, the
+  drawn width.
+
+  The limit that follows: one component cannot reproduce per-context
+  compensation, so an icon used well outside the 19–22px band will look wrong
+  and wants an instance-level override rather than a new component.
 - **Component states come from the CSS, not from taste.** `.btn:active` is
   `translateY(1px) scale(0.97)` with no colour change at all, so the Pressed
   variant differs only in size and looks like a mistake until you read the rule.
