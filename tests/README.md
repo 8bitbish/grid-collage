@@ -57,7 +57,7 @@ Measured on a container with no ffmpeg, so six tests skipped:
 | | count |
 | --- | --- |
 | passed | 25 |
-| assertions | 395 |
+| assertions | 401 |
 | failing | 6 — iframe, photodates, reorder, share, swipe, update-path |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 2 — iframe, manifest-fresh |

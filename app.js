@@ -3694,7 +3694,19 @@
     ...['filmstrip', 'dock-root', 'layouts', 'tile-actions'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
-    ...document.querySelectorAll('.dock-panel:not(#dp-tile)'),
+    //
+    // Nor a slider, for the same reason and with worse consequences. A slider
+    // panel sets `overflow: visible` so the readout can escape upward out of
+    // the dock, which also means it can never scroll: scrollLeft stays nought
+    // whatever scrollWidth says. What it does have is a readout that rides the
+    // knob, and at the top of the range that bubble hangs past the panel's
+    // right edge — 381px of content in 346px of panel, measured at 420x860.
+    // That counted as slack, so fade-r went on and masked the last 20px of the
+    // panel: the knob faded out to nothing on its right side, its accent halo
+    // was cut in half, and the number in the corner lost its last digit. All
+    // of it at exactly the value being dragged to, and it stayed that way
+    // after release, because a slider left at its maximum keeps the overflow.
+    ...document.querySelectorAll('.dock-panel:not(#dp-tile):not(.dock-slider)'),
   ].filter(Boolean);
 
   function fadeRow(el) {
