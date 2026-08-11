@@ -19,13 +19,14 @@
 html, body {
   margin: 0;
   height: 100%;
-  /* Installed on an iPhone, height: 100% resolves short of the screen, so the
-     dock stopped above the home indicator and the strip below it showed the
-     page canvas — which is body's own near-black propagated up, and reads as a
-     black bar. dvh is the whole screen under viewport-fit=cover. It is a
-     min-height rather than a height so it can only ever add the missing piece,
-     and anything that has not heard of dvh drops the line and keeps the 100%
-     above, which was already right everywhere else. */
+  /* Both resolve to the same thing now and always did on every other
+     platform, so this line no longer changes anything — it is kept because a
+     browser that lays the view out differently is exactly the case it covers,
+     and min-height can only ever add the missing piece.
+     It was added when the viewport carried viewport-fit=cover, where the view
+     was 797 of an 844pt screen and the missing 47 sat below the dock as a
+     black bar. That tag is gone: iOS now insets the view under the status bar
+     instead, and the bar with it. See the viewport meta in index.html. */
   min-height: 100dvh;
   /* No blue flash behind a tap. The app gives its own feedback — the pressed
      state, the selection ring, a buzz — and the system square lands on the
@@ -34,7 +35,21 @@ html, body {
 }
 
 body {
-  background: var(--bg);
+  /* --surface, not --bg, and that is what this colour is for: the strip of
+     screen the web view is never given — the status bar on an installed
+     iPhone — is painted by WebKit from the page's background, and it reads
+     body's rather than the root element's. Both were measured. Setting the
+     manifest's background_color to red left the strip alone; setting html
+     alone left it alone too, with body's colour still showing underneath;
+     setting body is what moved it. So body carries the colour the strip
+     should be, which is the bar sitting directly beneath it.
+     Nothing else sees this: .app and .home are flex:1 children that fill the
+     view, and they carry --bg, the background the app actually has.
+     The same colour is repeated as theme-color in index.html and theme_color
+     in the manifest, which is what Android reads for its status bar. Neither
+     of those can see a CSS variable, so all three move together or not at
+     all. */
+  background: var(--surface);
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -429,8 +444,6 @@ body.is-picking .tile::after {
 .detail-ask { font-size: 12.5px; }
 .detail-ask span { flex: 1; color: var(--muted); }
 .detail-ask .btn { flex: none; }
-/* Destructive at rest, not only on hover — there is no hover on a phone. */
-.detail .btn-danger { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
 
 /* ------------------------------------------------------ opening a project */
 /* The only slow step left: every photo in the deck has to come back out of
@@ -483,6 +496,12 @@ body.is-picking .tile::after {
 /* -------------------------------------------------------------- layout */
 /* An app shell: header, pages, preview, dock. Nothing scrolls the page, so
    using a control can never push the preview off screen. */
+/* The app's own background, held here rather than on body, because body's is
+   what paints the strip outside the view. These two are the whole screen —
+   one or the other is always shown — so between them they cover everything
+   the strip does not. */
+.app, .home { background: var(--bg); }
+
 .app {
   flex: 1;
   min-height: 0;
@@ -1141,6 +1160,19 @@ body.is-picking .tile::after {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* Room for the home indicator, put back by hand. Dropping viewport-fit=cover
+   is what closed the strip below the dock, and the same change stopped the
+   safe-area insets being reported at all — env(safe-area-inset-bottom) reads
+   0 here now, where it read 34 before. So the space iOS used to reserve has
+   to come from the stylesheet, and 34px is exactly what it reserved.
+   max() rather than a plain length so a browser that does report an inset
+   still wins: this can only ever add room, never take it away.
+   Whether the class is there at all is decided on the device — see
+   markInstalled in app.js. It is not "is this installed on a touch screen",
+   which was the first attempt and put this space under the dock on Android
+   too, where the navigation bar is outside the view and none is wanted. */
+.has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px); }
+
 .dock-root {
   flex: 1;
   display: flex;
@@ -1208,10 +1240,13 @@ body.is-picking .tile::after {
   min-width: 0;
 }
 
+/* The most-pressed control in the drawer, and it was 38 square. 44 fits the
+   62px the dock leaves inside a drawer with room to spare; landscape, where
+   there are only 42, puts it back to 38. */
 .dock-back {
   flex: none;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   appearance: none;
@@ -1248,13 +1283,71 @@ body.is-picking .tile::after {
 }
 .dock-panel::-webkit-scrollbar { display: none; }
 
+/* Every button in a drawer answers a thumb. .btn-sm's 34px is right in a toast,
+   where the pointer is a mouse or the message is the point, and wrong in a bar
+   you aim at one-handed while looking at the picture above it. Measured before
+   this: Duplicate page, Delete page, Turn 90°, both Flips and the chooser's
+   Back were all 34 tall, and the drawer they sit in is 62. */
+.dock .btn { min-height: 44px; }
+
+/* Two actions and 300px of row, which they used to leave empty. Filling it
+   also spaces the destructive one away from the one beside it. */
+.dock-actions { gap: 10px; }
+.dock-actions .btn { flex: 1; min-width: 0; max-width: 220px; }
+
+/* The settings shrink and scroll; Export never does. It was the first thing off
+   the right-hand edge on a 360px phone — 316px of controls in 286 of row — and
+   the button is the only reason the panel exists. */
+.dock-export { overflow: visible; gap: 8px; }
+.export-settings {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.export-settings::-webkit-scrollbar { display: none; }
+.export-settings .select { flex: none; }
+.dock-export .btn { flex: none; }
+
+/* Sliders. The geometry lives here as variables because three separate things
+   have to agree on where the knob is — the fill behind it, the readout above
+   it, and the knob itself — and only one of them is an element we can position.
+   --frac is the only one app.js writes: a range input's value is invisible to
+   CSS, so the fraction has to be handed over on every input event.
+   --at is where the knob's centre actually sits, which is not --frac of the
+   width: the knob travels between its own two edges, so the ends are inset by
+   half a knob. Filling to a plain percentage instead left the bar running out
+   ahead of the knob by 11px at the far end, which reads as a bar that has
+   stopped tracking. */
 .dock-slider {
+  --knob: 22px;
+  --rail: 6px;
+  --frac: 0;
+  --at: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--frac));
+  /* Where the fill grows from: the very end of the rail, not the knob's resting
+     centre. Starting it half a knob in left eleven pixels of empty rail showing
+     to the left of the fill, which reads as a bar that has come adrift. Nothing
+     is lost at the other end either — at the top of the range the knob covers
+     exactly the half-knob the fill stops short of.
+     Sorted into two stops so the gradient's offsets stay in order whichever side
+     of the origin the knob is on: a gradient with a later stop before an earlier
+     one is silently clamped, not honoured. */
+  --from: 0px;
+  --lo: min(var(--from), var(--at));
+  --hi: max(var(--from), var(--at));
+
+  position: relative;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 4px;
   overflow: visible;
   max-width: 460px;
 }
+.dock-slider.from-centre { --from: 50%; }
 
 .dock-label {
   font-size: 11.5px;
@@ -1265,6 +1358,38 @@ body.is-picking .tile::after {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  /* The track's 44px reach passes under this row, and a label that swallowed
+     the first touch of a drag would be the whole point of widening it lost. */
+  pointer-events: none;
+}
+.dock-slider.is-sliding .dock-label { color: var(--text); }
+.dock-slider.is-sliding .val { color: var(--accent); }
+
+/* Rides the knob, and only while a thumb is on the track. It escapes upward
+   out of the dock rather than taking a row of its own, because the dock's
+   height is fixed and every row it does not take is preview. */
+.slider-read {
+  position: absolute;
+  left: var(--at);
+  bottom: calc(100% + 4px);
+  transform: translate(-50%, 4px) scale(0.9);
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: opacity 110ms, transform 110ms;
+}
+.dock-slider.is-sliding .slider-read {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
 }
 
 .dock-tile { gap: 12px; overflow: visible; padding: 0; }
@@ -1297,8 +1422,11 @@ body.is-picking .tile::after {
 .tile-sub .dock-slider { flex: 1; }
 .tile-sub .btn { flex: none; }
 /* The zoom panel is both at once. .tile-sub's centring would otherwise beat
-   .dock-slider's stretch, leaving the label adrift and the track overhanging. */
-.tile-sub.dock-slider { align-items: stretch; }
+   .dock-slider's stretch, leaving the label adrift and the track overhanging —
+   and its 14px gap, meant for buttons standing side by side, beats the 4px a
+   label wants above its own track for the same reason: the two rules have equal
+   weight and .tile-sub is written later. Both are put back here. */
+.tile-sub.dock-slider { align-items: stretch; gap: 4px; }
 
 /* Choosing a photo: the pages bar stands down and the dock takes two rows,
    so the options are big enough to judge. */
@@ -1448,7 +1576,15 @@ body.is-picking .tile::after {
 .btn:disabled:hover { background: var(--surface-2); border-color: var(--line); }
 .btn-ghost:disabled:hover { background: transparent; }
 .btn-ghost { background: transparent; }
-.btn-danger:hover { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
+
+/* At rest, not only under a pointer. These colours used to live on :hover
+   alone, and a phone has no hover — so Delete page and Duplicate page were the
+   same grey button, side by side, one thumb-width apart. The action that cannot
+   be taken back by tapping it again should not have to be read to be told
+   apart. The projects list was already saying this in a rule of its own, which
+   this replaces. */
+.btn-danger { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
+.btn-danger:hover { border-color: #93334c; background: #351a26; }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), #ff7a45);
@@ -1467,8 +1603,15 @@ body.is-picking .tile::after {
   padding: 8px 26px 8px 10px;
   border-radius: 9px;
   cursor: pointer;
+  /* The same 44 as everything else it stands next to. A select opens a picker
+     rather than acting on the tap, so a miss here costs a wheel that has to be
+     dismissed as well as the tap that missed. */
+  min-height: 44px;
 }
 
+/* The trim pair keeps the thin bars: they are stacked two deep over one clip,
+   and each has to span the full width so start and end are measured on the same
+   scale. Everything else in the dock uses the tall version below. */
 input[type="range"] {
   appearance: none;
   width: 100%;
@@ -1493,6 +1636,89 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   background: var(--text);
   cursor: grab;
+}
+
+/* A range input is hit-tested on its own box, not on the thumb sticking out of
+   it, so the 4px above was a 4px target: measured on a 420px phone the whole
+   gap control was a strip 4 pixels tall, and a thumb is nearer 40 across. The
+   box is 44px here — the same number the icon buttons cite as the smallest a
+   thumb hits reliably — and the negative margin spends the drawer's own padding
+   on it rather than the dock's fixed height, so the bar does not grow. What you
+   see is the 6px rail drawn by the track pseudo-element inside that box. */
+.dock-slider input[type="range"] {
+  height: 44px;
+  /* The sides have to be nought rather than left alone. Chrome's own sheet puts
+     2px there, which is enough to leave the input's box two pixels right of the
+     panel's — and the panel is what the fill and the readout measure themselves
+     against, so both sat two pixels off the knob until this was measured. */
+  margin: -10px 0;
+  background: none;
+  border-radius: 0;
+  /* The reach now overlaps the drawer's padding and the label row above it.
+     Handing the gesture to an ancestor part way through a drag is the one thing
+     that would undo that, and a slider is never the thing that should scroll. */
+  touch-action: none;
+}
+
+/* The two engines' track pseudo-elements are spelled out separately rather than
+   as one selector list: a list containing a pseudo-element the browser does not
+   know is thrown away whole, so pairing them would leave both engines with no
+   track at all. */
+.dock-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: var(--rail);
+  border-radius: calc(var(--rail) / 2);
+  background: linear-gradient(to right,
+    var(--line) 0 var(--lo),
+    var(--accent) var(--lo) var(--hi),
+    var(--line) var(--hi) 100%);
+}
+.dock-slider input[type="range"]::-moz-range-track {
+  height: var(--rail);
+  border-radius: calc(var(--rail) / 2);
+  background: linear-gradient(to right,
+    var(--line) 0 var(--lo),
+    var(--accent) var(--lo) var(--hi),
+    var(--line) var(--hi) 100%);
+}
+
+/* Big enough to see under a finger, and it grows into a ring while held, which
+   is the only acknowledgement the control can give: the preview behind it is
+   busy showing the value, not the grab. */
+.dock-slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--knob);
+  height: var(--knob);
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+  /* WebKit puts the thumb's top on the track's top; every other engine centres
+     it. Half the difference is what brings it back onto the rail. */
+  margin-top: calc((var(--rail) - var(--knob)) / 2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 90ms, box-shadow 90ms;
+}
+.dock-slider input[type="range"]::-moz-range-thumb {
+  width: var(--knob);
+  height: var(--knob);
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 90ms, box-shadow 90ms;
+}
+/* --accent at 22%, written out because rgba() cannot read a variable. */
+.dock-slider.is-sliding input[type="range"]::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+}
+.dock-slider.is-sliding input[type="range"]::-moz-range-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+}
+.dock-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--accent);
 }
 
 /* ------------------------------------------------------------ layouts */
@@ -1528,6 +1754,12 @@ input[type="range"]::-moz-range-thumb {
 .layout-btn.is-active span { background: var(--accent); }
 
 /* ---------------------------------------------------------- segmented */
+/* The tightest control in the app, measured: four pills 24, 29, 35 and 35px
+   wide and 30 tall, huddled against the left of a row 316px across. The width
+   was there all along — the cluster simply hugged its content. It fills the row
+   now, one equal column per option, and each option is 44px tall.
+   The rail keeps a maximum so it does not sprawl across a tablet; the same
+   number the sliders use, for the same reason. */
 .segmented {
   display: flex;
   gap: 4px;
@@ -1535,6 +1767,8 @@ input[type="range"]::-moz-range-thumb {
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 10px;
+  flex: 1;
+  max-width: 460px;
 }
 .segmented button {
   flex: 1;
@@ -1545,25 +1779,65 @@ input[type="range"]::-moz-range-thumb {
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  padding: 6px 4px;
+  padding: 4px;
   border-radius: 7px;
   cursor: pointer;
+  /* 44px is the smallest a thumb hits reliably, and the number the icon buttons
+     and the sliders both already cite. */
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
 }
 .segmented button:hover { color: var(--text); }
 .segmented button.is-active { background: var(--text); color: #12121a; }
 
+/* A rectangle drawn to the option's own proportion, above the numbers. The
+   layout picker next door has always said what it does by drawing it, and
+   "9:16" is a ratio you have to work out before it means a shape. Sized from
+   the ratio in buildRatios, and drawn in currentColor so it inverts with the
+   active pill for nothing. */
+.seg-shape {
+  flex: none;
+  height: 15px;
+  border: 1.5px solid currentColor;
+  border-radius: 2.5px;
+  opacity: 0.9;
+}
+
 /* ----------------------------------------------------------- swatches */
 /* One row, never two: the dock is a fixed height and a wrapped second row is
-   simply cut off. The panel around it scrolls sideways instead. */
-/* The 4px of padding is room for the active swatch's outline, which the
-   scrolling panel would otherwise cut off at either end. */
-.swatches { display: flex; gap: 6px; flex-wrap: nowrap; padding: 0 4px; }
+   simply cut off. The presets scroll sideways instead.
+   The scroller is this row rather than the panel around it, which is what keeps
+   the custom colour beside it on screen. With the panel scrolling, eight 26px
+   presets and the colour control came to 362px in a 316px row and the control
+   that reaches every colour the row does not offer was the part that fell off
+   the end — on all three phone widths measured.
+   The 4px of padding is room for the active swatch's outline, which the
+   scroller would otherwise cut off — on all four sides, not two: the rail is
+   exactly as tall as a swatch, so a ring drawn 2px outside one lost its top and
+   bottom to overflow: hidden and showed as two arcs. */
+.swatches {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  padding: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.swatches::-webkit-scrollbar { display: none; }
 .swatches .swatch { flex: none; }
 
 .swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   cursor: pointer;
   padding: 0;
@@ -1571,6 +1845,7 @@ input[type="range"]::-moz-range-thumb {
 .swatch.is-active { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .colour-row {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1580,11 +1855,11 @@ input[type="range"]::-moz-range-thumb {
 }
 .colour-row input[type="color"] {
   appearance: none;
-  width: 34px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 10px;
   background: none;
   cursor: pointer;
 }
@@ -1850,35 +2125,145 @@ body.is-library .toast {
   .film canvas { height: 32px; }
   .film-add { width: 30px; min-height: 36px; }
   .dock { height: 62px; }
+  /* iOS reserves less for the indicator on its side, and 34 would eat a screen
+     that is already short of height. Later in the file than the rule above, so
+     this is the one that lands in landscape. The portrait number was measured;
+     this one is what iOS documents and has not been checked on a device. */
+  .has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 21px); }
   .dock-item { min-width: 58px; font-size: 10px; gap: 2px; padding: 4px 6px; }
   .dock-item svg { width: 18px; height: 18px; }
   .drawer-body { padding: 6px 10px; }
+  /* A 62px dock leaves 42px inside the drawer, and a label above a slider came
+     to 45. The reach stays 44px: what gives way is the label, which loses a
+     point of type and two of the gap under it. The negative margin cannot go
+     past the 10px of padding it is spending — at -11 the bottom of the reach
+     measured half a pixel below the dock itself. */
+  .dock-slider { gap: 2px; }
+  .dock-label { font-size: 10.5px; }
+
+  /* Everything the portrait dock gives 44px has to come back to something that
+     fits 42, and the reach a landscape phone can spare is what is left rather
+     than what is wanted. The shape picker keeps its rectangles — they cost 15px
+     and they are the reason the control reads at a glance — and gives up the
+     height instead. */
+  .dock-back { width: 38px; height: 38px; }
+  .dock .btn { min-height: 38px; }
+  .select { min-height: 38px; }
+  .segmented { padding: 3px; }
+  .segmented button { min-height: 34px; gap: 1px; font-size: 11.5px; }
+  .seg-shape { height: 12px; }
+  .swatch { width: 34px; height: 34px; border-radius: 8px; }
+  .colour-row input[type="color"] { width: 34px; height: 34px; border-radius: 8px; }
 }
 
 /* ------------------------------------------------------------ trimming */
 /* Two handles over one clip. They are stacked rather than side by side so
    each spans the whole length — a half-width slider would mean the start and
-   the end were measured on different scales. */
+   the end were measured on different scales.
+   That stacking is why this is the only panel with three rows to fit, and it
+   did not fit: measured at 390x844 it asked for 90px of a dock that gives 62,
+   which left two 4px bars and a Whole clip button pressed against the bottom
+   edge of the screen with one pixel to spare. So the dock grows for trimming,
+   the way it already does for choosing a photo, and to the same height — a
+   readout row and two catchable bars come to 118, and 152 is the one number
+   the bar already knows how to be when a job needs the room. The pages bar
+   stays, unlike the chooser: which page you are cutting on still matters. */
+.dock.is-trimming { height: 152px; }
 .tile-trim {
   flex-direction: column;
   align-items: stretch;
+  justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 4px 14px;
 }
+/* Whole clip rides the readout row rather than taking a fourth one. It is the
+   row's own subject — the times either side of it are what it puts back. */
 .trim-read {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .trim-arrow { color: var(--muted); }
 .trim-span { margin-left: auto; color: var(--muted); }
-.trim-bars { display: flex; flex-direction: column; gap: 2px; }
-.trim-bars input[type="range"] { margin: 0; }
+.tile-trim .btn { flex: none; }
+
+/* The kept span, drawn on both rails rather than on either handle's own. Two
+   bars each filling from their own end read as two unrelated controls that
+   happen to be stacked; the same band on both, one above the other, reads as
+   the one stretch of clip they between them decide.
+   app.js writes --fa and --fb on every drag, the same way the dock sliders get
+   --frac: a range input's value is invisible to CSS. And the same correction
+   applies to both ends as --at makes for one — a handle travels between its own
+   two edges, so a band drawn to a plain percentage sat 24px clear of the very
+   handle setting it, and the two rows disagreed with each other by as much. */
+.trim-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  --knob: 20px;
+  --fa: 0;
+  --fb: 1;
+  --a: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fa));
+  --b: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fb));
+  --band: linear-gradient(90deg,
+    var(--line) var(--a), var(--accent) var(--a),
+    var(--accent) var(--b), var(--line) var(--b));
+}
+
+/* 32px of reach each, where there were 4. Two 44s cannot both fit even the
+   taller dock, and of the two numbers a bar that can be caught at all beats a
+   pair that cannot. The rail itself stays thin — what grew is the box being
+   hit, exactly as it did for the dock sliders. */
+.trim-bars input[type="range"] {
+  position: relative;
+  margin: 0;
+  height: 32px;
+  background: transparent;
+}
+.trim-bars input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--band);
+}
+.trim-bars input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--band);
+}
+.trim-bars input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--text);
+  cursor: grab;
+}
+.trim-bars input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--text);
+  cursor: grab;
+}
 /* The end handle reads as the closing edge, so it takes the second colour. */
-#trim-end { accent-color: var(--accent-2); }
-.tile-trim .btn { align-self: flex-start; }
+#trim-end::-webkit-slider-thumb { background: var(--accent-2); }
+#trim-end::-moz-range-thumb { background: var(--accent-2); }
+
+/* Trimming's own landscape rules, here rather than up in the block with the
+   rest of them: these selectors are no more specific than the ones they have
+   to beat, and those are written above — a rule in the earlier block lost to
+   the plain one below it and the dock stayed 152 on a 380px-tall screen.
+   What gives way is the reach on the bars, which is what the room is for. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .dock.is-trimming { height: 124px; }
+  .trim-bars input[type="range"] { height: 24px; }
+  .trim-bars input[type="range"]::-webkit-slider-thumb { margin-top: -7px; }
+}
 
 /* Present for a screen reader, out of the way of everyone else. */
 .sr {

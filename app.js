@@ -160,7 +160,16 @@
     drop: 14,
     snap: 6,
     turn: 5,
+    // A slider's detents. Shorter than anything else here because a drag fires
+    // a dozen of them in a second or two and they have to read as texture
+    // under the thumb rather than as a dozen separate announcements.
+    tick: 4,
     limit: [0, 18, 45, 18],
+    // Something that cannot be taken back by tapping it again. Two pulses
+    // rather than one longer one: length reads as emphasis and is easy to
+    // mistake for a slow tap, where a second pulse is unmistakably not the
+    // buzz every other button in the dock gives.
+    warn: [0, 14, 32, 22],
   };
   function buzz(kind) {
     if (!navigator.vibrate) return;
@@ -2383,6 +2392,8 @@
     $('zoom').value = Math.round(p.zoom * 100);
     $('zoom-val').textContent = `${Math.round(p.zoom * 100)}%`;
     $('angle').value = degrees > 180 ? degrees - 360 : degrees;
+    paintSlider($('zoom'));
+    paintSlider($('angle'));
   }
 
   function select(i) {
@@ -3227,7 +3238,15 @@
     RATIOS.forEach((ratio) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = ratio.label;
+      // A rectangle in the option's own proportion, above the numbers. Every
+      // ratio here is square or taller, so the height is the constant and the
+      // width is what says which is which: 15px for 1:1 down to 8 for 9:16.
+      const shape = document.createElement('span');
+      shape.className = 'seg-shape';
+      shape.style.width = `${Math.round((15 * ratio.w) / ratio.h)}px`;
+      shape.setAttribute('aria-hidden', 'true');
+      btn.appendChild(shape);
+      btn.appendChild(document.createTextNode(ratio.label));
       btn.dataset.id = ratio.id;
       btn.setAttribute('aria-label', `Post shape ${ratio.label}`);
       btn.setAttribute('aria-pressed', String(ratio.id === state.ratio.id));
@@ -3282,6 +3301,7 @@
     ['gap', 'padding', 'radius'].forEach((key) => {
       $(key).value = state[key];
       $(`${key}-val`).textContent = state[key];
+      paintSlider($(key));
     });
     $('quality').value = String(state.quality);
     $('format').value = state.format;
@@ -3297,11 +3317,75 @@
     if (btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', 'true');
   }
 
+  // How many detents a full sweep of a slider has. Emphatically not the number
+  // of steps: the gap slider takes sixty of those end to end, and sixty buzzes
+  // in one drag is a rattle rather than a control. Twelve are close enough
+  // together to feel like notches under the thumb and far enough apart that
+  // each one arrives as its own tick.
+  const NOTCHES = 12;
+
+  // Where the knob is, handed to the stylesheet. CSS can see a range input's
+  // width but not its value, so the fill behind the knob and the readout above
+  // it both wait on this. Anything that sets a slider's value — an undo, a
+  // project opening, another tile being selected — has to call this after, or
+  // the control keeps drawing the value it used to hold.
+  function paintSlider(input) {
+    const panel = input.closest('.dock-slider');
+    if (!panel) return;
+    const min = Number(input.min);
+    const span = Number(input.max) - min || 1;
+    const value = Number(input.value);
+    panel.style.setProperty('--frac', clamp((value - min) / span, 0, 1));
+    const read = panel.querySelector('.slider-read');
+    if (read) read.textContent = `${Math.round(value)}${input.dataset.read || ''}`;
+  }
+
+  // The part of a drag that is only feedback: the fill, the readout, the knob
+  // knowing it is held, and the notches. The value itself is the caller's
+  // business — this deliberately never touches state, which is why zoom and
+  // angle can share it with the three deck sliders despite writing to
+  // different places.
+  function feedback(id) {
+    const input = $(id);
+    const panel = input.closest('.dock-slider');
+    let notch = null;
+    let atEnd = false;
+
+    input.addEventListener('pointerdown', () => {
+      panel.classList.add('is-sliding');
+      notch = null;
+      atEnd = false;
+      buzz('pick');
+    });
+    const release = () => panel.classList.remove('is-sliding');
+    input.addEventListener('pointerup', release);
+    input.addEventListener('pointercancel', release);
+
+    input.addEventListener('input', () => {
+      paintSlider(input);
+      const min = Number(input.min);
+      const span = Number(input.max) - min || 1;
+      const frac = clamp((Number(input.value) - min) / span, 0, 1);
+      // Notches are crossed rather than landed on. Comparing which band the
+      // value is in against the band it was in last frame is what gives one
+      // tick per notch however fast the drag is travelling — checking for a
+      // value on a notch instead misses every notch a quick sweep jumps over.
+      const band = Math.round(frac * NOTCHES);
+      const end = frac === 0 || frac === 1;
+      if (end && !atEnd) buzz('limit');
+      else if (!end && notch !== null && band !== notch) buzz('tick');
+      atEnd = end;
+      notch = band;
+    });
+  }
+
   function slider(id, key) {
     const input = $(id);
     const label = $(`${id}-val`);
     input.value = state[key];
     label.textContent = state[key];
+    paintSlider(input);
+    feedback(id);
     input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
     input.addEventListener('pointerup', endRun);
     input.addEventListener('input', () => {
@@ -3337,6 +3421,11 @@
     const choosing = name === 'replace';
     document.querySelector('.app').classList.toggle('is-choosing', choosing);
     $('dock').classList.toggle('is-choosing', choosing);
+    // Trimming wants the same room for a different reason: it is the one panel
+    // with three rows to fit, and in the 62px a drawer normally gives they came
+    // to 4px of bar apiece. The pages bar stays up for this one, unlike the
+    // chooser — which page is being cut still matters.
+    $('dock').classList.toggle('is-trimming', name === 'trim');
     if (choosing) renderChooser();
     // Page thumbnails aren't visible while choosing, so they catch up on the
     // way out rather than being redrawn for every photo scrolled past.
@@ -3522,10 +3611,19 @@
     $('trim-to').textContent = clockLabel(to);
     $('trim-span').textContent = `${span.toFixed(1)}s of ${clockLabel(whole)}`;
     $('trim-reset').disabled = from === 0 && Math.abs(to - whole) < 0.05;
+    // The kept span, drawn on both rails. CSS can see neither range input's
+    // value, so where that span starts and ends is handed over here — the same
+    // arrangement as --frac on the dock sliders.
+    const bars = document.querySelector('.trim-bars');
+    bars.style.setProperty('--fa', at(from) / TRIM_STEPS);
+    bars.style.setProperty('--fb', at(to) / TRIM_STEPS);
   }
 
   // Seconds from a slider position, against the clip's own length.
   const trimAt = (el, whole) => (Number(el.value) / TRIM_STEPS) * whole;
+
+  // Whether the handle being dragged is already sitting against the other one.
+  let trimHeld = false;
 
   function dragTrim(which) {
     const i = state.selected;
@@ -3538,8 +3636,14 @@
     let to = trimAt($('trim-end'), whole);
     // Never let the handles cross, and never let a clip go to nothing.
     const floor = 0.2;
-    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); }
-    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); }
+    let held = false;
+    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); held = true; }
+    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); held = true; }
+    // The handle has stopped moving while the thumb has not, which is the one
+    // thing on this panel a screen cannot say quickly enough. Once per arrival:
+    // a drag that keeps pushing at the floor would otherwise buzz every frame.
+    if (held && !trimHeld) buzz('limit');
+    trimHeld = held;
 
     snapshot('trim');
     cell.t0 = from;
@@ -3620,10 +3724,27 @@
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions'].map($),
+    // The last two are panels that scroll a rail inside themselves rather than
+    // scrolling whole: the background presets beside a colour well that stays
+    // put, and the export settings beside an Export button that does. The
+    // panel around each of them no longer moves, so it is the rail that has to
+    // carry the fade or nothing would say there was more.
+    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
-    ...document.querySelectorAll('.dock-panel:not(#dp-tile)'),
+    //
+    // Nor a slider, for the same reason and with worse consequences. A slider
+    // panel sets `overflow: visible` so the readout can escape upward out of
+    // the dock, which also means it can never scroll: scrollLeft stays nought
+    // whatever scrollWidth says. What it does have is a readout that rides the
+    // knob, and at the top of the range that bubble hangs past the panel's
+    // right edge — 381px of content in 346px of panel, measured at 420x860.
+    // That counted as slack, so fade-r went on and masked the last 20px of the
+    // panel: the knob faded out to nothing on its right side, its accent halo
+    // was cut in half, and the number in the corner lost its last digit. All
+    // of it at exactly the value being dragged to, and it stayed that way
+    // after release, because a slider left at its maximum keeps the overflow.
+    ...document.querySelectorAll('.dock-panel:not(#dp-tile):not(.dock-slider)'),
   ].filter(Boolean);
 
   function fadeRow(el) {
@@ -5026,9 +5147,16 @@
 
   $('quality').value = String(state.quality);
   $('format').value = state.format;
-  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); });
-  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); });
+  // The three controls in the dock that a tap never lands on, so the delegated
+  // tick below never reaches them: two selects and the colour well all hand
+  // over to a picker of the system's own and come back with an answer. The
+  // buzz belongs to the answer arriving, which is what change means on all
+  // three — an input event on a colour well fires for every step of a drag
+  // round the wheel, and buzzing those would be the rattle the sliders avoid.
+  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); buzz('tap'); });
+  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); buzz('tap'); });
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
+  $('bg').addEventListener('change', () => buzz('tap'));
 
   // One tick for every control in the dock — drilling into a setting, picking
   // an option, stepping back out. Delegated rather than wired per button, so
@@ -5055,7 +5183,11 @@
     root.addEventListener('pointerup', (e) => {
       if (!pending) return;
       const still = Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 8;
-      if (still && pending.btn.contains(e.target)) buzz('tap');
+      // data-buzz is how a button says it deserves something other than the
+      // ordinary tick — the deleters ask for the double. Declared on the button
+      // rather than wired up here, so the rule stays one delegated listener
+      // however many of them there come to be.
+      if (still && pending.btn.contains(e.target)) buzz(pending.btn.dataset.buzz || 'tap');
       pending = null;
     });
     root.addEventListener('pointercancel', () => { pending = null; });
@@ -5097,7 +5229,7 @@
   });
   ['start', 'end'].forEach((which) => {
     const el = $(`trim-${which}`);
-    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); });
+    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); trimHeld = false; });
     el.addEventListener('input', () => dragTrim(which));
     el.addEventListener('pointerup', endTrimDrag);
     el.addEventListener('change', endTrimDrag);
@@ -5115,6 +5247,7 @@
     render();
     syncPanel();
   });
+  feedback('angle');
   $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
   $('angle').addEventListener('pointerup', endRun);
   $('angle').addEventListener('input', (e) => {
@@ -5179,6 +5312,7 @@
   });
   $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
+  feedback('zoom');
   $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
   $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
@@ -5186,6 +5320,11 @@
     if (!cell) return;
     snapshot('zoom');
     cell.zoom = Number(e.target.value) / 100;
+    // The label in the corner was only ever brought up to date by syncPanel,
+    // which a drag never reaches, so it sat on whatever it said when the panel
+    // opened. Harmless while it was the only readout; now that one rides the
+    // knob it would be one number contradicting another an inch away.
+    $('zoom-val').textContent = `${Math.round(Number(e.target.value))}%`;
     settle(state.selected);
     render();
   });
@@ -5395,6 +5534,37 @@
     || window.matchMedia('(display-mode: window-controls-overlay)').matches
     || window.navigator.standalone === true;
 
+  // Room for the home indicator, and only where there is one. The first
+  // version of this asked "installed, and a touch screen", which is also true
+  // of Android — where the navigation bar is drawn outside the web view, so
+  // nothing needs reserving and the space simply piled up under the dock.
+  //
+  // navigator.standalone is what separates them. It is iOS's own signal, it
+  // predates display-mode, and Android has never set it — the same reason
+  // installed() above has to check both.
+  //
+  // Which iPhone this is gets read off the device rather than assumed.
+  // Dropping viewport-fit=cover stopped env() reporting any inset, but iOS
+  // still takes the status bar out of the view, and how much it takes says
+  // what kind of screen this is: 47 measured here on a notch, 59 on a Dynamic
+  // Island, 20 on a phone with a home button — and a home button means there
+  // is no indicator at the bottom to leave room for.
+  //
+  // Read in portrait only, and remembered. screen.height does not turn with
+  // the device on iOS, so the difference means nothing on its side: a phone
+  // with a home button would clear the threshold there for the wrong reason.
+  // An app first opened in landscape therefore leaves no room until it is
+  // turned upright once, which is the lesser mistake — landscape reserves
+  // less anyway.
+  let hasIndicator = false;
+
+  function markInstalled() {
+    if (navigator.standalone === true && innerHeight > innerWidth) {
+      hasIndicator = screen.height - innerHeight > 21;
+    }
+    document.documentElement.classList.toggle('has-home-indicator', hasIndicator);
+  }
+
   let installPrompt = null;
 
   function syncInstallBar() {
@@ -5432,7 +5602,11 @@
   // Installing while the tab is open switches it to standalone without a
   // reload on some browsers, so the bar has to notice.
   const displayQuery = window.matchMedia('(display-mode: standalone)');
-  if (displayQuery.addEventListener) displayQuery.addEventListener('change', syncInstallBar);
+  if (displayQuery.addEventListener) {
+    displayQuery.addEventListener('change', syncInstallBar);
+    displayQuery.addEventListener('change', markInstalled);
+  }
 
   syncInstallBar();
+  markInstalled();
 })();

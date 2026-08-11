@@ -1,6 +1,6 @@
 # Browser tests
 
-39 standalone Node scripts that serve the repository over http, drive Chromium
+40 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -52,34 +52,84 @@ playback.
 
 ## Where it stands
 
-Measured on a container with no ffmpeg, so six tests skipped:
+Measured with the fixtures generated, so all 40 ran:
 
 | | count |
 | --- | --- |
-| passed | 25 |
-| assertions | 391 |
-| failing | 4 — photodates, reorder, share, update-path |
+| passed | 36 |
+| assertions | 571 |
+| failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
-| assert nothing | 3 — dock-haptics, iframe, manifest-fresh |
+| assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
-| skipped for fixtures | 6 — bulk, progress, progressive, replaceplay, thumbupgrade, video |
+| skipped for fixtures | 0 here, 6 without ffmpeg |
 
-None of the four failures were caused by the change that brought the suite in.
-They were checked against the app as it stood before it and failed identically,
-with the same errors, and `photodates` failed the same way again after EXIF
-reading was extended — so it is not that either.
+`reach` is the fortieth, and it is the one to run after touching the dock: it
+measures the hit box of every control in it at four viewports rather than
+looking at a screenshot of them. Run against the commit before it arrived, 29 of
+its 76 assertions fail.
 
-**Three tests assert nothing.** `dock-haptics`, `iframe` and `manifest-fresh`
-print observations a person used to read and emit no `✓` or `✗`, so they exit 0
-whatever they saw — `iframe` reports a 404 in its own output and still passes.
-The runner counts them separately rather than as passes, because a suite that
-reports green over a test which cannot fail is worse than one test short.
+Read the count as a range rather than a fact about the suite. The table above is
+one machine with the fixtures generated; the run before `reach` arrived came to
+**34 passed and 466** on another, and a third came to **35 and 491** with nothing
+failing at all. The gap is worth reading rather than averaging: `gridorder`'s 25
+assertions are most of it, dead in one run and alive in the next, exactly as the
+note on two suites at once predicts, and `iframe` wins its race about one run in
+three, which moves it between failing and asserting nothing. None of the figures
+is wrong; they are the same suite on different machines, which is why they are
+all here.
+
+**Six of the seven that used to fail were the scaffolding, not the app.** Every
+one was checked against the app as it stood before the suite arrived and failed
+identically there, so none of them belonged to a change:
+
+- `share`, `photodates` and `thumbupgrade` all died waiting for their own photos
+  to come back after a reload. `enter.mjs` looked for `.project-open`, a class
+  the app has never had — the cards are `.tile` — so its "tap the project that
+  is already there" branch never ran and every reload quietly started a new
+  empty project instead. One selector, three tests.
+- `reorder` built a second browser context for the touch half and never walked
+  it through the projects list, so it sat on the homepage where a `.film` has no
+  box at all and died on a null rectangle.
+- `swipe` read the track while the second `touchMove` was still queued. Chrome
+  delivers `pointermove` aligned to the animation frame, so back-to-back
+  dispatches arrive as one event or none — which is also what lost the
+  dawdle-then-flick case its whole tail, leaving one velocity sample where two
+  are needed. Each move now waits for its frame, which is what a finger does.
+- `update-path` read three old builds from `/tmp/oldver/<sha>`, a directory
+  nothing in the suite created — the fourth hardcoded path of the kind
+  `paths.mjs` exists to end. It reported `✗ the old build installed` three times
+  and read like a deploy problem; the old shell was simply 404ing, so no worker
+  ever took control. Checked out of the history now, where those three revisions
+  have been all along.
+- `video` asserted that a video slide goes out as a still, on the grounds that
+  this Chromium cannot encode. The premise half holds — `VideoEncoder` really is
+  undefined — but the conclusion never did: mediabunny brings its own encoder
+  and `01.mp4` lands, which was settled by capturing the download. It now
+  accepts either outcome and still fails on a slide that vanishes.
+
+**`iframe` is the real one, and the test was hiding it.** In the sandboxed frame
+it embeds — `allow-scripts allow-forms allow-modals`, no `allow-same-origin` —
+`localStorage` throws `SecurityError`, the photo sometimes never reaches the
+tray, and Export stays disabled. It waited for `.film` length === 1, which an
+empty deck satisfies, then asserted nothing and clicked a disabled button. The
+wait is now on the button being enabled, so the failure names its own cause.
+One run in three passes, so the framed import is racy rather than broken, and
+the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
+that is an app change and its own branch.
 
 **`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
 failure in two full-suite runs, on `nothing left running on the homepage`, and a
 pass in the run the table above comes from. Something earlier in the suite, or
 simply a warm machine, changes the timing — so a green `playtrim` is not evidence
 of anything either way.
+
+**Two suites at once is not a measurement.** In the run behind the table above,
+`gridorder` died in 0 seconds with no output while another session was running
+tests on the same machine; alone it passes 25 of 25. Several of these import
+twelve 12-megapixel photos on purpose. If a test fails in a full run, fails in
+no time at all, and passes by itself, look at what else the machine was doing
+before looking at the test.
 
 **`swr` is stale, as suspected.** It dies on
 `getComputedStyle: parameter 1 is not of type 'Element'` before its first

@@ -6,7 +6,7 @@
   "scope": "./",
   "display": "standalone",
   "background_color": "#0d0d10",
-  "theme_color": "#0d0d10",
+  "theme_color": "#16161c",
   "categories": ["photo", "graphics", "utilities"],
   "launch_handler": { "client_mode": "focus-existing" },
   "share_target": {

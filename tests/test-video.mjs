@@ -33,8 +33,11 @@ const webm = fs.readFileSync('fixtures/clip.webm');   // red for 1s, then blue
 const mp4  = fs.readFileSync('fixtures/clip.mp4');    // H.264 — unplayable here
 
 const b=await chromium.launch({executablePath: CHROME});
-const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2});
+const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2,acceptDownloads:true});
 const p=await ctx.newPage();
+// What the export actually hands over, so the assertion at the end can tell an
+// mp4 from a still instead of inferring it from the wording of a toast.
+const saved=[]; p.on('download',d=>saved.push(d.suggestedFilename()));
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
 await p.goto('http://localhost:8205/');
 await p.click('#home-first');
@@ -178,11 +181,14 @@ console.log('\n== exporting a deck with no video touches none of it ==');
   await c2.close();
 }
 
-console.log('\n== exporting a video deck, in a browser that cannot encode ==');
-// The point here is not that it works — it cannot, there is no WebCodecs in
-// this build — but that it fails the way it is meant to: the decoder is
-// asked for, the failure is caught, and a still goes out in its place rather
-// than the slide vanishing.
+console.log('\n== exporting a video deck, with no WebCodecs to do it with ==');
+// This used to assert the fallback outright, on the grounds that the build has
+// no WebCodecs and so cannot encode. The first half is still true —
+// VideoEncoder is undefined in this Chromium — but the conclusion never was:
+// mediabunny brings an encoder of its own and 01.mp4 lands. So what is checked
+// is the pair of outcomes that are both fine, and the one that is not: either a
+// video came out, or the app said the slide went out as a still. A slide that
+// simply vanishes fails either way, which is the thing worth catching.
 served=[];
 await p.click('.dock-item[data-drawer="export"]');
 await p.waitForTimeout(300);
@@ -196,7 +202,9 @@ console.log('  asked for:', j(served.filter(u=>u.includes('vendor'))));
 console.log('  ended with:', j(after));
 ok('it did reach for the encoder', served.some(u=>u.includes('mediabunny')), j(served.filter(u=>u.includes('vendor'))));
 ok('the progress overlay was put away', after.opening);
-ok('and it said the slide went out as a still', /still/i.test(after.toast), after.toast);
+ok('a video came out, or it said the slide went out as a still',
+  saved.some(n=>/\.mp4$/.test(n)) || /still/i.test(after.toast),
+  `saved ${j(saved)} · toast ${JSON.stringify(after.toast.trim())}`);
 ok('no unhandled error', errs.length===0, j(errs.slice(0,2)));
 
 console.log('\n== an H.264 mp4, which this browser cannot even play ==');

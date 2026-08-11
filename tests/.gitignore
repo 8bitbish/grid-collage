@@ -5,3 +5,6 @@ fixtures/many/
 shots/
 node_modules/
 package-lock.json
+
+# Old builds test-update-path checks out of the history to install from.
+.oldver/

@@ -42,7 +42,7 @@ Then the browser suite, which is what actually covers this app:
 cd tests && npm install && node run.mjs
 ```
 
-39 tests, no framework, Playwright the only dependency. It exits non-zero on any
+40 tests, no framework, Playwright the only dependency. It exits non-zero on any
 failure and says plainly what it skipped and why — six tests need fixtures too
 big for git, which `tests/fixtures/make.sh` generates and which need ffmpeg. CI
 runs the lot on every push and pull request.
@@ -105,23 +105,99 @@ The code here is written to be read. Match it rather than your own habits.
 - Commit messages explain the change and how it was verified, with the numbers
   where there are numbers. The log is the record of why this app is the way it
   is; treat it as documentation.
-- One task per branch. See `docs/BACKLOG.md` and the `/next` command.
+- One task per branch, and never commit to `main` directly.
+- Anything noticed while working on something else is worth raising rather than
+  fixing in the branch you are on. Keeping a change to one thing is what makes
+  the log worth reading.
+- **Stage by path, never `git add -A`.** More than one person works this tree
+  and there is usually something half-finished in it. Look at `git diff` before
+  committing and take only the paths that are yours.
 
-## Managing work
+## The design file
 
-- `docs/BACKLOG.md` — what is next, in order.
-- `docs/task-template.md` — the shape of an entry. The only place it is defined.
-- `/add <rough idea>` — scopes it against the code and appends a proper entry,
-  committing `docs/BACKLOG.md` and nothing else.
-- `/next` — takes the topmost unblocked entry through to a pushed branch, on
-  its own, without stopping to ask. It stops only on the conditions listed in
-  the command itself, and it never commits to `main`. Review happens on the
-  branch afterwards, so the acceptance criteria on an entry are doing the work
-  a conversation would otherwise do — write them so they can be checked, not
-  argued about.
+The app's design lives in one Figma file, and every call to the Figma connector
+takes a `fileKey`. This is the one:
 
-Anything noticed while working on something else becomes a backlog entry rather
-than a second change in the branch you are on. The entry still has to be
-committed somewhere, and on a task branch that means it travels with that
-branch's pull request — so the queue only really exists on `main`, and `/next`
-cannot see an entry that has not reached it.
+```
+Grid Collage — vvTNILQSm10sgKMBqGTHYY
+https://www.figma.com/design/vvTNILQSm10sgKMBqGTHYY
+```
+
+**Work in that file. Do not create a new one.** Nothing about a Figma file is
+discoverable from a repository, so without this written down every session
+starts by making a second file, and then there are two design systems that
+disagree. It holds the token collection, the component sets, the icon set and
+the screens.
+
+The file is in the 3 SIDED CUBE plan, in drafts. The other plan on the account
+is a View-only seat and cannot be written to.
+
+## The design system in that file
+
+- **Variables mirror `styles.css` where the CSS has a name for something.** The
+  nine custom properties are flat variables — `bg`, `surface`, `accent` — each
+  carrying `var(--bg)` as its code syntax so Dev Mode shows the CSS name. Groups
+  (`type/`, `copy/`) are Figma-only organisation for things the stylesheet
+  never named: the font sizes are literals scattered through the CSS, and the
+  labels live in `index.html`.
+- **Seed a bound paint with the token's own colour, never black.** A bound paint
+  falls back to its base when it cannot resolve, and black on a dark UI simply
+  disappears. This hid a real bug for a while: every stroked icon looked correct
+  whether or not its binding worked, because `--muted` is the same `#8d8d9c`
+  already baked into the SVGs.
+- **Icons are the app's own set**, not Material Symbols. That was measured and
+  rejected: at default weight the filled shapes sit heavier than the 1.7–2.2px
+  strokes, and four of eight candidates were worse on meaning — `space_bar` for
+  gap is a keyboard glyph, `rounded_corner` reads as marching ants at 22px.
+- **Icon components must scale.** Both the wrapper frame and the vectors inside
+  need `SCALE` constraints, or resizing the container crops the artwork instead
+  of shrinking it. `createNodeFromSvg` gives the wrapper `MIN/MIN` and clipping,
+  so this has to be set by hand every time.
+- **Stroke weight in Figma is in final pixels. In the app it is in viewBox
+  units, and the two are not the same number.** `styles.css` sets `stroke-width`
+  anywhere from 1.7 to 2.2 inside a 24-unit `viewBox`, and the browser divides
+  it by the render scale — so what actually lands on screen is about 1.5 CSS px
+  at every icon size. The scatter in the source is what produces the consistency
+  in the output, and it is deliberate: 2.2 at 16px and 1.7 at 22px both draw
+  ~1.5. Figma scales geometry on resize but *not* stroke, so copying the source
+  numbers across made every icon 20–28% too heavy. Icons here carry 1.5, the
+  drawn width.
+
+  The limit that follows: one component cannot reproduce per-context
+  compensation, so an icon used well outside the 19–22px band will look wrong
+  and wants an instance-level override rather than a new component.
+- **Component states come from the CSS, not from taste.** `.btn:active` is
+  `translateY(1px) scale(0.97)` with no colour change at all, so the Pressed
+  variant differs only in size and looks like a mistake until you read the rule.
+  Some things brighten rather than scale, and the stylesheet says why.
+- Text properties go on the **component set**, not on a variant — a variant
+  throws `Can only set component property definitions on a product component`.
+  Bind the instance's property to the copy variable rather than the text node,
+  or the properties panel and the canvas disagree.
+- **Build it, screenshot it, compare it, fix it — then screenshot again.** A
+  `use_figma` call that returns node ids has told you the API accepted the
+  script, not that the result looks like the app. Take the screenshot large
+  (`maxDimension` well past the node's real size, then `sips -Z` it bigger
+  again) — at thumbnail size everything looks fine.
+
+  This is not a nicety. The add-a-page slot came out as a 50×22 pill, because
+  setting `layoutMode` after `resize()` quietly turns hugging back on and the
+  frame collapsed around its `+`. The screenshot showed it instantly; the
+  return value showed nothing. Fixing that then revealed a second fault the
+  first had hidden — the same slot was clipped out of the strip altogether,
+  because four 50px thumbnails and their gaps do not fit 200px of filmstrip.
+  Both were only ever going to be found by looking.
+
+  Where the app scrolls and Figma cannot, show fewer items rather than letting
+  the overflow hide something. A clipped-off add button misrepresents the one
+  thing the variant exists to demonstrate.
+
+## Working here
+
+- **Take the sensible default and get on with it.** Ask only when two readings
+  lead to genuinely different work; otherwise pick, say which way you went, and
+  keep moving.
+- **Do not take focus.** Simulators and emulators get driven headless or through
+  the background, because somebody is usually working on the same machine.
+- **Task tracking is not in this repository.** It used to be, and three systems
+  describing the same work was worse than none. Do not add a backlog file back.

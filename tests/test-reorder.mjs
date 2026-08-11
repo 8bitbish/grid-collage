@@ -84,6 +84,10 @@ console.log('tap page 4 -> current is',
 // --- touch: long-press to pick up, a quick swipe should scroll not reorder --
 const tctx = await b.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,deviceScaleFactor:2});
 const t = await tctx.newPage();
+// The touch half needs walking through the projects list as much as the first
+// half does. Without this it stayed on the homepage, where a .film has no box
+// at all, and the test died on a null bounding box before its first touch.
+await autoEnter(t);
 t.on('pageerror',e=>errs.push('touch: '+String(e)));
 await t.goto('http://localhost:8145/');
 await t.evaluate(()=>localStorage.clear()); await t.reload();

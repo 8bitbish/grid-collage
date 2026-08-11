@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grid Collage — build an Instagram carousel</title>
 <meta name="description" content="Build a carousel up to 20 pages. Drop photos and video in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
-<meta name="theme-color" content="#0d0d10">
+<meta name="theme-color" content="#16161c">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.06q">
+<link rel="stylesheet" href="styles.css?v=2026.08.10f">
 </head>
 <body class="on-home">
 
@@ -217,21 +217,32 @@
         <div class="segmented" id="ratios"></div>
       </div>
 
+      <!-- The readout appears twice on purpose. The one in the label row is the
+           resting state, and the one riding the knob is for the moment a thumb
+           is over the track, when the corner of the dock is the last place
+           anybody is looking. -->
       <div class="dock-panel dock-slider" id="dp-gap" hidden>
         <label class="dock-label" for="gap">Gap between tiles <span class="val" id="gap-val">0</span></label>
         <input type="range" id="gap" min="0" max="120" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
       <div class="dock-panel dock-slider" id="dp-padding" hidden>
         <label class="dock-label" for="padding">Padding round the edge <span class="val" id="padding-val">0</span></label>
         <input type="range" id="padding" min="0" max="160" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
       <div class="dock-panel dock-slider" id="dp-corners" hidden>
         <label class="dock-label" for="radius">Corner radius <span class="val" id="radius-val">0</span></label>
         <input type="range" id="radius" min="0" max="120" step="2" value="0">
+        <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
+      <!-- The presets are the part that scrolls and the custom colour is the part
+           that does not. Both used to sit in the panel's own scroller, which put
+           the one control that can reach a colour the row does not offer off the
+           right-hand edge on every phone measured. -->
       <div class="dock-panel" id="dp-background" hidden>
         <div class="swatches" id="swatches"></div>
         <label class="colour-row">
@@ -240,21 +251,27 @@
         </label>
       </div>
 
-      <div class="dock-panel" id="dp-page" hidden>
-        <button class="btn btn-ghost btn-sm" id="btn-duplicate" type="button">Duplicate page</button>
-        <button class="btn btn-ghost btn-sm btn-danger" id="btn-delete-page" type="button">Delete page</button>
+      <div class="dock-panel dock-actions" id="dp-page" hidden>
+        <button class="btn btn-ghost" id="btn-duplicate" type="button">Duplicate page</button>
+        <button class="btn btn-ghost btn-danger" id="btn-delete-page" type="button" data-buzz="warn">Delete page</button>
       </div>
 
-      <div class="dock-panel" id="dp-export" hidden>
-        <select id="quality" class="select">
-          <option value="1080">1080px (Instagram)</option>
-          <option value="1440">1440px</option>
-          <option value="2160">2160px</option>
-        </select>
-        <select id="format" class="select">
-          <option value="image/jpeg">JPG</option>
-          <option value="image/png">PNG</option>
-        </select>
+      <!-- Same split as the background panel: the two settings share what room
+           is left and scroll if they must, and Export is pinned outside that
+           scroller. A panel whose whole purpose is one button cannot be a panel
+           you have to swipe sideways to reach the button in. -->
+      <div class="dock-panel dock-export" id="dp-export" hidden>
+        <div class="export-settings" id="export-settings">
+          <select id="quality" class="select">
+            <option value="1080">1080px (Instagram)</option>
+            <option value="1440">1440px</option>
+            <option value="2160">2160px</option>
+          </select>
+          <select id="format" class="select">
+            <option value="image/jpeg">JPG</option>
+            <option value="image/png">PNG</option>
+          </select>
+        </div>
         <button class="btn btn-primary" id="btn-export" type="button">Export</button>
       </div>
 
@@ -290,7 +307,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.3 5.7"/><path d="M4 5v7h7"/></svg>
             <span>Reset</span>
           </button>
-          <button class="dock-item dock-item-danger" type="button" data-tile="delete">
+          <button class="dock-item dock-item-danger" type="button" data-tile="delete" data-buzz="warn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
             <span>Delete</span>
           </button>
@@ -298,7 +315,8 @@
 
         <div class="tile-sub dock-slider" id="tile-zoom" hidden>
           <label class="dock-label" for="zoom">Zoom <span class="val" id="zoom-val">100%</span></label>
-          <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+          <input type="range" id="zoom" min="100" max="800" step="1" value="100" data-read="%">
+          <span class="slider-read" aria-hidden="true">100%</span>
         </div>
 
         <!-- Cutting a clip blind would be useless, so both handles seek the
@@ -310,6 +328,7 @@
             <span class="trim-arrow" aria-hidden="true">→</span>
             <span class="val" id="trim-to">0:00</span>
             <span class="trim-span" id="trim-span"></span>
+            <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
           </div>
           <div class="trim-bars">
             <label class="sr" for="trim-start">Start</label>
@@ -317,14 +336,16 @@
             <label class="sr" for="trim-end">End</label>
             <input type="range" id="trim-end" min="0" max="1000" step="1" value="1000">
           </div>
-          <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
         </div>
 
         <div class="tile-sub" id="tile-rotate" hidden>
           <button class="btn btn-ghost btn-sm" id="btn-rot90" type="button">Turn 90&deg;</button>
-          <div class="dock-slider">
+          <!-- The one slider whose fill runs from the middle: nought is square,
+               and a bar growing out of the left end would say -180 was. -->
+          <div class="dock-slider from-centre">
             <label class="dock-label" for="angle">Angle <span class="val" id="cell-angle">0&deg;</span></label>
-            <input type="range" id="angle" min="-180" max="180" step="1" value="0">
+            <input type="range" id="angle" min="-180" max="180" step="1" value="0" data-read="&deg;">
+            <span class="slider-read" aria-hidden="true">0&deg;</span>
           </div>
         </div>
 
@@ -425,6 +446,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.06q"></script>
+<script src="app.js?v=2026.08.10f"></script>
 </body>
 </html>
