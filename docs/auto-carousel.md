@@ -4,9 +4,18 @@ What the feature is meant to do, what exists, what the real data says, and what
 is still undecided. Written as a handoff: someone picking this up should be able
 to start from here without reading a chat log.
 
-The backlog entries this relates to are **"Measure every photo as it is
-imported"** (done) and **"Build a deck from the tray by itself"** (not started),
-in [`BACKLOG.md`](BACKLOG.md).
+**State:** the measuring described below is built, tested and live. The assembly —
+the part that actually produces a carousel — is not started. Nothing clusters
+photos into events and nothing emits slides.
+
+This used to be two backlog entries. `docs/BACKLOG.md` was removed in `fc9a371`
+when task tracking moved out of the repository, and this file is what was worth
+keeping from the second of them. The retired entries, which carry measured detail
+recorded nowhere else, are still readable:
+
+```sh
+git show 5def00c:docs/BACKLOG.md
+```
 
 ---
 
@@ -68,7 +77,8 @@ beside `taken`, because the pixels are gone a few lines later.
 | `hash` | 64-bit dHash, for spotting the same moment shot twice |
 | `lat`, `lon`, `focal35` | read from EXIF, flat on the photo beside `taken` |
 
-Verified in `tests/test-measure.mjs` and `tests/test-place.mjs`, against images
+Verified in `tests/test-measure.mjs` and `tests/test-place.mjs` — two of the 40
+tests in `tests/`, and neither needs a fixture file, because every case is
 generated in process so the right answer is known:
 
 - sharp checkerboard **41089** against a blurred copy of itself **1**
@@ -163,15 +173,18 @@ each, which fits a 20-slide deck almost exactly.
 
 ---
 
-## Known bug
+## Known bug — start here
 
 **Zeroed GPS is stored as a real position.** The Samsung rows come through as
 `lat 0, lon 0`. Zero/zero is a real place in the Atlantic. `readExif` discards a
-*half* coordinate for exactly this reason but not an all-zero one, so a GPS block
-that is present and blank sails through as a location.
+*half* coordinate for exactly this reason — `app.js`, the line reading
+`if (lat === null || lon === null)` — but not an all-zero one, so a GPS block that
+is present and blank sails through as a location.
 
-Fix: treat an all-zero coordinate as absent. Wrong on its own terms regardless of
-anything below.
+Fix: treat an all-zero coordinate as absent. One line, plus a case in
+`tests/test-place.mjs`, which already builds JPEGs with chosen GPS and can build
+one with zeros. Left undone on purpose so this file stays a document rather than a
+document plus a change — but it is wrong on its own terms and worth doing first.
 
 ## Why there are no locations at all, probably
 
@@ -218,6 +231,27 @@ time, and let location refine it where it exists.
 
 Everything else can ship as named constants and be retuned once a real deck has
 been looked at. These four change the output rather than the code.
+
+## Where to start
+
+1. **Fix the zeroed-GPS bug** above. One line, one test case.
+2. **Write the clusterer.** Time only. Collapse bursts within ten seconds into one
+   shot, then cut where a shot-to-shot gap exceeds a multiple of the median — or
+   cut at a multiple of the p90 of raw gaps. Either lands on twelve or thirteen
+   events for the library described below, and that is the number to test against.
+3. **Test it against planted structure**, not against taste: generate a tray with
+   events at known times, a deliberate outlier, a burst, and no GPS, and assert
+   the clusterer recovers exactly what was planted. `tests/test-measure.mjs` shows
+   the pattern — build the input, read the app's own answer back out of IndexedDB.
+4. **Then the assembly**, which is where the deck rules above become invariants a
+   test can check: slide 1 single-cell and highest-scoring, non-decreasing dates
+   after it, no two adjacent multi-cell slides, collage members from one event.
+5. **Ask the four questions** before tuning anything. Three of them cannot be
+   answered from the data.
+
+The suite is the thing that makes this tractable from anywhere: real Chromium,
+real touch events, images built in process, and the app's own stored numbers read
+back out of IndexedDB. None of the work above needs a phone.
 
 ## The tuning trap
 
