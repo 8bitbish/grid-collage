@@ -231,10 +231,12 @@ depends on is simply wrong, and that much can be put right without asking.
     so none of it can be recovered later.
 
 - [ ] **Build a deck from the tray by itself**
-  why: a tray holding one trip's worth of photos already contains the
-    carousel; assembling it by hand is choosing a hero, finding the shots
-    that support it, and repeating twenty times. The signals needed to do
-    that are all measurable.
+  why: a tray holding one trip's worth of photos already contains the carousel;
+    assembling it by hand is choosing a hero, finding the shots that support it,
+    and repeating twenty times. The signals needed to do that are all measurable.
+    Read [`auto-carousel.md`](auto-carousel.md) before starting — it carries the
+    numbers off a real 180-photo library, the two clustering ideas that do not
+    work and why, and the four decisions still open.
   acceptance:
     - the first slide is a single-cell page holding the highest-scoring photo
       in the tray, and is the only slide exempt from date order
