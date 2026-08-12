@@ -766,6 +766,91 @@ body.is-picking .tile::after {
   stroke-linejoin: round;
 }
 
+/* Grouping and its knobs. Both rows sit outside .pm-body so they stay put
+   while the library scrolls — the tally has to be readable at the moment a
+   slider moves, and it is at the top of a list that may be pages long. */
+.pm-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.pm-tally {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-seg {
+  flex: none;
+  display: flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+.pm-seg-btn {
+  appearance: none;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  cursor: pointer;
+}
+/* The selected half brightens rather than moving: these sit next to a live
+   list, and anything that changes size makes the list below it jump. */
+.pm-seg-btn.is-on { color: var(--text); background: var(--surface); }
+.pm-seg-sm .pm-seg-btn { padding: 5px 10px; font-size: 12px; }
+
+.pm-tune {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.pm-tune[hidden] { display: none; }
+
+.pm-knob {
+  flex: 1 1 150px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pm-knob input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--accent); }
+/* Fixed width and tabular figures, so the number changing does not shove the
+   slider sideways under the finger that is dragging it. */
+.pm-knob output {
+  flex: none;
+  width: 68px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* An event heading carries more than a day heading does, so it stacks: what
+   and when on top, the numbers that make the split arguable underneath. */
+.pm-event { display: flex; flex-direction: column; gap: 1px; }
+.pm-event-when { font-size: 13px; }
+.pm-event-facts { font-size: 11px; font-weight: 500; color: var(--muted); }
+
 .pm-body {
   flex: 1;
   min-height: 0;

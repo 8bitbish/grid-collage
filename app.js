@@ -2193,6 +2193,114 @@
     return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
   }
 
+  /* ------------------------------------------------------ events, by time */
+  //
+  // Grouping the tray into the separate things that happened, so a deck can be
+  // built one event at a time rather than out of one undifferentiated pile.
+  // Nothing here picks photos or emits slides; this is the measuring end, and
+  // the view over it exists so a split can be judged against the pictures.
+  //
+  // How the library is grouped, and the knobs for it. Deliberately not saved:
+  // this is an instrument for looking, and starting from the same place every
+  // time is what makes two looks comparable.
+  const grouping = { mode: 'days', rule: 'gap', spread: 3, k: 17, burst: 10 };
+
+  const percentileOf = (sorted, p) =>
+    (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : 0);
+
+  // Runs taken within `withinSec` of each other, treated as one shot.
+  //
+  // This matters more than it looks. On a real 180-photo tray, 85 of the 179
+  // gaps were ten seconds or less — so a phone firing six frames in four
+  // seconds casts six votes on what a typical gap is, and drags every average
+  // down to the burst interval rather than the rhythm between events. Collapse
+  // first and the gaps that remain are the ones between things that happened.
+  function toShots(sorted, withinSec) {
+    const shots = [];
+    sorted.forEach((photo, i) => {
+      const prev = sorted[i - 1];
+      if (i && (photo.taken - prev.taken) / 1000 <= withinSec) shots[shots.length - 1].push(photo);
+      else shots.push([photo]);
+    });
+    return shots;
+  }
+
+  // Where one event ends and the next begins, from the timestamps alone.
+  //
+  // Two rules, because which one is right depends on the tray and seeing both
+  // is the point:
+  //
+  // "gap" cuts wherever a gap beats one threshold for the whole tray, set as a
+  // multiple of the 90th percentile of the gaps in it. Relative to the import
+  // on purpose — the same principle that killed badging photos above a fixed
+  // sharpness. A threshold in minutes that suits a walking tour is wrong for a
+  // dinner. Three times p90 recovered twelve events from the 180-photo tray,
+  // nine of them with three or more photos.
+  //
+  // "adaptive" is PhotoTOC's rule (Platt et al., Microsoft Research, 2002): a
+  // gap is a boundary when it exceeds K times the geometric mean of the gaps
+  // around it, so a dense evening and a sparse morning get their own
+  // thresholds. On its own it over-splits badly here — with bursts left in, the
+  // local geometric mean sits around thirty seconds, which puts the threshold
+  // near eight minutes and turns ordinary pauses inside one event into
+  // boundaries: twelve events became twenty-seven. It is worth having anyway,
+  // because it is the only rule that finds seams inside a long block, and the
+  // burst control next to it is what makes it usable.
+  // Every photo has a `taken`: ingest falls back to the file's own timestamp and
+  // then to the clock, so there is no undated case to handle here. Worth knowing
+  // rather than guarding — a photo whose EXIF carried no date lands at import
+  // time and becomes its own event at the end of the trip, which is a real
+  // wrinkle for whatever builds the deck and not one this view invents.
+  function clusterEvents(photos, opts) {
+    const dated = [...photos].sort((a, b) => a.taken - b.taken);
+    if (!dated.length) return { events: [], threshold: 0 };
+
+    const shots = toShots(dated, opts.burst);
+    const gaps = shots.slice(1).map((shot, i) => {
+      const before = shots[i];
+      return (shot[0].taken - before[before.length - 1].taken) / 1000;
+    });
+
+    let threshold = 0;
+    let opensEvent;
+    if (opts.rule === 'adaptive') {
+      const logs = gaps.map((g) => Math.log(Math.max(g, 1)));
+      const half = 10;
+      opensEvent = gaps.map((_, i) => {
+        const from = Math.max(0, i - half);
+        const to = Math.min(logs.length, i + half + 1);
+        let sum = 0;
+        for (let j = from; j < to; j++) sum += logs[j];
+        return logs[i] >= Math.log(opts.k) + sum / (to - from);
+      });
+    } else {
+      threshold = opts.spread * percentileOf([...gaps].sort((a, b) => a - b), 0.9);
+      opensEvent = gaps.map((g) => g > threshold);
+    }
+
+    // Each event carries the gap that opened it, because that number is what
+    // makes a split arguable: an event that began after eleven minutes and one
+    // that began after three hours are not the same claim.
+    const events = [{ photos: [...shots[0]], after: null }];
+    opensEvent.forEach((opens, i) => {
+      const shot = shots[i + 1];
+      if (opens) events.push({ photos: [...shot], after: gaps[i] });
+      else events[events.length - 1].photos.push(...shot);
+    });
+    return { events, threshold };
+  }
+
+  // "23 min", "3 h 10", "45 s" — a duration at the coarseness it deserves.
+  function spanLabel(seconds) {
+    const whole = Math.round(seconds);
+    if (whole < 90) return `${whole} s`;
+    if (whole < 5400) return `${Math.round(whole / 60)} min`;
+    return `${Math.floor(whole / 3600)} h ${String(Math.round((whole % 3600) / 60)).padStart(2, '0')}`;
+  }
+
+  const timeLabel = (t) =>
+    new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
   function renderPhotos() {
     const grid = $('pm-grid');
     grid.innerHTML = '';
@@ -2205,6 +2313,9 @@
       : 'Add your photos';
     $('pm-count').textContent = n || '';
     $('pm-empty').hidden = n > 0;
+
+    if (grouping.mode === 'events') { renderByEvent(grid); return; }
+    $('pm-tally').textContent = '';
 
     // Newest first, the way a photo roll reads. Sorted for the view only —
     // state.photos stays in the order things were imported, which is what the
@@ -2229,6 +2340,88 @@
       grid.appendChild(row);
       photos.forEach((photo) => addPhotoTile(row, photo));
     });
+  }
+
+  // The same grid, cut into events instead of days.
+  //
+  // Events run newest first to match the day view, but the photos inside one
+  // run in the order they were taken: an event reads as it happened, and a
+  // block of the deck will be built from it in that order.
+  function renderByEvent(grid) {
+    const { events, threshold } = clusterEvents(state.photos, grouping);
+    const solid = events.filter((e) => e.photos.length >= 3).length;
+    const singles = events.filter((e) => e.photos.length === 1).length;
+
+    // The tally is the whole point of the settings: it says what moving a
+    // slider did without having to count headings down the page.
+    $('pm-tally').textContent = events.length
+      ? `${events.length} events · ${solid} with 3+ · ${singles} single`
+        + (grouping.rule === 'gap' && threshold ? ` · cut at ${spanLabel(threshold)}` : '')
+      : '';
+
+    [...events].reverse().forEach((event, i) => {
+      const photos = event.photos;
+      const from = photos[0].taken;
+      const to = photos[photos.length - 1].taken;
+      const head = document.createElement('h3');
+      head.className = 'pm-day pm-event';
+      const when = document.createElement('span');
+      when.className = 'pm-event-when';
+      when.textContent = `${dayLabel(dayKey(from))}, ${timeLabel(from)}`
+        + (to - from > 60000 ? `–${timeLabel(to)}` : '');
+      const facts = document.createElement('span');
+      facts.className = 'pm-event-facts';
+      // The gap that opened an event is what makes the split arguable, so it
+      // sits next to the count rather than being left to be inferred.
+      facts.textContent = `${photos.length} photo${photos.length > 1 ? 's' : ''}`
+        + (to - from > 60000 ? ` · ${spanLabel((to - from) / 1000)}` : '')
+        + (event.after !== null ? ` · after ${spanLabel(event.after)}` : '');
+      head.append(when, facts);
+      // Numbered from the start of the trip, so an event keeps its name while
+      // you scroll and while you talk about it.
+      head.dataset.event = String(events.length - i);
+      grid.appendChild(head);
+
+      const row = document.createElement('div');
+      row.className = 'pm-row';
+      grid.appendChild(row);
+      photos.forEach((photo) => addPhotoTile(row, photo));
+    });
+  }
+
+  // The two sliders mean different things depending on the rule, so they say
+  // what they currently are rather than carrying a fixed label.
+  function syncGroupingControls() {
+    const events = grouping.mode === 'events';
+    $('pm-tune').hidden = !events;
+    $('pm-by-days').classList.toggle('is-on', !events);
+    $('pm-by-days').setAttribute('aria-pressed', String(!events));
+    $('pm-by-events').classList.toggle('is-on', events);
+    $('pm-by-events').setAttribute('aria-pressed', String(events));
+
+    const adaptive = grouping.rule === 'adaptive';
+    $('pm-rule-gap').classList.toggle('is-on', !adaptive);
+    $('pm-rule-gap').setAttribute('aria-pressed', String(!adaptive));
+    $('pm-rule-adaptive').classList.toggle('is-on', adaptive);
+    $('pm-rule-adaptive').setAttribute('aria-pressed', String(adaptive));
+
+    const split = $('pm-split');
+    if (adaptive) {
+      $('pm-split-label').textContent = 'Local';
+      split.min = 2; split.max = 40; split.step = 1; split.value = grouping.k;
+      $('pm-split-val').textContent = `${grouping.k}× nearby`;
+    } else {
+      $('pm-split-label').textContent = 'Split at';
+      split.min = 0.5; split.max = 8; split.step = 0.25; split.value = grouping.spread;
+      $('pm-split-val').textContent = `${grouping.spread}× p90`;
+    }
+    $('pm-burst-val').textContent = grouping.burst ? `${grouping.burst} s` : 'kept apart';
+  }
+
+  function setGrouping(patch) {
+    Object.assign(grouping, patch);
+    syncGroupingControls();
+    renderPhotos();
   }
 
   function addPhotoTile(grid, photo) {
@@ -2338,6 +2531,7 @@
     $('photos-modal').hidden = false;
     document.body.classList.add('is-library');
     $('btn-photos').setAttribute('aria-expanded', 'true');
+    syncGroupingControls();
     renderPhotos();
     // Straight to the way out, so Tab and a screen reader both start where the
     // eye does rather than at the far end of the grid.
@@ -5282,6 +5476,19 @@
   $('pm-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('pm-data').addEventListener('click', showData);
   $('pm-data-hide').addEventListener('click', () => { $('pm-data-out').hidden = true; });
+
+  $('pm-by-days').addEventListener('click', () => setGrouping({ mode: 'days' }));
+  $('pm-by-events').addEventListener('click', () => setGrouping({ mode: 'events' }));
+  $('pm-rule-gap').addEventListener('click', () => setGrouping({ rule: 'gap' }));
+  $('pm-rule-adaptive').addEventListener('click', () => setGrouping({ rule: 'adaptive' }));
+  // On input rather than change: the whole value of these is watching the
+  // grouping move as the slider does, and waiting for the finger to lift
+  // turns that into a guessing game.
+  $('pm-split').addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    setGrouping(grouping.rule === 'adaptive' ? { k: v } : { spread: v });
+  });
+  $('pm-burst').addEventListener('input', (e) => setGrouping({ burst: Number(e.target.value) }));
   $('pm-data-copy').addEventListener('click', async () => {
     const text = $('pm-data-text').value;
     try {

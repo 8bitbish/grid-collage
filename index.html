@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.10f">
+<link rel="stylesheet" href="styles.css?v=2026.08.12a">
 </head>
 <body class="on-home">
 
@@ -408,6 +408,32 @@
         <span aria-hidden="true">+</span> Add
       </button>
     </header>
+    <!-- Grouping, and the knobs for it. The event view exists to be looked at:
+         no threshold is right in the abstract, and the only way to know whether
+         a split matches what actually happened is to see the photos under it. -->
+    <div class="pm-tools">
+      <div class="pm-seg" role="group" aria-label="Group photos by">
+        <button class="pm-seg-btn is-on" id="pm-by-days" type="button" aria-pressed="true">Days</button>
+        <button class="pm-seg-btn" id="pm-by-events" type="button" aria-pressed="false">Events</button>
+      </div>
+      <span class="pm-tally" id="pm-tally"></span>
+    </div>
+    <div class="pm-tune" id="pm-tune" hidden>
+      <div class="pm-seg pm-seg-sm" role="group" aria-label="Clustering rule">
+        <button class="pm-seg-btn is-on" id="pm-rule-gap" type="button" aria-pressed="true">One gap</button>
+        <button class="pm-seg-btn" id="pm-rule-adaptive" type="button" aria-pressed="false">Adaptive</button>
+      </div>
+      <label class="pm-knob">
+        <span id="pm-split-label">Split at</span>
+        <input type="range" id="pm-split" min="0.5" max="8" step="0.25" value="3">
+        <output id="pm-split-val"></output>
+      </label>
+      <label class="pm-knob">
+        <span>Bursts</span>
+        <input type="range" id="pm-burst" min="0" max="60" step="5" value="10">
+        <output id="pm-burst-val"></output>
+      </label>
+    </div>
     <div class="pm-body">
       <div class="pm-grid" id="pm-grid"></div>
       <p class="pm-empty" id="pm-empty" hidden>
@@ -446,6 +472,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.10f"></script>
+<script src="app.js?v=2026.08.12a"></script>
 </body>
 </html>
