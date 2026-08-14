@@ -1110,6 +1110,257 @@
     return `Couldn't read ${name} — it says it's ${kind.toUpperCase()}, but ${why}`;
   }
 
+  /* ----------------------------------------------- when a clip was recorded */
+  //
+  // A video used to take the file's own date, on the stated grounds that a
+  // clip's internal timestamps belong to the encoder rather than the camera.
+  // Measured against four real files, that is only half true, and the half that
+  // is false was costing the most:
+  //
+  // - A Samsung clip's `mvhd` matched the capture time in its own filename to
+  //   eight seconds. Its file date was thirty-two hours out, because that is
+  //   when it was exported.
+  // - A DJI clip's `mvhd` was nine days late — the encoder's time, exactly as
+  //   the old comment said — while its QuickTime `creationdate` was exact and
+  //   carried the timezone.
+  //
+  // So neither box is trustworthy alone, and the order matters: `creationdate`
+  // first because it is the only one naming a wall clock and its offset, then
+  // `mvhd`, then the file. A clip with neither still falls back to the file.
+  const EPOCH_1904 = -2082844800000;                    // MP4 counts from 1904
+  const APPLE_CREATED = 'com.apple.quicktime.creationdate';
+  const MAX_MOOV = 8 * 1024 * 1024;
+
+  function eachBox(v, start, end, visit) {
+    let at = start;
+    while (at + 8 <= end) {
+      let size = v.getUint32(at);
+      let head = 8;
+      const type = String.fromCharCode(v.getUint8(at + 4), v.getUint8(at + 5),
+        v.getUint8(at + 6), v.getUint8(at + 7));
+      if (size === 1) {
+        if (at + 16 > end) break;
+        size = Number(v.getBigUint64(at + 8));
+        head = 16;
+      }
+      if (size === 0) size = end - at;
+      if (size < head || at + size > end) break;
+      visit(type, at + head, at + size);
+      at += size;
+    }
+  }
+
+  const boxText = (v, from, to) => {
+    let s = '';
+    for (let k = from; k < to; k++) s += String.fromCharCode(v.getUint8(k));
+    return s;
+  };
+
+  // moov/meta carries four bytes of version and flags in MP4 and none at all in
+  // QuickTime. Told apart by looking for a box type where each would put one,
+  // because guessing wrong turns the whole metadata tree into noise.
+  function metaChildren(v, body, end) {
+    if (body + 8 > end) return body;
+    for (let i = 4; i < 8; i++) {
+      const c = v.getUint8(body + i);
+      if (c < 0x20 || c > 0x7e) return body + 4;
+    }
+    return body;
+  }
+
+  // The keys box names the metadata; the ilst box holds the values, and an
+  // ilst child's "type" is really its one-based index into those names.
+  function appleCreationDate(v, body, end) {
+    const start = metaChildren(v, body, end);
+    let names = [];
+    let ilst = null;
+    eachBox(v, start, end, (type, cBody, cEnd) => {
+      if (type === 'keys' && cBody + 8 <= cEnd) {
+        const count = v.getUint32(cBody + 4);
+        let at = cBody + 8;
+        for (let i = 0; i < count && at + 8 <= cEnd; i++) {
+          const size = v.getUint32(at);
+          if (size < 8 || at + size > cEnd) break;
+          names.push(boxText(v, at + 8, at + size));
+          at += size;
+        }
+      }
+      if (type === 'ilst') ilst = [cBody, cEnd];
+    });
+    const wanted = names.findIndex((n) => n.endsWith(APPLE_CREATED)) + 1;
+    if (!wanted || !ilst) return null;
+    let found = null;
+    eachBox(v, ilst[0], ilst[1], (type, cBody, cEnd) => {
+      const index = ((type.charCodeAt(0) << 24) | (type.charCodeAt(1) << 16)
+        | (type.charCodeAt(2) << 8) | type.charCodeAt(3)) >>> 0;
+      if (index !== wanted) return;
+      eachBox(v, cBody, cEnd, (dType, dBody, dEnd) => {
+        if (dType === 'data' && !found) found = boxText(v, dBody + 8, dEnd).trim();
+      });
+    });
+    return found;
+  }
+
+  // An ISO stamp read the way exifStamp reads EXIF: the wall clock it names,
+  // in the viewer's zone. A photo taken at one o'clock reads as one o'clock
+  // wherever it is looked at, and a clip beside it has to agree or the two
+  // cannot be grouped into the same event.
+  function isoStamp(text) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]\d{2}:?\d{2})?/
+      .exec(text || '');
+    if (!m) return null;
+    const wall = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (Number.isNaN(wall.getTime())) return null;
+    let zone = null;
+    if (m[7] === 'Z') zone = 0;
+    else if (m[7]) {
+      const digits = m[7].replace(':', '');
+      zone = (m[7][0] === '-' ? -1 : 1)
+        * ((+digits.slice(1, 3)) * 60 + (+digits.slice(3, 5))) * 60000;
+    }
+    return { taken: wall.getTime(), zone };
+  }
+
+  // How far this browser's clock sits from UTC at a given instant, in ms.
+  const wallShift = (t) => -new Date(t).getTimezoneOffset() * 60000;
+
+  // The instant whose reading on this browser's clock is the wall clock given.
+  // Taken twice because the offset depends on the answer across a daylight
+  // saving boundary.
+  function atWallClock(wallAsUtc) {
+    const once = wallAsUtc - wallShift(wallAsUtc);
+    return wallAsUtc - wallShift(once);
+  }
+
+  // Top-level boxes are walked by their headers alone: moov sits at the front
+  // or the very end depending on whether the writer did a faststart pass, and
+  // a phone clip is hundreds of megabytes either way.
+  async function readClipDate(blob) {
+    try {
+      let at = 0;
+      for (let guard = 0; guard < 64 && at + 8 <= blob.size; guard++) {
+        const head = new DataView(await blob.slice(at, at + 16).arrayBuffer());
+        if (head.byteLength < 8) break;
+        let size = head.getUint32(0);
+        let headLen = 8;
+        const type = String.fromCharCode(head.getUint8(4), head.getUint8(5),
+          head.getUint8(6), head.getUint8(7));
+        if (size === 1) {
+          if (head.byteLength < 16) break;
+          size = Number(head.getBigUint64(8));
+          headLen = 16;
+        }
+        if (size === 0) size = blob.size - at;
+        if (size < headLen) break;
+        if (type === 'moov') {
+          if (size - headLen > MAX_MOOV) return null;
+          const v = new DataView(await blob.slice(at + headLen, at + size).arrayBuffer());
+          let utc = null;
+          let iso = null;
+          eachBox(v, 0, v.byteLength, (bType, body, end) => {
+            if (bType === 'mvhd') {
+              const version = v.getUint8(body);
+              const secs = version === 1 ? Number(v.getBigUint64(body + 4)) : v.getUint32(body + 4);
+              // Plenty of encoders write a zero here rather than leaving the
+              // box out, and 1904 is not a date any of this was shot on.
+              if (secs) utc = EPOCH_1904 + secs * 1000;
+            }
+            if (bType === 'udta') {
+              eachBox(v, body, end, (uType, uBody, uEnd) => {
+                if (uType === '©day' && !iso) iso = boxText(v, uBody + 4, uEnd).trim();
+              });
+            }
+            if (bType === 'meta') iso = appleCreationDate(v, body, end) || iso;
+          });
+          const stamped = iso ? isoStamp(iso) : null;
+          if (stamped) {
+            return {
+              taken: stamped.taken,
+              zone: stamped.zone,
+              // Only meaningful with an offset to go with it.
+              utc: stamped.zone === null ? null
+                : stamped.taken + wallShift(stamped.taken) - stamped.zone,
+            };
+          }
+          // No wall clock anywhere, so the zone it was shot in is unknown and
+          // the tray has to supply it. Until then the clip is read as though it
+          // was shot where it is being looked at.
+          if (utc) return { taken: utc, zone: null, utc };
+          return null;
+        }
+        at += size;
+      }
+    } catch {
+      // A truncated or unusual container is not worth failing an import over.
+    }
+    return null;
+  }
+
+  /* ------------------------------------- what zone the clips were shot in */
+  //
+  // A clip with only `mvhd` names a true instant and no offset, so the wall
+  // clock it was shot at cannot be recovered from the file alone. The tray can
+  // supply it: either another clip carried a `creationdate` with its offset, or
+  // the clips can be lined up against the photos around them.
+  //
+  // Worth doing rather than leaving clips on UTC, because a photo's EXIF is a
+  // wall clock with no zone at all — so abroad, an unshifted clip lands hours
+  // from the photos taken beside it and the two never group into one event.
+  const ZONE_STEP = 15 * 60000;                 // real offsets are quarter hours
+  const ZONE_MIN = -12 * 60 * 60000;
+  const ZONE_MAX = 14 * 60 * 60000;
+  // Past this, a clip is not near any photo and its distance says nothing about
+  // which offset is right; counting it in full would let one stray clip decide.
+  const ZONE_REACH = 6 * 60 * 60000;
+  // And unless the winning offset actually lands clips near photos, the tray
+  // has not established anything and the guess is not worth making.
+  const ZONE_TRUST = 90 * 60000;
+
+  function guessCaptureZone(clipUtcs, photoWalls) {
+    if (!clipUtcs.length || !photoWalls.length) return null;
+    let best = null;
+    for (let zone = ZONE_MIN; zone <= ZONE_MAX; zone += ZONE_STEP) {
+      let cost = 0;
+      for (const utc of clipUtcs) {
+        let nearest = Infinity;
+        for (const wall of photoWalls) {
+          const d = Math.abs(wall - (utc + zone));
+          if (d < nearest) nearest = d;
+        }
+        cost += Math.min(nearest, ZONE_REACH);
+      }
+      if (!best || cost < best.cost) best = { zone, cost };
+    }
+    return best && best.cost / clipUtcs.length <= ZONE_TRUST ? best.zone : null;
+  }
+
+  // Rewrites the clips whose zone is unknown, and returns the ones it changed
+  // so they can be written back to the database.
+  function alignClipTimes(photos) {
+    const loose = photos.filter((p) => p.kind === 'video' && p.takenUtc && p.takenZone === null);
+    if (!loose.length) return [];
+
+    // A clip that named its own offset is the best evidence there is, and a
+    // trip is almost always one zone throughout.
+    const known = photos.find((p) => p.kind === 'video' && p.takenZone !== null
+      && p.takenZone !== undefined);
+    let zone = known ? known.takenZone : null;
+    if (zone === null) {
+      zone = guessCaptureZone(
+        loose.map((p) => p.takenUtc),
+        photos.filter((p) => p.kind !== 'video').map((p) => p.taken + wallShift(p.taken)),
+      );
+    }
+    const changed = [];
+    loose.forEach((clip) => {
+      // With nothing to go on the clip stays on its own UTC, which reads right
+      // at home and is wrong by the trip's offset abroad.
+      const taken = zone === null ? clip.takenUtc : atWallClock(clip.takenUtc + zone);
+      if (taken !== clip.taken) { clip.taken = taken; changed.push(clip); }
+    });
+    return changed;
+  }
+
   async function ingest(blob, name) {
     const kind = await sniffKind(blob);
     if (kind === 'video') return ingestVideo(blob, name);
@@ -1187,6 +1438,7 @@
   // are read. So placing a video costs exactly what placing a photo costs.
   async function ingestVideo(blob, name) {
     const { bitmap, duration } = await posterFrame(blob);
+    const clip = await readClipDate(blob);
 
     const thumbBitmap = await shrink(bitmap, THUMB_EDGE);
     const thumbBlob = await encode(thumbBitmap, 'image/jpeg', 0.82);
@@ -1214,9 +1466,12 @@
       kind: 'video',
       duration,
       stats,
-      // No EXIF to read; a video's own timestamps are the encoder's, not the
-      // camera's, so the file's date is the honest answer.
-      taken: blob.lastModified || Date.now(),
+      // The container first, the file only when it carries nothing — see
+      // readClipDate for what was measured. A clip that named no offset is
+      // provisional until alignClipTimes has seen the rest of the tray.
+      taken: clip ? clip.taken : (blob.lastModified || Date.now()),
+      takenUtc: clip ? clip.utc : null,
+      takenZone: clip ? clip.zone : null,
       bitmap: keep,
       small: false,
       // The poster is the whole of what is ever drawn for a clip, so there
@@ -1406,10 +1661,14 @@
 
     // Added in the order they were chosen, whatever order they finished in.
     if (results.some(Boolean)) snapshot();
-    results.filter(Boolean).forEach((photo) => {
-      state.photos.push(photo);
-      savePhoto(photo);
-    });
+    const added = results.filter(Boolean);
+    added.forEach((photo) => { state.photos.push(photo); });
+    // Only now, with the whole batch in the tray: a clip that named no offset
+    // is placed by what the rest of the tray says about the trip, which is not
+    // knowable one file at a time. Clips from an earlier batch can move too, so
+    // what changed is saved rather than only what arrived.
+    const moved = alignClipTimes(state.photos);
+    new Set([...added, ...moved]).forEach(savePhoto);
     renderPhotos();
     requestPersistence();
     if (importForChooser) {
@@ -2488,7 +2747,11 @@
   // Tab-separated on purpose. It pastes into a spreadsheet, reads by eye, and
   // parses in one line, which JSON manages only the last of.
   function exportData() {
-    const head = ['name', 'kind', 'takenISO', 'taken', 'lat', 'lon', 'focal35',
+    // clipUtc and clipZone are a clip's own two timestamps, and they are here
+    // because the difference between them and `taken` is the whole of how a
+    // video gets placed — which is not readable off the screen.
+    const head = ['name', 'kind', 'takenISO', 'taken', 'clipUtc', 'clipZone',
+      'lat', 'lon', 'focal35',
       'w', 'h', 'sharpness', 'focusFalloff', 'lum', 'lumSpread', 'sat',
       'hueX', 'hueY', 'warm', 'clipHi', 'clipLo', 'hash'];
     const rows = state.photos.map((p) => {
@@ -2500,6 +2763,8 @@
       return [
         p.name || '', p.kind || 'photo',
         p.taken ? new Date(p.taken).toISOString() : '', cell(p.taken),
+        p.takenUtc ? new Date(p.takenUtc).toISOString() : '',
+        p.takenZone === null || p.takenZone === undefined ? '' : p.takenZone / 3600000,
         cell(p.lat), cell(p.lon), cell(p.focal35),
         cell(p.w), cell(p.h),
         cell(s.sharpness), cell(s.focusFalloff), cell(s.lum), cell(s.lumSpread),
@@ -4081,6 +4346,10 @@
     persisted.add(photo.id);
     put(STORE_PHOTOS, {
       id: photo.id, project: current.id, name: photo.name, taken: photo.taken,
+      // A clip's own UTC and the offset it named, kept so a reopened tray can
+      // still place it — and so a clip already shifted by a guess can be
+      // shifted again by a better one when more of the trip arrives.
+      takenUtc: photo.takenUtc ?? null, takenZone: photo.takenZone ?? null,
       // Measured once at import and stored, because the pixels it was measured
       // from no longer exist by the time anything reads it back — and neither
       // does the EXIF, which a HEIC loses on the way in.
@@ -4484,6 +4753,10 @@
           // nobody has decoded.
           stats: row.stats || null,
           lat: row.lat ?? null, lon: row.lon ?? null, focal35: row.focal35 ?? null,
+          // Absent on clips imported before the container was read, which is
+          // why those keep whatever date they were given and only a re-import
+          // moves them.
+          takenUtc: row.takenUtc ?? null, takenZone: row.takenZone ?? null,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
@@ -4509,6 +4782,11 @@
       // not to cost a frame each time.
       if (done % 4 === 0) await nextFrame();
     }
+
+    // The whole tray is back, so a clip that named no offset can be placed by
+    // what the rest of it says — the same pass the import runs, for the same
+    // reason. Only what actually moved is written back.
+    alignClipTimes(state.photos).forEach(savePhoto);
 
     if (saved && saved.pages && saved.pages.length) {
       state.pages = saved.pages.map((p) => {
