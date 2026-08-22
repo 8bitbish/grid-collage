@@ -1312,13 +1312,23 @@
   // Past this, a clip is not near any photo and its distance says nothing about
   // which offset is right; counting it in full would let one stray clip decide.
   const ZONE_REACH = 6 * 60 * 60000;
-  // And unless the winning offset actually lands clips near photos, the tray
-  // has not established anything and the guess is not worth making.
+  // And unless the winning offset actually lands clips near photos, nothing has
+  // been established and the guess is not worth making.
   const ZONE_TRUST = 90 * 60000;
+  // A library shot right through a day has a photo near almost any offset, so a
+  // winner barely better than an unrelated one has not been established — it has
+  // been picked out of a tie. Either twice as good, or ten minutes better.
+  const ZONE_MARGIN = 10 * 60000;
+  // One zone per trip rather than one per tray, because a library can hold more
+  // than one trip and they need not have been in the same place. Two days is the
+  // cut: an offset is wrong by at most fourteen hours, so it cannot reach across
+  // one, and two stretches of shooting a day apart are one trip by any useful
+  // reading.
+  const TRIP_GAP = 48 * 60 * 60000;
 
   function guessCaptureZone(clipUtcs, photoWalls) {
     if (!clipUtcs.length || !photoWalls.length) return null;
-    let best = null;
+    const scored = [];
     for (let zone = ZONE_MIN; zone <= ZONE_MAX; zone += ZONE_STEP) {
       let cost = 0;
       for (const utc of clipUtcs) {
@@ -1329,9 +1339,39 @@
         }
         cost += Math.min(nearest, ZONE_REACH);
       }
-      if (!best || cost < best.cost) best = { zone, cost };
+      scored.push({ zone, cost: cost / clipUtcs.length });
     }
-    return best && best.cost / clipUtcs.length <= ZONE_TRUST ? best.zone : null;
+    scored.sort((a, b) => a.cost - b.cost);
+    const best = scored[0];
+    if (best.cost > ZONE_TRUST) return null;
+    // Compared against the best offset that is not simply a neighbour of the
+    // winner, since the quarter hour either side of a good answer is also good.
+    const rival = scored.find((s) => Math.abs(s.zone - best.zone) > 60 * 60000);
+    if (rival && best.cost * 2 > rival.cost && rival.cost - best.cost < ZONE_MARGIN) return null;
+    return best.zone;
+  }
+
+  // Everything in the tray on one timeline, only ever used to cut it into trips.
+  // A clip sits at its own UTC and a photo at the wall clock it names, so the
+  // two are out by the trip's offset — which cannot matter against a two-day
+  // gap, and is the reason this is not used for anything finer.
+  function tripsOf(photos, loose) {
+    const marks = [];
+    photos.forEach((p) => {
+      if (p.kind !== 'video') { marks.push({ at: p.taken + wallShift(p.taken), photo: p }); return; }
+      if (p.takenZone !== null && p.takenZone !== undefined && p.takenUtc) {
+        marks.push({ at: p.takenUtc, stated: p });
+      }
+    });
+    loose.forEach((clip) => marks.push({ at: clip.takenUtc, clip }));
+    marks.sort((a, b) => a.at - b.at);
+
+    const trips = [];
+    marks.forEach((mark, i) => {
+      if (!i || mark.at - marks[i - 1].at > TRIP_GAP) trips.push([]);
+      trips[trips.length - 1].push(mark);
+    });
+    return trips;
   }
 
   // Rewrites the clips whose zone is unknown, and returns the ones it changed
@@ -1340,19 +1380,23 @@
     const loose = photos.filter((p) => p.kind === 'video' && p.takenUtc && p.takenZone === null);
     if (!loose.length) return [];
 
-    // A clip that named its own offset is the best evidence there is, and a
-    // trip is almost always one zone throughout.
-    const known = photos.find((p) => p.kind === 'video' && p.takenZone !== null
-      && p.takenZone !== undefined);
-    let zone = known ? known.takenZone : null;
-    if (zone === null) {
-      zone = guessCaptureZone(
-        loose.map((p) => p.takenUtc),
-        photos.filter((p) => p.kind !== 'video').map((p) => p.taken + wallShift(p.taken)),
+    const zoneFor = new Map();
+    tripsOf(photos, loose).forEach((trip) => {
+      const clips = trip.filter((m) => m.clip).map((m) => m.clip);
+      if (!clips.length) return;
+      // A clip that named its own offset is the best evidence there is, and
+      // within one trip it is almost certainly the right answer for the rest.
+      const stated = trip.find((m) => m.stated);
+      const zone = stated ? stated.stated.takenZone : guessCaptureZone(
+        clips.map((c) => c.takenUtc),
+        trip.filter((m) => m.photo).map((m) => m.at),
       );
-    }
+      clips.forEach((clip) => zoneFor.set(clip, zone));
+    });
+
     const changed = [];
     loose.forEach((clip) => {
+      const zone = zoneFor.get(clip) ?? null;
       // With nothing to go on the clip stays on its own UTC, which reads right
       // at home and is wrong by the trip's offset abroad.
       const taken = zone === null ? clip.takenUtc : atWallClock(clip.takenUtc + zone);

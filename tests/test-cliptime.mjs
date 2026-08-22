@@ -3,8 +3,10 @@
  * The app used to date a video from the file's own timestamp, which is when it
  * was exported rather than when it was shot — measured thirty-two hours out on
  * a real Samsung clip. This drives the whole path in a real browser: the
- * container is read, the clip is placed by what the rest of the tray says about
- * the trip, and a later clip carrying its own offset moves it again.
+ * container is read, and a clip that named no offset of its own is placed by
+ * what the rest of its trip says — while a clip five weeks away is left alone,
+ * because a library can hold more than one trip and they need not have been in
+ * the same place.
  *
  * The timezone is pinned to Europe/London, because every number below is a wall
  * clock read in the viewer's zone and the assertions would otherwise depend on
@@ -26,11 +28,12 @@ const j=o=>JSON.stringify(o);
 let pass=0, fail=0;
 const ok=(label, good, detail='')=>{ good?pass++:fail++; console.log(`  ${good?'✓':'✗'} ${label}${good||!detail?'':` — ${detail}`}`); };
 
-// Two clips, generated rather than committed: a couple of kilobytes each, and
-// the point is their metadata rather than their pixels.
+// Three clips, generated rather than committed: a couple of kilobytes each,
+// and the point is their metadata rather than their pixels.
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cliptime-'));
 const MVHD_ONLY = path.join(scratch, 'samsung-like.mp4');
 const WITH_OFFSET = path.join(scratch, 'phone-like.mov');
+const SAME_TRIP = path.join(scratch, 'sametrip-like.mp4');
 let haveFfmpeg = true;
 try {
   // Only mvhd, the way an Android clip arrives: a true instant and no offset,
@@ -42,10 +45,14 @@ try {
   execFileSync('ffmpeg', ['-y','-loglevel','error','-f','lavfi','-i','color=c=blue:s=64x64:d=1',
     '-c:v','libx264','-pix_fmt','yuv420p','-f','mov','-metadata','date=2025-04-17T17:07:56+0300',
     '-metadata','creation_time=2025-04-17T14:07:56Z', WITH_OFFSET]);
+  // A third with no offset of its own, shot the same afternoon as the one that
+  // states +03:00 — so the two are one trip and the offset should carry.
+  execFileSync('ffmpeg', ['-y','-loglevel','error','-f','lavfi','-i','color=c=green:s=64x64:d=1',
+    '-c:v','libx264','-pix_fmt','yuv420p','-metadata','creation_time=2025-04-17T15:30:00Z', SAME_TRIP]);
 } catch { haveFfmpeg = false; }
 
 if (!haveFfmpeg) {
-  console.log('skipped: needs ffmpeg to build the two clips');
+  console.log('skipped: needs ffmpeg to build the three clips');
   srv.close();
   process.exit(0);
 }
@@ -55,6 +62,7 @@ if (!haveFfmpeg) {
 const MTIME = new Date('2025-06-20T15:30:00Z');
 fs.utimesSync(MVHD_ONLY, MTIME, MTIME);
 fs.utimesSync(WITH_OFFSET, MTIME, MTIME);
+fs.utimesSync(SAME_TRIP, MTIME, MTIME);
 
 const clipFile = (p, type) => ({ name: path.basename(p), mimeType: type, buffer: fs.readFileSync(p) });
 
@@ -136,31 +144,48 @@ await p.waitForTimeout(600);
   ok('not the file date either', clip && !clip.takenISO.startsWith('2025-06-20'), clip && clip.takenISO);
 }
 
-console.log('\n== and it re-places the clip that had no offset of its own ==');
+console.log('\n== but it leaves alone a clip from a different trip ==');
 {
-  // A clip that stated its offset is better evidence than photos lined up
-  // against it, and a trip is almost always one zone throughout — so the first
-  // clip moves from the guessed +2 to the stated +3.
+  // March and April are five weeks apart, so they are not the same trip and
+  // need not have been in the same place. An offset stated on one must not be
+  // spent on the other — that is the whole of the caveat this fixes.
   const all = await rows();
   const clip = byName(all, 'samsung-like');
-  ok('the first clip shifted to the stated offset',
-     clip && clip.takenISO === '2025-03-16T14:07:33.000Z', clip && clip.takenISO);
+  ok('the March clip kept the offset its own photos implied',
+     clip && clip.takenISO === '2025-03-16T13:07:33.000Z', clip && clip.takenISO);
   ok('its own UTC is untouched, so it can be placed again',
      clip && clip.clipUtc === '2025-03-16T11:07:33.000Z', clip && clip.clipUtc);
+}
+
+console.log('\n== a clip from the SAME trip does take the stated offset ==');
+await p.setInputFiles('#file-input', [clipFile(SAME_TRIP, 'video/mp4')]);
+await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='5', null, {timeout:60000});
+await p.waitForTimeout(600);
+{
+  const all = await rows();
+  const clip = byName(all, 'sametrip-like');
+  // Shot at 15:30 UTC the same afternoon as the +03:00 clip, so 18:30 local,
+  // which in London in April is 17:30Z.
+  ok('shifted by the offset its trip stated',
+     clip && clip.takenISO === '2025-04-17T17:30:00.000Z', clip && clip.takenISO);
+  ok('and it had no offset of its own', clip && clip.clipZone === '', clip && clip.clipZone);
+  const march = byName(all, 'samsung-like');
+  ok('the March clip still has not moved',
+     march && march.takenISO === '2025-03-16T13:07:33.000Z', march && march.takenISO);
 }
 
 console.log('\n== it survives a reload ==');
 {
   await p.click('#pm-close');
   await p.reload();
-  await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='4', null, {timeout:30000});
+  await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='5', null, {timeout:30000});
   await p.waitForTimeout(800);
   await p.click('#btn-photos');
   await p.waitForTimeout(300);
   const all = await rows();
   const clip = byName(all, 'samsung-like');
   const other = byName(all, 'phone-like');
-  ok('the clip kept its place', clip && clip.takenISO === '2025-03-16T14:07:33.000Z', clip && clip.takenISO);
+  ok('the clip kept its place', clip && clip.takenISO === '2025-03-16T13:07:33.000Z', clip && clip.takenISO);
   ok('and its UTC came back off the database', clip && clip.clipUtc === '2025-03-16T11:07:33.000Z', clip && clip.clipUtc);
   ok('so did the stated offset', other && other.clipZone === '3', other && other.clipZone);
 }
