@@ -46,7 +46,9 @@ const onPath = (cmd) => (process.env.PATH || '').split(path.delimiter)
 // In no run list and not run for a long time. They are run anyway — a test
 // nobody runs is worth less than a test that fails loudly — but they do not
 // fail the suite until somebody has looked at them. See tests/README.md.
-const STALE = new Set(['progressive']);
+// Empty since swr, manifest-fresh and progressive were given assertions; kept
+// so the next test found in that state has somewhere honest to go.
+const STALE = new Set([]);
 
 const all = fs.readdirSync(HERE)
   .filter((f) => /^test-.+\.mjs$/.test(f))

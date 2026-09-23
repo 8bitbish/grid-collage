@@ -74,7 +74,7 @@ Measured with the fixtures generated, so all 40 ran:
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 0 — playtrim was a fixed wait |
-| assert nothing | 1 — progressive |
+| assert nothing | 0 — manifest-fresh and progressive assert now |
 | known stale | 0 — swr was, and is repaired |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
@@ -175,8 +175,12 @@ branch's `cache.put` is taken out.
 `manifest-fresh` turned out to assert nothing at all — it printed what it saw
 beside what it expected and left the comparing to a person. Those expectations
 are assertions now: four of them, and making the worker answer the manifest
-from its cache fails the two that matter. `progressive` is one of the six that
-need fixtures, so it has still never run here.
+from its cache fails the two that matter. `progressive` did the same — it
+measured everything and printed "(must match the number above)" beside the
+numbers instead of comparing them. It asserts now, six times, and it is kept
+because nothing else asks whether an export can come out of a proxy: take the
+`ensureFull` out of the export and its page 01 drops from 3.2MB to 1.6MB, which
+it fails.
 
 ## What was fixed to make them run
 
