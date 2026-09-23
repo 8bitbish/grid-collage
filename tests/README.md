@@ -1,6 +1,6 @@
 # Browser tests
 
-40 standalone Node scripts that serve the repository over http, drive Chromium
+41 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -63,6 +63,17 @@ Measured with the fixtures generated, so all 40 ran:
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
+
+`sharerescue` is the forty-first, and it covers the case the app used to
+answer with silence: a share sheet that launches the app and hands it an empty
+form. Chrome 153 on Android does exactly that — it strips the files out of the
+POST before the multipart body is built (crbug 548571656) — so the test drives
+a share with no parts in it and asserts the app says so and offers the picker
+instead of landing on the grid with nothing to show. Run against the commit
+before it arrived it does not fail 26 times, it dies on the second section:
+`#share-pick` is not in that markup at all, so reading `.hidden` off null ends
+the run. Worth knowing before reading a green tick as proof it would have
+caught the old behaviour — what it proves is that the bar is there now.
 
 `reach` is the fortieth, and it is the one to run after touching the dock: it
 measures the hit box of every control in it at four viewports rather than
