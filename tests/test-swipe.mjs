@@ -87,12 +87,22 @@ await p.waitForTimeout(450);
 console.log(`quick flick: ${before2} -> ${await pager()}`, before2!==(await pager())?'✓ flick turned it':'✗ flick ignored');
 
 // dawdle, then flick: the tail of the gesture is what decides
+//
+// The flick needs the same margin as the one above, for the same reason. Each
+// move waits two frames, and headless Chrome — here and on CI — draws them
+// about 33ms apart rather than 16, so a tail of 20px then 28px arrived as 28px
+// in 67ms: 0.42px/ms against a threshold of 0.45, and the page stayed put.
+// That read as the app averaging the flick away; it was the test flicking too
+// gently for the frame rate. The last step is 40px now, 0.6px/ms even at the
+// slow spacing, and the whole gesture is 64px — still well short of the 86px
+// that would turn the page on distance alone, so it is the velocity that is
+// being tested.
 {
   const b3 = await pager();
   await touch('touchStart',[[300,cy]]);
   for (const x of [297,294,292,290,288]) { await move(x); await p.waitForTimeout(70); }
-  await move(268);
-  await move(240);
+  await move(276);
+  await move(236);
   await touch('touchEnd',[]);
   await p.waitForTimeout(450);
   console.log(`slow drag then flick: ${b3} -> ${await pager()}`, b3!==(await pager())?'✓ the flick counted':'✗ averaged away');

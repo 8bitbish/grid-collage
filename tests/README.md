@@ -121,6 +121,10 @@ identically there, so none of them belonged to a change:
   dispatches arrive as one event or none — which is also what lost the
   dawdle-then-flick case its whole tail, leaving one velocity sample where two
   are needed. Each move now waits for its frame, which is what a finger does.
+  Waiting for frames then broke it a second way: headless Chrome draws them
+  about 33ms apart, so the flick at the end arrived at 0.42px/ms against a
+  threshold of 0.45. Its last step is 40px now, and it still fails against an
+  app that averages over the whole drag.
 - `update-path` read three old builds from `/tmp/oldver/<sha>`, a directory
   nothing in the suite created — the fourth hardcoded path of the kind
   `paths.mjs` exists to end. It reported `✗ the old build installed` three times
