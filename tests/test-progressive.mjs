@@ -10,6 +10,12 @@ await new Promise(r=>srv.listen(8181,r));
 const N=12;
 const files=[...Array(N)].map((_,i)=>path.resolve(`fixtures/photo${i%12}.jpg`));
 const j=o=>JSON.stringify(o);
+// This printed its measurements and a note of what each should be, and left the
+// comparing to whoever read the log, so it exited 0 whatever it saw. The notes
+// are assertions now. It is the only test that asks whether an export can come
+// out of a proxy, which is the one of these that would cost someone a post.
+let fails=0;
+const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
 
 const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},acceptDownloads:true});
@@ -31,7 +37,11 @@ const stored=()=>p.evaluate(async ()=>{
            proxyMB:+(rows.reduce((a,r)=>a+(r.proxy?r.proxy.size:0),0)/1048576).toFixed(1),
            thumbMB:+(rows.reduce((a,r)=>a+r.thumb.size,0)/1048576).toFixed(2),
            allHaveProxy: rows.every(r=>!!r.proxy) };});
-console.log('stored:', j(await stored()));
+const kept=await stored();
+console.log('stored:', j(kept));
+ok('every photo got a proxy', kept.allHaveProxy);
+// 101.5MB of originals came to 8.5MB of proxies when this was written.
+ok('and the proxies are a fraction of the originals', kept.proxyMB < kept.photoMB/4, `${kept.proxyMB}MB of ${kept.photoMB}MB`);
 
 console.log('\n== relaunch ==');
 const t1=Date.now();
@@ -39,6 +49,9 @@ await p.reload();
 await p.waitForFunction((n)=>document.querySelectorAll('.film').length===n, N, {timeout:180000});
 const restore=Date.now()-t1;
 console.log(`  usable after ${(restore/1000).toFixed(2)}s`);
+// 0.27s here. The bound is loose on purpose: what it catches is a relaunch that
+// decodes 100MB of originals before it shows anything, which is seconds.
+ok('a relaunch is usable before the originals are read', restore < 3000, `${restore}ms`);
 console.log('  what it is drawing from:', j(await p.evaluate(()=>({
   full: window.__dbg ? null : undefined,
   canvasPx: (()=>{const c=document.getElementById('canvas');return `${c.width}x${c.height}`;})(),
@@ -54,6 +67,7 @@ const same = Buffer.compare(shot1, shot2) === 0;
 console.log('  after the dwell:', shot2.length, 'bytes |', same ? 'identical on screen ✓' : 'redrawn (sharper) — expected at this preview size');
 
 console.log('\n== export is never a proxy ==');
+const sizes={};
 for (const q of ['1080','2160']) {
   await p.evaluate((q)=>{const s=document.getElementById('quality');s.value=q;
     s.dispatchEvent(new Event('change',{bubbles:true}));}, q);
@@ -63,11 +77,14 @@ for (const q of ['1080','2160']) {
   await p.waitForTimeout(250);
   await p.click('#btn-export');
   const d=await dl;
-  console.log(`  @${q}: ${(fs.statSync(await d.path()).size/1024).toFixed(0)} KB/page`);
+  sizes[q]=fs.statSync(await d.path()).size;
+  console.log(`  @${q}: ${(sizes[q]/1024).toFixed(0)} KB/page`);
   await p.waitForTimeout(N*350);
   await p.click('#dock-back').catch(()=>{});
   await p.waitForTimeout(300);
 }
+
+ok('a bigger export is a bigger file', sizes['2160'] > sizes['1080']*2, `${sizes['1080']} → ${sizes['2160']}`);
 
 console.log('\n== a fresh relaunch, exporting before any dwell ==');
 await p.reload();
@@ -78,10 +95,17 @@ await p.waitForFunction((n)=>document.querySelectorAll('.film').length===n, N, {
   await p.waitForTimeout(200);
   await p.click('#btn-export');
   const d=await dl;
-  console.log(`  straight to export @2160: ${(fs.statSync(await d.path()).size/1024).toFixed(0)} KB/page`,
-    '(must match the number above)');
+  const straight=fs.statSync(await d.path()).size;
+  console.log(`  straight to export @2160: ${(straight/1024).toFixed(0)} KB/page`);
+  // Straight after a relaunch every photo on screen is still its proxy. If the
+  // export drew from those it would be a visibly softer file, and a smaller one.
+  ok('exporting before the originals are in gives the same file as after',
+     Math.abs(straight-sizes['2160']) <= sizes['2160']*0.01, `${straight} vs ${sizes['2160']}`);
   await p.waitForTimeout(N*350);
 }
 
 console.log('\nerrors:', errs.length?errs.join(' | '):'none');
+ok('no errors', errs.length===0, j(errs.slice(0,2)));
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 await b.close(); srv.close();
+process.exit(fails?1:0);
