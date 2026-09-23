@@ -26,6 +26,21 @@ await p.goto('http://localhost:8145/');
 await p.evaluate(()=>localStorage.clear()); await p.reload();
 await p.setInputFiles('#file-input', files);
 await p.waitForFunction(()=>document.querySelectorAll('.film').length===5);
+// Five films is not a finished strip. An import builds it twice — all five
+// elements at 115ms, then all five replaced at 125ms, and 376 and 445ms under
+// 4x CPU throttling — so the count is satisfied by the first build and the
+// second detaches whatever was just found. A detached element has no box,
+// which is the null this test died on about one run in eight, and every run
+// under throttling. Measure once the strip has been left alone for a while.
+const settled=(pg)=>pg.evaluate(()=>new Promise((done)=>{
+  const strip=document.querySelector('.film').parentElement;
+  let quiet;
+  const mo=new MutationObserver(()=>{ clearTimeout(quiet); quiet=setTimeout(finish,300); });
+  function finish(){ mo.disconnect(); done(); }
+  quiet=setTimeout(finish,300);
+  mo.observe(strip,{childList:true});
+}));
+await settled(p);
 
 const order=()=>p.evaluate(()=>[...document.querySelectorAll('.film canvas')].map(c=>{
   const d=c.getContext('2d').getImageData(c.width>>1,c.height>>1,1,1).data; return d[0]+','+d[1]+','+d[2];}));
@@ -93,6 +108,7 @@ await t.goto('http://localhost:8145/');
 await t.evaluate(()=>localStorage.clear()); await t.reload();
 await t.setInputFiles('#file-input', files);
 await t.waitForFunction(()=>document.querySelectorAll('.film').length===5);
+await settled(t);
 const tOrder=()=>t.evaluate(()=>[...document.querySelectorAll('.film canvas')].map(c=>{
   const d=c.getContext('2d').getImageData(c.width>>1,c.height>>1,1,1).data; return d[0]+','+d[1]+','+d[2];}));
 const cdp=await tctx.newCDPSession(t);

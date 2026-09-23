@@ -115,7 +115,14 @@ identically there, so none of them belonged to a change:
   empty project instead. One selector, three tests.
 - `reorder` built a second browser context for the touch half and never walked
   it through the projects list, so it sat on the homepage where a `.film` has no
-  box at all and died on a null rectangle.
+  box at all and died on a null rectangle. It went on dying on one about a
+  run in eight, for a different reason: an import builds the filmstrip twice,
+  ten milliseconds apart, and the test measured the first build just as the
+  second replaced it. It waits for the strip to go quiet now. Looking into it
+  also turned up that every test using `autoEnter` was importing on the
+  projects list — fifteen imports out of fifteen, at any CPU speed — and
+  surviving only because decoding took longer than opening the project. So
+  `autoEnter` holds `goto` and `reload` until the editor is open.
 - `swipe` read the track while the second `touchMove` was still queued. Chrome
   delivers `pointermove` aligned to the animation frame, so back-to-back
   dispatches arrive as one event or none — which is also what lost the
