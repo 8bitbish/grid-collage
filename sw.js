@@ -109,8 +109,22 @@ self.addEventListener('activate', (event) => {
 // files and bounce the browser to the app, which collects them on load.
 async function receiveShare(request) {
   let count = 0;
+  // How much of the form arrived at all, counted separately from how many
+  // photos were in it, because the two failures want different answers and
+  // are indistinguishable from the count alone.
+  //
+  // Chrome 153 on Android strips the files out of the POST before the
+  // multipart body is built — the request arrives well-formed, with the right
+  // boundary and no parts whatsoever — so a share of twenty photos and a
+  // share of nothing look exactly alike here. That is crbug 548571656, a
+  // false positive in the URI-permission check added in d41a811, and no
+  // manifest or worker change reaches it: the photos are gone before this
+  // runs. All the app can do is know it happened and say so, which needs this
+  // number. -1 means the form itself would not parse.
+  let parts = -1;
   try {
     const form = await request.formData();
+    parts = [...form.keys()].length;
     const files = form.getAll('photos').filter((f) => f && f.size);
     const cache = await caches.open(INBOX);
 
@@ -132,8 +146,11 @@ async function receiveShare(request) {
   } catch {
     count = 0;
   }
-  // 303 so the browser follows with a GET rather than re-POSTing.
-  return Response.redirect(`./?share=${count}`, 303);
+  // 303 so the browser follows with a GET rather than re-POSTing. The part
+  // count rides along only when there were no photos, so the ordinary share
+  // keeps the short URL it has always had.
+  const why = count ? '' : `&parts=${parts}`;
+  return Response.redirect(`./?share=${count}${why}`, 303);
 }
 
 self.addEventListener('fetch', (event) => {
