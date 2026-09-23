@@ -28,22 +28,41 @@ const context = await browser.newContext();
 const page = await context.newPage();
 await autoEnter(page);
 
+let fails = 0;
+const ok = (label, pass, extra = '') => { if (!pass) fails += 1; console.log(`  ${pass ? '✓' : '✗'} ${label}${extra ? ` — ${extra}` : ''}`); };
+
+// The stylesheet's own custom property, read off the root. This used to read
+// the background of .topbar, which the markup lost long ago; getComputedStyle
+// on null threw before the first line printed, and the test sat on the stale
+// list with its question unanswered. A custom property is the stylesheet
+// speaking for itself, and no change to the markup can take it away.
+const surface = () => page.evaluate(() =>
+  getComputedStyle(document.documentElement).getPropertyValue('--surface').trim());
+
 await page.goto('http://localhost:8127/');
 await page.evaluate(() => navigator.serviceWorker.ready);
 await page.reload();
 await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
-console.log('visit 1 topbar colour:', await page.evaluate(() => getComputedStyle(document.querySelector('.topbar')).backgroundColor));
+const first = await surface();
+console.log('visit 1 --surface:', first);
+ok('the worker is in control and the stylesheet is the shipped one', first === '#16161c', first);
 
-// Ship a "new deploy" — same filename, different content, CACHE untouched.
+// Ship a "new deploy" — same filename, different content, no version bump.
+// Exactly the deploy CLAUDE.md says never to make, which is why the worker has
+// a safety net for it: a static file is answered from the cache and refreshed
+// behind the page, so the edit arrives one launch late rather than never.
 override = { pathname: '/styles.css', body: fs.readFileSync(`${ROOT}/styles.css`, 'utf8').replace('--surface: #16161c;', '--surface: #003300;') };
 
 await page.reload();
-const second = await page.evaluate(() => getComputedStyle(document.querySelector('.topbar')).backgroundColor);
-console.log('visit 2 topbar colour:', second, '(still old — served from cache, refreshed behind the scenes)');
+const second = await surface();
+console.log('visit 2 --surface:', second, '(the cached copy, refreshed behind the scenes)');
 
 await page.reload();
-const third = await page.evaluate(() => getComputedStyle(document.querySelector('.topbar')).backgroundColor);
-console.log('visit 3 topbar colour:', third, third === 'rgb(0, 51, 0)' ? '✓ picked up the new deploy' : '✗ STILL STALE');
+const third = await surface();
+console.log('visit 3 --surface:', third);
+ok('the edited stylesheet reached the next launch', third === '#003300', third);
 
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 await browser.close();
 server.close();
+process.exit(fails ? 1 : 0);

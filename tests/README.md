@@ -75,7 +75,7 @@ Measured with the fixtures generated, so all 40 ran:
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
 | assert nothing | 2 — manifest-fresh, progressive |
-| known stale | 1 — swr |
+| known stale | 0 — swr was, and is repaired |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
 `sharerescue` is the forty-first, and it covers the case the app used to
@@ -156,9 +156,15 @@ twelve 12-megapixel photos on purpose. If a test fails in a full run, fails in
 no time at all, and passes by itself, look at what else the machine was doing
 before looking at the test.
 
-**`swr` is stale, as suspected.** It dies on
-`getComputedStyle: parameter 1 is not of type 'Element'` before its first
-assertion. `manifest-fresh` and `progressive` were suspected with it;
+**`swr` was stale, and is repaired rather than removed.** It died on
+`getComputedStyle: parameter 1 is not of type 'Element'` before its first line,
+because it read the background of `.topbar`, which the markup no longer has.
+The question it asks is still live: a stylesheet edited without a version bump
+should reach the next launch, through the worker's stale-while-revalidate
+branch. It reads `--surface` off the root now, asserts, and fails when that
+branch's `cache.put` is taken out.
+
+`manifest-fresh` and `progressive` were suspected with it;
 `manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
 the six that need fixtures, so it has still never run here.
 
