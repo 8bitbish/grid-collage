@@ -49,48 +49,78 @@ await new Promise((r) => server.listen(8125, r));
 const png = TALL();
 const files = [{ name: 'a.jpg', mimeType: 'image/jpeg', buffer: png }];
 
+let fails = 0;
+const ok = (label, pass, extra = '') => { if (!pass) fails += 1; console.log(`  ${pass ? '✓' : '✗'} ${label}${extra ? ` — ${extra}` : ''}`); };
+
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await browser.newPage();
+// Errors raised inside the frame, collected by the frame itself. The page's
+// own pageerror and console events are the host's, and said "(none)" here
+// whatever the app inside was doing.
+await page.addInitScript(() => {
+  window.__errs = [];
+  addEventListener('error', (e) => window.__errs.push(String(e.message)));
+  addEventListener('unhandledrejection', (e) => window.__errs.push(`unhandled: ${e.reason}`));
+});
 await autoEnter(page);
-const messages = [];
-page.on('console', (m) => messages.push(`[${m.type()}] ${m.text()}`));
-page.on('pageerror', (e) => messages.push(`[pageerror] ${e}`));
 
 await page.goto('http://localhost:8125/host');
 const frame = page.frames().find((f) => f.url().includes('/artifact'));
-console.log('frame found:', !!frame);
+ok('the app is in a sandboxed frame', !!frame);
+
+// The editor first, then the photo. This is what made the test pass one run in
+// three and read as a real failure: it handed over the file the instant the
+// frame loaded, while the app was still on the projects list, and autoEnter
+// tapped New a few tens of milliseconds later — which opened an empty project
+// and left the photo behind. Waiting for the editor, the framed import worked
+// four runs out of four, with nothing thrown inside the frame and the homepage
+// rendering normally. The sandbox was never the problem; localStorage throwing
+// there is caught everywhere the app touches it.
+await frame.waitForFunction(() => !document.body.classList.contains('on-home'), null, { timeout: 10000 })
+  .then(() => ok('it opens a project', true))
+  .catch(() => ok('it opens a project', false, 'still on the projects list'));
 
 await frame.setInputFiles('#file-input', files);
-await frame.waitForFunction(() => document.querySelectorAll('.film').length === 1);
-console.log('photo loaded inside iframe: yes');
+await frame.waitForFunction(() => document.getElementById('photos-count').textContent === '1', null, { timeout: 15000 })
+  .then(() => ok('the photo reaches the tray', true))
+  .catch(() => ok('the photo reaches the tray', false, 'tray still empty'));
 
 let downloaded = false;
 page.on('download', () => { downloaded = true; });
 await frame.click('.dock-item[data-drawer="export"]');
 // Export stays disabled until a photo is actually in the tray, and a film
-// thumbnail appears a beat before that — so the 300ms sleep this replaces was
-// a coin toss. It came down heads often enough to look fine and tails often
-// enough to be one of the suite's standing failures, always on this line.
-await frame.waitForFunction(() => {
+// thumbnail appears a beat before that.
+const enabled = await frame.waitForFunction(() => {
   const b = document.getElementById('btn-export');
   return b && !b.disabled;
-}, null, { timeout: 15000 });
-await frame.click('#btn-export');
+}, null, { timeout: 15000 }).then(() => true).catch(() => false);
+ok('Export is enabled', enabled);
+if (enabled) await frame.click('#btn-export');
 await page.waitForTimeout(2500);
 
-console.log('download fired:', downloaded, '(expected false — sandbox blocks it)');
-console.log('save sheet shown:', await frame.locator('#sheet').isVisible());
-console.log('sheet size label:', await frame.textContent('#sheet-size'));
+// A sandbox without allow-downloads swallows a download without a word, so the
+// app shows the picture instead, for a long-press save.
+ok('no download was attempted', !downloaded);
+ok('the save sheet is shown instead', await frame.locator('#sheet').isVisible());
+const size = await frame.textContent('#sheet-size');
+ok('labelled with what it is', /^\d+×\d+ (JPG|PNG)$/.test(size.trim()), size);
 const img = await frame.evaluate(() => {
   const el = document.getElementById('sheet-img');
   return { src: el.src.slice(0, 5), w: el.naturalWidth, h: el.naturalHeight };
 });
-console.log('sheet image:', JSON.stringify(img));
-console.log('toast said:', JSON.stringify(await frame.textContent('#toast')));
-await page.screenshot({ path: '/tmp/shot-sheet.png' });
-await frame.click('#sheet-close');
-console.log('sheet closes:', !(await frame.locator('#sheet').isVisible()));
-console.log('console:', messages.join('\n         ') || '(none)');
+ok('holding the rendered page', img.src === 'blob:' && img.w === 1080 && img.h === 1080, JSON.stringify(img));
+const toast = (await frame.textContent('#toast')).trim();
+ok('and it says why', /one page at a time/.test(toast), JSON.stringify(toast));
+await page.screenshot({ path: path.join(SHOTS, 'iframe-sheet.png') });
+if (await frame.locator('#sheet').isVisible()) {
+  await frame.click('#sheet-close');
+  ok('the sheet closes', !(await frame.locator('#sheet').isVisible()));
+}
 
+const errs = await frame.evaluate(() => window.__errs);
+ok('nothing thrown inside the frame', errs.length === 0, JSON.stringify(errs.slice(0, 2)));
+
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 await browser.close();
 server.close();
+process.exit(fails ? 1 : 0);
