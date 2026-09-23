@@ -73,9 +73,9 @@ Measured with the fixtures generated, so all 40 ran:
 | passed | 36 |
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
-| flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
+| flaky | 0 — playtrim was a fixed wait |
 | assert nothing | 1 — progressive |
-| known stale | 1 — swr |
+| known stale | 0 — swr was, and is repaired |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
 `sharerescue` is the forty-first, and it covers the case the app used to
@@ -121,6 +121,10 @@ identically there, so none of them belonged to a change:
   dispatches arrive as one event or none — which is also what lost the
   dawdle-then-flick case its whole tail, leaving one velocity sample where two
   are needed. Each move now waits for its frame, which is what a finger does.
+  Waiting for frames then broke it a second way: headless Chrome draws them
+  about 33ms apart, so the flick at the end arrived at 0.42px/ms against a
+  threshold of 0.45. Its last step is 40px now, and it still fails against an
+  app that averages over the whole drag.
 - `update-path` read three old builds from `/tmp/oldver/<sha>`, a directory
   nothing in the suite created — the fourth hardcoded path of the kind
   `paths.mjs` exists to end. It reported `✗ the old build installed` three times
@@ -143,11 +147,14 @@ One run in three passes, so the framed import is racy rather than broken, and
 the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
 that is an app change and its own branch.
 
-**`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
-failure in two full-suite runs, on `nothing left running on the homepage`, and a
-pass in the run the table above comes from. Something earlier in the suite, or
-simply a warm machine, changes the timing — so a green `playtrim` is not evidence
-of anything either way.
+**`playtrim` was flaky, and the flake was a fixed wait.** It failed now and
+then in a full run, always on `nothing left running on the homepage`, and passed
+alone. It tapped Home and looked 600ms later — but `goHome` draws the project's
+cover before it leaves, on purpose, and that takes as long as the machine is
+busy: 59ms alone, 599ms under 6× CPU throttling, 1421ms under 8×. So on a warm
+machine it sometimes looked while the editor was still up. It waits for the
+homepage now. Throttled 8× on that tap, the old test fails and the new one
+passes; with the players left running on the way home, the new one still fails.
 
 **Two suites at once is not a measurement.** In the run behind the table above,
 `gridorder` died in 0 seconds with no output while another session was running
@@ -156,9 +163,15 @@ twelve 12-megapixel photos on purpose. If a test fails in a full run, fails in
 no time at all, and passes by itself, look at what else the machine was doing
 before looking at the test.
 
-**`swr` is stale, as suspected.** It dies on
-`getComputedStyle: parameter 1 is not of type 'Element'` before its first
-assertion. `manifest-fresh` and `progressive` were suspected with it;
+**`swr` was stale, and is repaired rather than removed.** It died on
+`getComputedStyle: parameter 1 is not of type 'Element'` before its first line,
+because it read the background of `.topbar`, which the markup no longer has.
+The question it asks is still live: a stylesheet edited without a version bump
+should reach the next launch, through the worker's stale-while-revalidate
+branch. It reads `--surface` off the root now, asserts, and fails when that
+branch's `cache.put` is taken out.
+
+`manifest-fresh` and `progressive` were suspected with it;
 `manifest-fresh` turned out to assert nothing at all — it printed what it saw
 beside what it expected and left the comparing to a person. Those expectations
 are assertions now: four of them, and making the worker answer the manifest

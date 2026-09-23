@@ -22,6 +22,15 @@ const SHAS = ['9a0254a', '2d27f57', 'a480308'];
 for (const sha of SHAS) {
   const dir = path.join(OLD, sha);
   if (fs.existsSync(path.join(dir, 'index.html'))) continue;
+  // A shallow clone — which is what CI checks out unless told otherwise — has
+  // none of these, and git archive's own error does not say so.
+  try {
+    execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: REPO, stdio: 'ignore' });
+  } catch {
+    console.log(`  ✗ ${sha} is not in this clone's history — a shallow clone? `
+      + 'CI needs fetch-depth: 0 on its checkout');
+    process.exit(1);
+  }
   fs.mkdirSync(dir, { recursive: true });
   // Two processes rather than a shell pipeline, so a failure names itself.
   const tar = execFileSync('git', ['archive', '--format=tar', sha], { cwd: REPO, maxBuffer: 1 << 28 });
