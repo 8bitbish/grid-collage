@@ -40,4 +40,29 @@ export async function autoEnter(p) {
     if (document.readyState === 'loading') addEventListener('DOMContentLoaded', go);
     else go();
   });
+
+  // And a navigation is not over until the editor is open. Tapping into a
+  // project happens in the page, on its own schedule — the first tick is 40ms
+  // after DOMContentLoaded, and opening a project is async after that — while
+  // goto and reload resolve on the load event, which on a page this small can
+  // come first. So a test that imported straight after a reload, as about
+  // twenty-five of them do, was handing its files to the projects list, and
+  // then opening the project threw them away. Most won that race because a
+  // reload is slow enough; reorder lost it about one run in eight, dying on the
+  // null box of a .film the homepage hides, and iframe lost it two runs in
+  // three. Every page that asks for autoEnter wants the editor, so this waits
+  // for it here, once, rather than in every test that imports.
+  //
+  // A page with no on-home at all — the iframe test's host, say — passes
+  // straight through. A homepage that never opens times out quietly and leaves
+  // the failing to the test's own assertions, which say what was expected.
+  for (const name of ['goto', 'reload']) {
+    const navigate = p[name].bind(p);
+    p[name] = async (...args) => {
+      const response = await navigate(...args);
+      await p.waitForFunction(() => document.body && !document.body.classList.contains('on-home'),
+        null, { timeout: 10000 }).catch(() => {});
+      return response;
+    };
+  }
 }
