@@ -184,6 +184,10 @@
 
   let pendingCell = null;
   let importForChooser = false;
+  // The picker is standing in for a share sheet that arrived empty, so what
+  // comes back belongs wherever the shared photos would have gone rather than
+  // in whatever happens to be on screen.
+  let rescuingShare = false;
   const pointers = new Map();
   let gesture = null;
   let swipe = null;
@@ -2866,9 +2870,19 @@
   fileInput.addEventListener('change', () => {
     const files = [...fileInput.files];
     const target = pendingCell;
+    const rescuing = rescuingShare;
     pendingCell = null;
+    rescuingShare = false;
     fileInput.value = '';
     if (!files.length) return;
+
+    // Picked to stand in for an empty share: these go where the shared ones
+    // were headed, which on the grid means the same question gets asked.
+    if (rescuing) {
+      endSharePick();
+      placeIncoming(files);
+      return;
+    }
 
     if (target !== null && files.length === 1) {
       // Filling one specific tile.
@@ -2999,7 +3013,7 @@
         if (!sample) continue;
         // A frame is something drawImage already takes, so the page composes
         // itself with no idea that anything is moving.
-        clip.cell.frame = sample.toCanvasImageSource();
+        clip.cell.frame = uprightFrame(clip, sample);
         open.push([clip.cell, sample]);
       }
       drawPage(g, pg, W, H);
@@ -3011,6 +3025,27 @@
 
     await output.finalize();
     return new Blob([target.buffer], { type: 'video/mp4' });
+  }
+
+  // A phone films portrait by storing landscape pixels and a note in the
+  // container saying which way to turn them. The video element reads that
+  // note, so the poster, the preview and the tile's measurements were always
+  // the right way up; a decoded frame does not, so the export drew the clip
+  // on its side and then stretched it to fill a box measured upright. A
+  // sample that needs turning, or whose pixels are not square, is drawn
+  // upright onto a canvas of its own first. Everything else goes straight
+  // through, because a copy per frame is not free.
+  function uprightFrame(clip, sample) {
+    const w = sample.displayWidth;
+    const h = sample.displayHeight;
+    if (!sample.rotation && w === sample.codedWidth && h === sample.codedHeight) {
+      return sample.toCanvasImageSource();
+    }
+    if (!clip.upright) clip.upright = document.createElement('canvas');
+    const c = clip.upright;
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    sample.drawWithFit(c.getContext('2d'), { fit: 'fill' });
+    return c;
   }
 
   // The sound comes from the longest clip on the page — with more than one
@@ -4430,6 +4465,10 @@
   // the way out; there is no build step to stamp it.
   const HOME_HINT = `v${VERSION}`;
   const SHARE_HINT = 'Tap a carousel to add them, or start a new one';
+  // The bar has two buttons beside it and about 140px left over at 360, which
+  // is one short line. The part that needs reading — that this was the
+  // browser and not the app — lives down here where there is room for it.
+  const RESCUE_HINT = "Your browser didn't pass the files over. Choose them here instead.";
 
   function renderHome() {
     const grid = $('home-grid');
@@ -4438,7 +4477,9 @@
     // Always there, empty grid or not — a version you have to have projects
     // to read is no use for checking whether the app updated.
     $('home-hint').hidden = false;
-    $('home-hint').textContent = pendingShare ? SHARE_HINT : HOME_HINT;
+    if (shareMode === 'pick') $('home-hint').textContent = SHARE_HINT;
+    else if (shareMode === 'rescue') $('home-hint').textContent = RESCUE_HINT;
+    else $('home-hint').textContent = HOME_HINT;
 
     const bytes = projects.reduce((n, p) => n + (p.bytes || 0), 0);
     $('home-sub').textContent = projects.length
@@ -4751,17 +4792,56 @@
 
   let pendingShare = null;
 
+  // Which of the two things the bar is doing, kept apart from `pendingShare`
+  // because the rescue has no files to hold and `renderHome` would otherwise
+  // read "nothing waiting" as "no bar up" and put the version number back
+  // under a bar that is still asking a question.
+  let shareMode = null;
+
   function beginSharePick(files) {
     pendingShare = files;
+    shareMode = 'pick';
     $('share-count').textContent = `Add ${plural(files.length, 'photo')} to…`;
+    $('share-new').hidden = false;
+    $('share-pick').hidden = true;
+    $('share-drop').textContent = 'Discard';
     $('sharebar').hidden = false;
     $('home-hint').textContent = SHARE_HINT;
     document.body.classList.add('is-picking');
   }
 
+  // The share sheet launched the app and handed over nothing usable. On
+  // Chrome 153 for Android that is not a share anyone got wrong: the browser
+  // strips the files out of the POST before the worker ever sees it, so the
+  // form arrives with no parts at all (crbug 548571656). Nothing here can
+  // recover them.
+  //
+  // What it can do is stop pretending the launch never happened. The old
+  // behaviour was silence — the app opened on the grid with no photos and no
+  // explanation, which reads as the app being broken rather than the share
+  // being empty. So it says what arrived and offers the picker, which reaches
+  // the same photos through a door the bug does not touch.
+  function beginShareRescue(sentNothing) {
+    pendingShare = null;
+    shareMode = 'rescue';
+    $('share-count').textContent = sentNothing
+      ? 'Nothing came through'
+      : 'No photos in that share';
+    $('share-new').hidden = true;
+    $('share-pick').hidden = false;
+    $('share-drop').textContent = 'Not now';
+    $('sharebar').hidden = false;
+    $('home-hint').textContent = RESCUE_HINT;
+    // No `is-picking`: there is nothing waiting to be placed, so a tile has
+    // to stay a tile and the hold has to keep working.
+  }
+
   function endSharePick() {
     pendingShare = null;
+    shareMode = null;
     $('sharebar').hidden = true;
+    $('share-new').hidden = false;
+    $('share-pick').hidden = true;
     $('home-hint').textContent = HOME_HINT;
     document.body.classList.remove('is-picking');
   }
@@ -4778,6 +4858,13 @@
   }
 
   $('share-new').addEventListener('click', () => placeSharedIn(createProject()));
+  $('share-pick').addEventListener('click', () => {
+    // Android blocks a file picker that no one asked for, so this is a tap
+    // rather than something the rescue does by itself on landing.
+    rescuingShare = true;
+    pendingCell = null;
+    fileInput.click();
+  });
   $('share-drop').addEventListener('click', () => {
     // It says Discard rather than Cancel because that is what it does: the
     // files have already been taken out of the share inbox, so backing out
@@ -5095,10 +5182,20 @@
     }
 
     if (!files.length) {
-      if (params.get('share') !== '0') toast("Shared photos didn't come through");
+      // `parts=0` means the worker parsed the form and found it completely
+      // empty, which is the Android bug rather than anything the person did.
+      beginShareRescue(params.get('parts') === '0');
       return;
     }
 
+    await placeIncoming(files);
+  }
+
+  // Where photos go when they arrive from outside with no tile and no project
+  // named. Both doors come through here — the share sheet, and the picker
+  // standing in for it — so a rescued batch lands exactly where the shared
+  // one would have, rather than down a second path that drifts from this one.
+  async function placeIncoming(files) {
     // Already in a project: that's the one you were working in, and it is the
     // only sensible answer — so no question gets asked.
     if (current) {
