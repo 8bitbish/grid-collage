@@ -74,7 +74,7 @@ Measured with the fixtures generated, so all 40 ran:
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
-| assert nothing | 2 — manifest-fresh, progressive |
+| assert nothing | 1 — progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
@@ -159,8 +159,11 @@ before looking at the test.
 **`swr` is stale, as suspected.** It dies on
 `getComputedStyle: parameter 1 is not of type 'Element'` before its first
 assertion. `manifest-fresh` and `progressive` were suspected with it;
-`manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
-the six that need fixtures, so it has still never run here.
+`manifest-fresh` turned out to assert nothing at all — it printed what it saw
+beside what it expected and left the comparing to a person. Those expectations
+are assertions now: four of them, and making the worker answer the manifest
+from its cache fails the two that matter. `progressive` is one of the six that
+need fixtures, so it has still never run here.
 
 ## What was fixed to make them run
 
