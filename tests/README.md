@@ -74,7 +74,7 @@ Measured with the fixtures generated, so all 40 ran:
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
-| assert nothing | 2 — manifest-fresh, progressive |
+| assert nothing | 1 — manifest-fresh |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
@@ -159,8 +159,12 @@ before looking at the test.
 **`swr` is stale, as suspected.** It dies on
 `getComputedStyle: parameter 1 is not of type 'Element'` before its first
 assertion. `manifest-fresh` and `progressive` were suspected with it;
-`manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
-the six that need fixtures, so it has still never run here.
+`manifest-fresh` turns out to assert nothing at all. `progressive` did the same
+— it measured everything and printed "(must match the number above)" beside the
+numbers instead of comparing them. It asserts now, six times, and it is kept
+because nothing else asks whether an export can come out of a proxy: take the
+`ensureFull` out of the export and its page 01 drops from 3.2MB to 1.6MB, which
+it fails.
 
 ## What was fixed to make them run
 
