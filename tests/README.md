@@ -1,6 +1,6 @@
 # Browser tests
 
-40 standalone Node scripts that serve the repository over http, drive Chromium
+41 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -36,15 +36,29 @@ Without them those six skip and the runner names them. The ffmpeg bundled with
 Playwright cannot do it — it is built `--disable-everything` and has libvpx but
 no lavfi, so it can neither read a synthetic source nor write H.264.
 
-The two small fixtures are committed: `clip.webm` (20 KB) and `photo.heic`
-(1.8 KB). The rest — twelve 4032×3024 JPEGs, twelve 1080×1920 clips and one
-H.264 `clip.mp4` — come to about 70 MB and are generated.
+The three small fixtures are committed: `clip.webm` (20 KB), `photo.heic`
+(1.8 KB) and `rotated.mp4` (3 KB). The rest — twelve 4032×3024 JPEGs, twelve
+1080×1920 clips and one H.264 `clip.mp4` — come to about 70 MB and are
+generated.
 
 `clip.webm` is 640×640, red for its first second then blue for two more, 3.07s.
 Several tests depend on exactly that: a window longer than the clip has to show
 both colours for the canvas to count as following the video. A replacement must
 keep the two-colour structure or those tests stop meaning anything rather than
 failing honestly.
+
+`rotated.mp4` is VP9, 640×360 coded with a 90° rotation in the container, so
+it plays as 360×640 — the way a phone stores a portrait clip. Upright it is red
+over blue with a 120×120 white square in the lower half. `test-rotated` exports
+it and measures that square in the file that comes out, which is why it needs
+ffmpeg on the PATH and is skipped by name without it. It was made like this:
+
+```sh
+ffmpeg -f lavfi -i color=c=red:s=360x320:d=2:r=30 -f lavfi -i color=c=blue:s=360x320:d=2:r=30 \
+  -filter_complex "[0][1]vstack,drawbox=x=120:y=340:w=120:h=120:color=white:t=fill,transpose=1,format=yuv420p" \
+  -c:v libvpx-vp9 -b:v 300k coded.mp4
+ffmpeg -display_rotation 90 -i coded.mp4 -c copy rotated.mp4
+```
 
 `clip.mp4` is H.264 on purpose — the bundled Chromium cannot decode it, and
 `test-video` uses it to check the app degrades properly rather than to check
@@ -59,10 +73,21 @@ Measured with the fixtures generated, so all 40 ran:
 | passed | 36 |
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
-| flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
+| flaky | 0 — playtrim was a fixed wait |
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
+
+`sharerescue` is the forty-first, and it covers the case the app used to
+answer with silence: a share sheet that launches the app and hands it an empty
+form. Chrome 153 on Android does exactly that — it strips the files out of the
+POST before the multipart body is built (crbug 548571656) — so the test drives
+a share with no parts in it and asserts the app says so and offers the picker
+instead of landing on the grid with nothing to show. Run against the commit
+before it arrived it does not fail 26 times, it dies on the second section:
+`#share-pick` is not in that markup at all, so reading `.hidden` off null ends
+the run. Worth knowing before reading a green tick as proof it would have
+caught the old behaviour — what it proves is that the bar is there now.
 
 `reach` is the fortieth, and it is the one to run after touching the dock: it
 measures the hit box of every control in it at four viewports rather than
@@ -96,6 +121,10 @@ identically there, so none of them belonged to a change:
   dispatches arrive as one event or none — which is also what lost the
   dawdle-then-flick case its whole tail, leaving one velocity sample where two
   are needed. Each move now waits for its frame, which is what a finger does.
+  Waiting for frames then broke it a second way: headless Chrome draws them
+  about 33ms apart, so the flick at the end arrived at 0.42px/ms against a
+  threshold of 0.45. Its last step is 40px now, and it still fails against an
+  app that averages over the whole drag.
 - `update-path` read three old builds from `/tmp/oldver/<sha>`, a directory
   nothing in the suite created — the fourth hardcoded path of the kind
   `paths.mjs` exists to end. It reported `✗ the old build installed` three times
@@ -118,11 +147,14 @@ One run in three passes, so the framed import is racy rather than broken, and
 the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
 that is an app change and its own branch.
 
-**`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
-failure in two full-suite runs, on `nothing left running on the homepage`, and a
-pass in the run the table above comes from. Something earlier in the suite, or
-simply a warm machine, changes the timing — so a green `playtrim` is not evidence
-of anything either way.
+**`playtrim` was flaky, and the flake was a fixed wait.** It failed now and
+then in a full run, always on `nothing left running on the homepage`, and passed
+alone. It tapped Home and looked 600ms later — but `goHome` draws the project's
+cover before it leaves, on purpose, and that takes as long as the machine is
+busy: 59ms alone, 599ms under 6× CPU throttling, 1421ms under 8×. So on a warm
+machine it sometimes looked while the editor was still up. It waits for the
+homepage now. Throttled 8× on that tap, the old test fails and the new one
+passes; with the players left running on the way home, the new one still fails.
 
 **Two suites at once is not a measurement.** In the run behind the table above,
 `gridorder` died in 0 seconds with no output while another session was running
