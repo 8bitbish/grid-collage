@@ -276,7 +276,15 @@ body.on-home .app { display: none; }
   overflow: hidden;
   cursor: pointer;
 }
+/* Pinned to the tile's edges rather than left as a grid item. In the grid,
+   the row is sized to the image before height: 100% means anything, so a
+   cover taller than 3:4 made the row taller than the tile — the image box
+   overflowed downwards, object-fit had nothing to crop, and the overflow
+   clipped only the bottom. A 9:16 slide lost 57px of 229 that way, all off
+   the bottom instead of split around its middle. */
 .tile img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
