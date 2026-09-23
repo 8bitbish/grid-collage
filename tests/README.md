@@ -74,7 +74,7 @@ Measured with the fixtures generated, so all 40 ran:
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
 | flaky | 0 — playtrim was a fixed wait |
-| assert nothing | 2 — manifest-fresh, progressive |
+| assert nothing | 1 — progressive |
 | known stale | 0 — swr was, and is repaired |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
@@ -172,8 +172,11 @@ branch. It reads `--surface` off the root now, asserts, and fails when that
 branch's `cache.put` is taken out.
 
 `manifest-fresh` and `progressive` were suspected with it;
-`manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
-the six that need fixtures, so it has still never run here.
+`manifest-fresh` turned out to assert nothing at all — it printed what it saw
+beside what it expected and left the comparing to a person. Those expectations
+are assertions now: four of them, and making the worker answer the manifest
+from its cache fails the two that matter. `progressive` is one of the six that
+need fixtures, so it has still never run here.
 
 ## What was fixed to make them run
 

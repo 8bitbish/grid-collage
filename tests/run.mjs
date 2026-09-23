@@ -46,7 +46,7 @@ const onPath = (cmd) => (process.env.PATH || '').split(path.delimiter)
 // In no run list and not run for a long time. They are run anyway — a test
 // nobody runs is worth less than a test that fails loudly — but they do not
 // fail the suite until somebody has looked at them. See tests/README.md.
-const STALE = new Set(['manifest-fresh', 'progressive']);
+const STALE = new Set(['progressive']);
 
 const all = fs.readdirSync(HERE)
   .filter((f) => /^test-.+\.mjs$/.test(f))
