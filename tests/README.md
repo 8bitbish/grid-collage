@@ -72,7 +72,7 @@ Measured with the fixtures generated, so all 40 ran:
 | --- | --- |
 | passed | 36 |
 | assertions | 571 |
-| failing | 1 — iframe, and it is a real one |
+| failing | 0 — iframe was the test, not the app |
 | flaky | 0 — playtrim was a fixed wait |
 | assert nothing | 0 — manifest-fresh and progressive assert now |
 | known stale | 0 — swr was, and is repaired |
@@ -137,15 +137,19 @@ identically there, so none of them belonged to a change:
   and `01.mp4` lands, which was settled by capturing the download. It now
   accepts either outcome and still fails on a slide that vanishes.
 
-**`iframe` is the real one, and the test was hiding it.** In the sandboxed frame
-it embeds — `allow-scripts allow-forms allow-modals`, no `allow-same-origin` —
-`localStorage` throws `SecurityError`, the photo sometimes never reaches the
-tray, and Export stays disabled. It waited for `.film` length === 1, which an
-empty deck satisfies, then asserted nothing and clicked a disabled button. The
-wait is now on the button being enabled, so the failure names its own cause.
-One run in three passes, so the framed import is racy rather than broken, and
-the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
-that is an app change and its own branch.
+**`iframe` was not a real one after all.** In the sandboxed frame it embeds —
+`allow-scripts allow-forms allow-modals`, no `allow-same-origin` — the photo
+sometimes never reached the tray and Export stayed disabled, and the suspicion
+was the app: `localStorage` throws `SecurityError` in there. Looking inside the
+frame settled it the other way. Nothing is thrown there, the projects list
+renders normally, and the editor opens about 70ms after load. The test handed
+over its photo the instant the frame loaded, while the app was still on the
+projects list; `autoEnter` then tapped New, which opens an empty project and
+left the photo behind. Waiting for the editor first, the framed import works
+every time. It also asserted nothing — eleven checks now — and it reads errors
+from inside the frame, because the page's own error events are the host's and
+said "(none)" whatever the app was doing. Take out the app's `FRAMED` branch
+and four of them fail.
 
 **`playtrim` was flaky, and the flake was a fixed wait.** It failed now and
 then in a full run, always on `nothing left running on the homepage`, and passed
