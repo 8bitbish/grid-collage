@@ -72,10 +72,10 @@ Measured with the fixtures generated, so all 40 ran:
 | --- | --- |
 | passed | 36 |
 | assertions | 571 |
-| failing | 1 — iframe, and it is a real one |
-| flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
-| assert nothing | 2 — manifest-fresh, progressive |
-| known stale | 1 — swr |
+| failing | 0 — iframe was the test, not the app |
+| flaky | 0 — playtrim was a fixed wait |
+| assert nothing | 0 — manifest-fresh and progressive assert now |
+| known stale | 0 — swr was, and is repaired |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
 
 `sharerescue` is the forty-first, and it covers the case the app used to
@@ -128,6 +128,10 @@ identically there, so none of them belonged to a change:
   dispatches arrive as one event or none — which is also what lost the
   dawdle-then-flick case its whole tail, leaving one velocity sample where two
   are needed. Each move now waits for its frame, which is what a finger does.
+  Waiting for frames then broke it a second way: headless Chrome draws them
+  about 33ms apart, so the flick at the end arrived at 0.42px/ms against a
+  threshold of 0.45. Its last step is 40px now, and it still fails against an
+  app that averages over the whole drag.
 - `update-path` read three old builds from `/tmp/oldver/<sha>`, a directory
   nothing in the suite created — the fourth hardcoded path of the kind
   `paths.mjs` exists to end. It reported `✗ the old build installed` three times
@@ -140,21 +144,28 @@ identically there, so none of them belonged to a change:
   and `01.mp4` lands, which was settled by capturing the download. It now
   accepts either outcome and still fails on a slide that vanishes.
 
-**`iframe` is the real one, and the test was hiding it.** In the sandboxed frame
-it embeds — `allow-scripts allow-forms allow-modals`, no `allow-same-origin` —
-`localStorage` throws `SecurityError`, the photo sometimes never reaches the
-tray, and Export stays disabled. It waited for `.film` length === 1, which an
-empty deck satisfies, then asserted nothing and clicked a disabled button. The
-wait is now on the button being enabled, so the failure names its own cause.
-One run in three passes, so the framed import is racy rather than broken, and
-the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
-that is an app change and its own branch.
+**`iframe` was not a real one after all.** In the sandboxed frame it embeds —
+`allow-scripts allow-forms allow-modals`, no `allow-same-origin` — the photo
+sometimes never reached the tray and Export stayed disabled, and the suspicion
+was the app: `localStorage` throws `SecurityError` in there. Looking inside the
+frame settled it the other way. Nothing is thrown there, the projects list
+renders normally, and the editor opens about 70ms after load. The test handed
+over its photo the instant the frame loaded, while the app was still on the
+projects list; `autoEnter` then tapped New, which opens an empty project and
+left the photo behind. Waiting for the editor first, the framed import works
+every time. It also asserted nothing — eleven checks now — and it reads errors
+from inside the frame, because the page's own error events are the host's and
+said "(none)" whatever the app was doing. Take out the app's `FRAMED` branch
+and four of them fail.
 
-**`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
-failure in two full-suite runs, on `nothing left running on the homepage`, and a
-pass in the run the table above comes from. Something earlier in the suite, or
-simply a warm machine, changes the timing — so a green `playtrim` is not evidence
-of anything either way.
+**`playtrim` was flaky, and the flake was a fixed wait.** It failed now and
+then in a full run, always on `nothing left running on the homepage`, and passed
+alone. It tapped Home and looked 600ms later — but `goHome` draws the project's
+cover before it leaves, on purpose, and that takes as long as the machine is
+busy: 59ms alone, 599ms under 6× CPU throttling, 1421ms under 8×. So on a warm
+machine it sometimes looked while the editor was still up. It waits for the
+homepage now. Throttled 8× on that tap, the old test fails and the new one
+passes; with the players left running on the way home, the new one still fails.
 
 **Two suites at once is not a measurement.** In the run behind the table above,
 `gridorder` died in 0 seconds with no output while another session was running
@@ -163,11 +174,24 @@ twelve 12-megapixel photos on purpose. If a test fails in a full run, fails in
 no time at all, and passes by itself, look at what else the machine was doing
 before looking at the test.
 
-**`swr` is stale, as suspected.** It dies on
-`getComputedStyle: parameter 1 is not of type 'Element'` before its first
-assertion. `manifest-fresh` and `progressive` were suspected with it;
-`manifest-fresh` turns out to assert nothing at all, and `progressive` is one of
-the six that need fixtures, so it has still never run here.
+**`swr` was stale, and is repaired rather than removed.** It died on
+`getComputedStyle: parameter 1 is not of type 'Element'` before its first line,
+because it read the background of `.topbar`, which the markup no longer has.
+The question it asks is still live: a stylesheet edited without a version bump
+should reach the next launch, through the worker's stale-while-revalidate
+branch. It reads `--surface` off the root now, asserts, and fails when that
+branch's `cache.put` is taken out.
+
+`manifest-fresh` and `progressive` were suspected with it;
+`manifest-fresh` turned out to assert nothing at all — it printed what it saw
+beside what it expected and left the comparing to a person. Those expectations
+are assertions now: four of them, and making the worker answer the manifest
+from its cache fails the two that matter. `progressive` did the same — it
+measured everything and printed "(must match the number above)" beside the
+numbers instead of comparing them. It asserts now, six times, and it is kept
+because nothing else asks whether an export can come out of a proxy: take the
+`ensureFull` out of the export and its page 01 drops from 3.2MB to 1.6MB, which
+it fails.
 
 ## What was fixed to make them run
 
