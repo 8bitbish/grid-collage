@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.08.12c">
+<link rel="stylesheet" href="styles.css?v=2026.09.23c">
 </head>
 <body class="on-home">
 
@@ -62,6 +62,9 @@
   <div class="sharebar" id="sharebar" hidden>
     <span id="share-count">Add photos to…</span>
     <button class="btn btn-ghost btn-sm" id="share-new" type="button">New carousel</button>
+    <!-- Stands in for the share sheet when it hands the app an empty form.
+         Hidden until that happens; see beginShareRescue. -->
+    <button class="btn btn-ghost btn-sm" id="share-pick" type="button" hidden>Choose photos</button>
     <button class="btn btn-ghost btn-sm" id="share-drop" type="button">Discard</button>
   </div>
   <div class="home-body" id="home-body">
@@ -472,6 +475,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.08.12c"></script>
+<script src="app.js?v=2026.09.23c"></script>
 </body>
 </html>

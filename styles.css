@@ -226,14 +226,17 @@ body.on-home .app { display: none; }
     linear-gradient(90deg, rgba(255, 77, 141, 0.16), rgba(255, 182, 72, 0.08)),
     var(--surface);
 }
+/* Wraps rather than ellipsising. When the bar only ever counted photos the
+   label was short and a nowrap ellipsis cost nothing, but it also carries the
+   line explaining that a share arrived empty — and at 360px that measured 184
+   into 142, so the sentence was cut to "The share sheet se…". Hiding the one
+   thing the bar exists to say is worse than a second line. */
 .sharebar span {
   flex: 1;
   min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 .sharebar .btn { flex: none; }
 #share-drop { color: var(--muted); }
@@ -273,7 +276,15 @@ body.on-home .app { display: none; }
   overflow: hidden;
   cursor: pointer;
 }
+/* Pinned to the tile's edges rather than left as a grid item. In the grid,
+   the row is sized to the image before height: 100% means anything, so a
+   cover taller than 3:4 made the row taller than the tile — the image box
+   overflowed downwards, object-fit had nothing to crop, and the overflow
+   clipped only the bottom. A 9:16 slide lost 57px of 229 that way, all off
+   the bottom instead of split around its middle. */
 .tile img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
