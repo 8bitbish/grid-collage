@@ -73,7 +73,7 @@ Measured with the fixtures generated, so all 40 ran:
 | passed | 36 |
 | assertions | 571 |
 | failing | 1 — iframe, and it is a real one |
-| flaky | 1 — playtrim, which passes alone and sometimes fails in a full run |
+| flaky | 0 — playtrim was a fixed wait |
 | assert nothing | 2 — manifest-fresh, progressive |
 | known stale | 1 — swr |
 | skipped for fixtures | 0 here, 6 without ffmpeg |
@@ -147,11 +147,14 @@ One run in three passes, so the framed import is racy rather than broken, and
 the app plainly means to work framed — there is a `FRAMED` branch for it. Fixing
 that is an app change and its own branch.
 
-**`playtrim` is flaky, not broken.** Three runs in isolation, three passes; one
-failure in two full-suite runs, on `nothing left running on the homepage`, and a
-pass in the run the table above comes from. Something earlier in the suite, or
-simply a warm machine, changes the timing — so a green `playtrim` is not evidence
-of anything either way.
+**`playtrim` was flaky, and the flake was a fixed wait.** It failed now and
+then in a full run, always on `nothing left running on the homepage`, and passed
+alone. It tapped Home and looked 600ms later — but `goHome` draws the project's
+cover before it leaves, on purpose, and that takes as long as the machine is
+busy: 59ms alone, 599ms under 6× CPU throttling, 1421ms under 8×. So on a warm
+machine it sometimes looked while the editor was still up. It waits for the
+homepage now. Throttled 8× on that tap, the old test fails and the new one
+passes; with the players left running on the way home, the new one still fails.
 
 **Two suites at once is not a measurement.** In the run behind the table above,
 `gridorder` died in 0 seconds with no output while another session was running

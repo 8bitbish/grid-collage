@@ -81,7 +81,16 @@ console.log('\n== nothing plays where it should not ==');
   ok('not behind the library', await p.evaluate(()=>!document.querySelector('video')));
   await p.click('#pm-close'); await p.waitForTimeout(700);
   ok('back when it closes', await p.evaluate(()=>!!document.querySelector('video')));
-  await p.click('#btn-home'); await p.waitForTimeout(600);
+  // Wait for the homepage itself, not a fixed 600ms. goHome draws the project's
+  // cover before it leaves, on purpose, and how long that takes is how busy the
+  // machine is: 59ms alone, 599ms under 6x CPU throttling, 1421ms under 8x. So
+  // in a full run this sometimes looked while the editor was still up, and
+  // found the video there because nothing had gone home yet. At every rate the
+  // video went in the same frame the homepage arrived.
+  await p.click('#btn-home');
+  const home = await p.waitForFunction(()=>document.body.classList.contains('on-home'),null,{timeout:15000})
+    .then(()=>true).catch(()=>false);
+  ok('it goes home', home);
   ok('nothing left running on the homepage', await p.evaluate(()=>!document.querySelector('video')));
   await p.click('#home-grid .tile');
   await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:15000});
