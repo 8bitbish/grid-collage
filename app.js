@@ -2999,7 +2999,7 @@
         if (!sample) continue;
         // A frame is something drawImage already takes, so the page composes
         // itself with no idea that anything is moving.
-        clip.cell.frame = sample.toCanvasImageSource();
+        clip.cell.frame = uprightFrame(clip, sample);
         open.push([clip.cell, sample]);
       }
       drawPage(g, pg, W, H);
@@ -3011,6 +3011,27 @@
 
     await output.finalize();
     return new Blob([target.buffer], { type: 'video/mp4' });
+  }
+
+  // A phone films portrait by storing landscape pixels and a note in the
+  // container saying which way to turn them. The video element reads that
+  // note, so the poster, the preview and the tile's measurements were always
+  // the right way up; a decoded frame does not, so the export drew the clip
+  // on its side and then stretched it to fill a box measured upright. A
+  // sample that needs turning, or whose pixels are not square, is drawn
+  // upright onto a canvas of its own first. Everything else goes straight
+  // through, because a copy per frame is not free.
+  function uprightFrame(clip, sample) {
+    const w = sample.displayWidth;
+    const h = sample.displayHeight;
+    if (!sample.rotation && w === sample.codedWidth && h === sample.codedHeight) {
+      return sample.toCanvasImageSource();
+    }
+    if (!clip.upright) clip.upright = document.createElement('canvas');
+    const c = clip.upright;
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    sample.drawWithFit(c.getContext('2d'), { fit: 'fill' });
+    return c;
   }
 
   // The sound comes from the longest clip on the page — with more than one

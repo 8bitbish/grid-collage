@@ -35,6 +35,14 @@ const NEEDS = {
   video: ['fixtures/clip.mp4'],
 };
 
+// And what each needs on the PATH. rotated reads the exported file back with
+// ffmpeg, because the thing it checks is only visible in the file itself.
+const TOOLS = {
+  rotated: ['ffmpeg', 'ffprobe'],
+};
+const onPath = (cmd) => (process.env.PATH || '').split(path.delimiter)
+  .some((dir) => dir && fs.existsSync(path.join(dir, cmd)));
+
 // In no run list and not run for a long time. They are run anyway — a test
 // nobody runs is worth less than a test that fails loudly — but they do not
 // fail the suite until somebody has looked at them. See tests/README.md.
@@ -71,12 +79,15 @@ if (CHROME) {
 
 const missing = new Map();
 for (const n of names) {
-  const absent = (NEEDS[n] || []).filter((rel) => !fs.existsSync(path.join(HERE, rel)));
+  const absent = [
+    ...(NEEDS[n] || []).filter((rel) => !fs.existsSync(path.join(HERE, rel))),
+    ...(TOOLS[n] || []).filter((cmd) => !onPath(cmd)),
+  ];
   if (absent.length) missing.set(n, absent);
 }
 
 if (missing.size) {
-  console.log(`\n${missing.size} test(s) need fixtures that are not in git:`);
+  console.log(`\n${missing.size} test(s) need fixtures that are not in git, or ffmpeg:`);
   for (const [n, absent] of missing) console.log(`  ${n} — ${absent.join(', ')}`);
   console.log('  generate them with: tests/fixtures/make.sh');
   console.log('  that needs ffmpeg with lavfi, libvpx, libvorbis and libx264. The ffmpeg');
@@ -159,7 +170,7 @@ if (silent.length) {
   console.log('Giving them assertions or deleting them is a backlog entry.');
 }
 if (missing.size) {
-  console.log(`\n${missing.size} test(s) were skipped for missing fixtures: `
+  console.log(`\n${missing.size} test(s) were skipped for missing fixtures or ffmpeg: `
     + `${[...missing.keys()].join(', ')}`);
 }
 
