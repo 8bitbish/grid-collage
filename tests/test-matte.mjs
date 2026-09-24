@@ -58,9 +58,17 @@ await autoEnter(p);
 // This build has a share sheet, and an export would wait on it forever.
 await p.addInitScript(() => { Object.defineProperty(navigator, 'canShare', { value: undefined }); });
 await p.goto(`http://localhost:${PORT}/`);
-const adapter = await p.evaluate(async () => !!(navigator.gpu && await navigator.gpu.requestAdapter()));
-if (!adapter) {
-  console.log('skipped: no WebGPU adapter here, so the matting path cannot be reached');
+// The same test the app makes: SwiftShader, Chrome's software WebGPU, is what
+// a CI machine offers, and the app does not matte on it.
+const adapter = await p.evaluate(async () => {
+  const a = navigator.gpu && await navigator.gpu.requestAdapter();
+  if (!a) return 'none';
+  const info = a.info || {};
+  const soft = a.isFallbackAdapter || info.isFallbackAdapter || /swiftshader/i.test(`${info.vendor} ${info.architecture} ${info.description}`);
+  return soft ? `software (${info.vendor} ${info.architecture})` : 'real';
+});
+if (adapter !== 'real') {
+  console.log(`skipped: no hardware WebGPU adapter here (${adapter}), so the app does not matte`);
   await b.close();
   srv.close();
   process.exit(0);

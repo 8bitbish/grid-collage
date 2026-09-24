@@ -2129,10 +2129,24 @@
   const MATTE_PAD = 0.06;      // room round the subjects' box
   let matter = null;
 
+  // A GPU that is really a GPU. Chrome offers WebGPU on SwiftShader, its
+  // software stand-in, where there is no graphics hardware or it is
+  // blocklisted — and ViTMatte on that ran past two minutes without an
+  // answer on a CI machine, where the guided cut takes one second. A fallback
+  // adapter is treated as none.
+  async function realGpu() {
+    if (!navigator.gpu) return false;
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return false;
+    const info = adapter.info || {};
+    if (adapter.isFallbackAdapter || info.isFallbackAdapter) return false;
+    return !/swiftshader/i.test(`${info.vendor || ''} ${info.architecture || ''} ${info.description || ''}`);
+  }
+
   function loadMatte() {
     if (matter) return matter;
     matter = (async () => {
-      if (!navigator.gpu || !(await navigator.gpu.requestAdapter())) return null;
+      if (!(await realGpu())) return null;
       const base = new URL(ONNX, location.href).href;
       const ort = await import(`${base}ort.webgpu.min.mjs`);
       ort.env.wasm.wasmPaths = base;
