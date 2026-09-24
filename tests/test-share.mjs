@@ -6,7 +6,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end('not found');return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8138,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
@@ -27,7 +28,7 @@ const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
 
-await p.goto('http://localhost:8138/');
+await p.goto(`http://localhost:${PORT}/`);
 // manifest must actually declare the share target
 const st = await p.evaluate(async () => {
   const res = await fetch(document.querySelector('link[rel=manifest]').href);
@@ -55,7 +56,7 @@ await Promise.all([
   p.waitForNavigation({ waitUntil: 'load' }),
   p.evaluate(() => document.getElementById('sharef').submit()),
 ]);
-console.log('landed on:', (await p.url()).replace('http://localhost:8138',''));
+console.log('landed on:', (await p.url()).replace(`http://localhost:${PORT}`,''));
 
 await p.waitForFunction(()=>document.querySelectorAll('.pm-item').length===3,null,{timeout:30000});
 console.log('✓ photos imported from the share:', await _photos(p));

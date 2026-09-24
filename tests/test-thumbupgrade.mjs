@@ -6,7 +6,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8176,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const files=[0,1,2,3].map(i=>path.resolve(`fixtures/photo${i}.jpg`));
 const j=o=>JSON.stringify(o);
 
@@ -15,7 +16,7 @@ const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:
 const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await p.goto('http://localhost:8176/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.setInputFiles('#file-input', files);
 await p.waitForFunction(()=>document.querySelectorAll('.film').length===4,{timeout:60000});
 await p.waitForTimeout(1500);

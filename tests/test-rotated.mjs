@@ -20,7 +20,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'t
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8243,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const j=o=>JSON.stringify(o);
 let fails=0;
 const ok=(label,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${label}${extra?` — ${extra}`:''}`); };
@@ -32,7 +33,7 @@ const p=await ctx.newPage();
 // A desktop Chrome with a share sheet would take that route and never download.
 await p.addInitScript(()=>{ Object.defineProperty(navigator,'canShare',{value:undefined}); });
 const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
-await p.goto('http://localhost:8243/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.click('#home-first');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
 

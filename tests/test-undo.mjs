@@ -6,7 +6,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8137,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
@@ -27,7 +28,7 @@ const ctx=await b.newContext({viewport:{width:1400,height:960}});
 const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await p.goto('http://localhost:8137/');
+await p.goto(`http://localhost:${PORT}/`);
 const pages=()=>_pages(p);
 const photos=()=>_photos(p);
 const undoOn=async()=>!(await p.locator('#btn-undo').isDisabled());

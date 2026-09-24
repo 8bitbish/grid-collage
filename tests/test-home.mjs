@@ -11,7 +11,8 @@ const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];
   const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8188,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const j=o=>JSON.stringify(o);
 let fails=0;
 const ok=(label,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${label}${extra?` — ${extra}`:''}`); };
@@ -86,7 +87,7 @@ async function cards(){
 
 console.log('== a cold launch lands on the projects ==');
 const t0=Date.now();
-await p.goto('http://localhost:8188/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.waitForSelector('#home-empty:not([hidden])',{timeout:5000});
 console.log(`  homepage up in ${Date.now()-t0}ms`);
 ok('on the homepage, not the editor', await onHome());
@@ -273,7 +274,7 @@ console.log('\n== a deck saved before projects existed ==');
   // and the deck in the key the old build used. On a page of the same origin
   // that isn't the app, so nothing has opened the database at version 2 yet —
   // it can't be reopened at 1 once that has happened.
-  await q.goto('http://localhost:8188/blank.html');
+  await q.goto(`http://localhost:${PORT}/blank.html`);
   await q.evaluate(async ()=>{
     const blob=(n)=>new Blob([new Uint8Array(n)],{type:'image/jpeg'});
     const d=await new Promise((res)=>{const r=indexedDB.open('grid-collage',1);
@@ -295,7 +296,7 @@ console.log('\n== a deck saved before projects existed ==');
              {layout:'1x1',cells:[{photo:'id2',zoom:1,rot:0,ox:0,oy:0,flipX:false,flipY:false}]}],
     }));
   });
-  await q.goto('http://localhost:8188/');
+  await q.goto(`http://localhost:${PORT}/`);
   await q.waitForSelector('#home-grid .tile',{timeout:12000});
   await q.waitForTimeout(600);
   const migrated=await q.evaluate(()=>[...document.querySelectorAll('#home-grid .tile')].map((el)=>({

@@ -11,7 +11,8 @@ const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];
   const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8139,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
 
@@ -25,7 +26,7 @@ const readManifest=()=>p.evaluate(async()=>{
   return m.share_target ? 'has share_target' : 'NO share_target';
 });
 
-await p.goto('http://localhost:8139/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.evaluate(()=>navigator.serviceWorker.ready);
 await p.reload();
 await p.waitForFunction(()=>navigator.serviceWorker.controller!==null);

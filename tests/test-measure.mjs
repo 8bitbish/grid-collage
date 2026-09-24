@@ -20,7 +20,8 @@ const server = http.createServer((q, r) => {
   r.writeHead(200, { 'Content-Type': T[path.extname(f)] || 'application/octet-stream' });
   r.end(fs.readFileSync(f));
 });
-await new Promise((r) => server.listen(8241, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 let bad = 0;
 const ok = (label, pass, detail) => {
@@ -113,7 +114,7 @@ const browser = await chromium.launch({ executablePath: CHROME });
 const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
 page.on('pageerror', (e) => console.log('  PAGE ERROR:', e.message.split('\n')[0]));
 await autoEnter(page);
-await page.goto('http://localhost:8241/');
+await page.goto(`http://localhost:${PORT}/`);
 await page.waitForSelector('#canvas-wrap', { state: 'visible' });
 
 const names = Object.keys(cases);

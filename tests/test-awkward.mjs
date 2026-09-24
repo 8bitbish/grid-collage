@@ -9,7 +9,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8199,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 let fails=0;
 const ok=(label,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${label}${extra?` — ${extra}`:''}`); };
 
@@ -31,7 +32,7 @@ const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,devi
 const p=await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
 const warns=[]; p.on('console',m=>{ if(m.type()==='warning') warns.push(m.text()); if(m.type()==='error') errs.push(m.text()); });
-await p.goto('http://localhost:8199/');
+await p.goto(`http://localhost:${PORT}/`);
 
 const realJpeg = Buffer.from(await p.evaluate(async ()=>{
   const c=document.createElement('canvas'); c.width=c.height=700;

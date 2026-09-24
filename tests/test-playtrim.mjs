@@ -12,7 +12,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'t
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8210,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const j=o=>JSON.stringify(o);
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
@@ -32,7 +33,7 @@ const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,deviceScaleFactor:2});
 const p=await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await p.goto('http://localhost:8210/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.click('#home-first');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
 await p.setInputFiles('#file-input',[{name:'clip.webm',mimeType:'video/webm',buffer:webm}]);

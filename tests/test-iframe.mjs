@@ -44,7 +44,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
   res.end(fs.readFileSync(file));
 });
-await new Promise((r) => server.listen(8125, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 const png = TALL();
 const files = [{ name: 'a.jpg', mimeType: 'image/jpeg', buffer: png }];
@@ -64,7 +65,7 @@ await page.addInitScript(() => {
 });
 await autoEnter(page);
 
-await page.goto('http://localhost:8125/host');
+await page.goto(`http://localhost:${PORT}/host`);
 const frame = page.frames().find((f) => f.url().includes('/artifact'));
 ok('the app is in a sandboxed frame', !!frame);
 
