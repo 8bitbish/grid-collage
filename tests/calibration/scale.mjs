@@ -1,6 +1,6 @@
 /* Does Sharpen change with the size of the photo, and how?
  *
- *   node scale.mjs make <dir> 1080x1080 2160x2160 4032x3024 [--texture=<sigma>]
+ *   node scale.mjs make <dir> 1080x1080 2160x2160 4032x3024 [--texture=<sigma>] [--bw]
  *   node scale.mjs measure <dir> <original.png> <edited.jpg> ...
  *   node scale.mjs versus <dir> <original.png> <google.jpg> <ours.png>
  *
@@ -13,8 +13,16 @@
  * different sizes. Only the size of the photo changes, so wherever Google's
  * boost peaks moves with it, it is the working copy that moved.
  *
+ * `--bw` adds a black and a white square in the top left corner, far from
+ * the patch. Without them the patch's own edge, 20|235, is the photo's whole
+ * range, and Sharpen's blur estimate stretches every photo to its range
+ * before it reads the slopes: with them the same patch reads softer and is
+ * sharpened as the calibration chart is.
+ *
  * `measure` gives each grating's gain by its fundamental, edited over
  * original; the band it peaks in, in the photo's own pixels, is the answer.
+ * It writes the lot to <dir>/scale-results.json too, which is where
+ * google-phone-scale.json came from.
  *
  * `versus` asks the question that matters for the app, which never outputs a
  * photo at its own size: drawn into a 2160 square the way an export draws it
@@ -52,10 +60,11 @@ if (cmd === 'make') {
   // whether how busy a photo is changes how hard Sharpen works on it.
   const textureArg = rest.find((a) => a.startsWith('--texture='));
   const texture = textureArg ? Number(textureArg.slice(10)) : 0;
-  for (const size of rest.filter((a) => a !== textureArg)) {
+  const bw = rest.includes('--bw');
+  for (const size of rest.filter((a) => a !== textureArg && a !== '--bw')) {
     const [W, H] = size.split('x').map(Number);
     const L = layoutFor(W, H, PATCH.w, PATCH.h, PERIODS.length, BAND.h);
-    const png = await p.evaluate(async ({ L, PERIODS, BAND, texture, PATCH }) => {
+    const png = await p.evaluate(async ({ L, PERIODS, BAND, texture, PATCH, bw }) => {
       const c = new OffscreenCanvas(L.W, L.H);
       const g = c.getContext('2d');
       const grey = (v) => `rgb(${v},${v},${v})`;
@@ -98,10 +107,14 @@ if (cmd === 'make') {
       g.putImageData(img, L.x + 440, L.edgeY);
       g.fillStyle = grey(200); g.font = '20px sans-serif';
       g.fillText(`grid-collage sharpen scale chart ${L.W}x${L.H}`, L.x, L.edgeY + 136);
+      if (bw) {
+        g.fillStyle = grey(0); g.fillRect(100, 100, 60, 60);
+        g.fillStyle = grey(255); g.fillRect(200, 100, 60, 60);
+      }
       const blob = await c.convertToBlob({ type: 'image/png' });
       return [...new Uint8Array(await blob.arrayBuffer())];
-    }, { L, PERIODS, BAND, texture, PATCH });
-    const name = `scale-${W}x${H}${texture ? `-texture${texture}` : ''}.png`;
+    }, { L, PERIODS, BAND, texture, PATCH, bw });
+    const name = `scale-${W}x${H}${texture ? `-texture${texture}` : ''}${bw ? '-bw' : ''}.png`;
     fs.writeFileSync(path.join(dir, name), Buffer.from(png));
     console.log(name);
   }
@@ -141,12 +154,15 @@ if (cmd === 'make') {
   const base = await read(original);
   console.log(`${path.basename(original)}  ${base.size.join('x')}  fundamentals ${base.fund.map((v) => v.toFixed(1)).join(' ')}`);
   console.log(`period px        ${PERIODS.map((q) => String(q).padStart(5)).join('')}   noise   edge (20|235)`);
+  const results = { periods: PERIODS, [path.basename(original, path.extname(original))]: { ...base, fund: base.fund.map((v) => +v.toFixed(2)), noise: +base.noise.toFixed(2) } };
   for (const f of edited) {
     const r = await read(f);
     const gains = r.fund.map((v, i) => v / base.fund[i]);
     const peak = PERIODS[gains.indexOf(Math.max(...gains))];
     console.log(`${path.basename(f).padEnd(16)} ${gains.map((v) => v.toFixed(2).padStart(5)).join('')}   ${r.noise.toFixed(2)}   ${r.edge.join(' ')}   peak at ${peak}px`);
+    results[path.basename(f, path.extname(f))] = { size: r.size, gains: gains.map((v) => +v.toFixed(2)), noise: +r.noise.toFixed(2), edge: r.edge };
   }
+  fs.writeFileSync(path.join(dir, 'scale-results.json'), JSON.stringify(results));
 }
 if (cmd === 'versus') {
   const [original, google, ours] = rest;

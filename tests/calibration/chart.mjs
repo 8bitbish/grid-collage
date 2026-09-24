@@ -1,9 +1,9 @@
 /* The calibration chart: one image where every region answers one question
  * about how an adjustment works. See README.md for how it is used.
  *
- *   node chart.mjs [dir]     writes chart.png, chart-blurred.png and
- *                            chart.json (the layout measure.mjs reads),
- *                            default ./out
+ *   node chart.mjs [dir]     writes chart.png, chart-blurred.png,
+ *                            chart-clipped.png and chart.json (the layout
+ *                            measure.mjs reads), default ./out
  *
  * Square at 2160, so Grid Collage can export it pixel for pixel — 1:1, one
  * tile, 2160px — and its edits go through the same measuring as Google's.
@@ -16,7 +16,7 @@ const out = process.argv[2] || path.join(import.meta.dirname, 'out');
 fs.mkdirSync(out, { recursive: true });
 const b = await chromium.launch({ executablePath: CHROME });
 const p = await b.newPage();
-const { png, blurred, layout } = await p.evaluate(async () => {
+const { png, blurred, clipped, layout } = await p.evaluate(async () => {
   const W = 2160, H = 2160, X = 56;
   const c = new OffscreenCanvas(W, H), g = c.getContext('2d');
   const grey = (v) => `rgb(${v},${v},${v})`;
@@ -97,10 +97,25 @@ const { png, blurred, layout } = await p.evaluate(async () => {
   const soft = new OffscreenCanvas(W, H), sg = soft.getContext('2d');
   sg.filter = 'blur(2px)'; sg.drawImage(c, 0, 0);
   const blurred = await soft.convertToBlob({ type: 'image/png' });
-  return { png: [...new Uint8Array(await blob.arrayBuffer())], blurred: [...new Uint8Array(await blurred.arrayBuffer())], layout: L };
+  // And held to 20..235, the range of scale.mjs's patch, whose own edge is
+  // its darkest and lightest. Sharpen stretches each photo to its range
+  // before reading how soft it is, so this is the chart read as the patch is:
+  // Google sharpened it at 6px ×1.69 where the chart got ×2.28.
+  const held = new OffscreenCanvas(W, H), hg = held.getContext('2d');
+  const all = g.getImageData(0, 0, W, H);
+  for (let i = 0; i < all.data.length; i += 4) for (let k = 0; k < 3; k++) all.data[i + k] = Math.min(235, Math.max(20, all.data[i + k]));
+  hg.putImageData(all, 0, 0);
+  const clipped = await held.convertToBlob({ type: 'image/png' });
+  return {
+    png: [...new Uint8Array(await blob.arrayBuffer())],
+    blurred: [...new Uint8Array(await blurred.arrayBuffer())],
+    clipped: [...new Uint8Array(await clipped.arrayBuffer())],
+    layout: L,
+  };
 });
 fs.writeFileSync(`${out}/chart.png`, Buffer.from(png));
 fs.writeFileSync(`${out}/chart-blurred.png`, Buffer.from(blurred));
+fs.writeFileSync(`${out}/chart-clipped.png`, Buffer.from(clipped));
 fs.writeFileSync(`${out}/chart.json`, JSON.stringify(layout, null, 1));
 await b.close();
 console.log('wrote', `${out}/chart.png`, fs.statSync(`${out}/chart.png`).size, 'bytes');
