@@ -13,7 +13,16 @@ npx playwright install chromium     # skip if a browser is already installed
 node run.mjs                        # the whole suite
 node run.mjs swipe tile             # just those
 JOBS=4 node run.mjs                 # four at a time
+SHARD=2/4 node run.mjs              # the quarter the second CI machine runs
+RECORD=1 node run.mjs               # and write how long each took to durations.json
 ```
+
+CI splits the suite four ways, one machine each, balanced by the times in
+`durations.json`. Those only decide the balance: an out-of-date file makes one
+machine finish a little after the others, never a test go unrun, and a new test
+with no entry counts as the median. Refresh it now and then with a full
+`RECORD=1` run, one at a time on a quiet machine — under `JOBS` the numbers
+measure the contention as much as the test.
 
 Every test binds its own port, so running them together is safe. One at a time
 is the default anyway: several import twelve 12-megapixel photos on purpose, and

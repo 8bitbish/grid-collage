@@ -8,6 +8,8 @@
  *   node tests/run.mjs              every test
  *   node tests/run.mjs swipe tile   just those
  *   JOBS=4 node tests/run.mjs       four at a time
+ *   SHARD=2/4 node tests/run.mjs    the second quarter, as one CI machine runs it
+ *   RECORD=1 node tests/run.mjs     and write how long each took to durations.json
  *
  * Every test binds its own port, so running them together is safe. It is one at
  * a time by default anyway: several import twelve 12-megapixel photos on
@@ -56,11 +58,68 @@ const all = fs.readdirSync(HERE)
   .sort();
 
 const wanted = process.argv.slice(2);
-const names = wanted.length ? all.filter((n) => wanted.includes(n)) : all;
 const unknown = wanted.filter((n) => !all.includes(n));
 if (unknown.length) {
   console.error(`no such test: ${unknown.join(', ')}`);
   process.exit(2);
+}
+
+/* ---------------------------------------------------------------- sharding */
+
+// CI splits the suite across machines, each running its share one at a time.
+// Splitting rather than running side by side is deliberate: the tests that
+// time gestures against real frames — swipe above all — are measured with a
+// machine to themselves, and four Chromiums on one box slow each other's
+// frames enough to turn a flick into a drag.
+//
+// The split is by how long each test takes, not by name, because the times
+// are nothing like even: freshness takes a minute and a dozen take a few
+// seconds. durations.json holds them, from a sequential CI run; RECORD=1
+// refreshes it. It only decides the balance — a stale or missing entry makes
+// one machine finish a little later, never a test go unrun — and a test with
+// no entry counts as the median.
+//
+// Longest first, each onto the machine with the least so far, ties to the
+// lowest. Every machine computes the same split from the same inputs, so
+// between them they run every test exactly once.
+const DURATIONS = path.join(HERE, 'durations.json');
+const known = (() => {
+  try { return JSON.parse(fs.readFileSync(DURATIONS, 'utf8')); } catch { return {}; }
+})();
+
+function shard(list, index, count) {
+  const times = Object.values(known).sort((a, b) => a - b);
+  const median = times.length ? times[times.length >> 1] : 10;
+  const cost = (n) => (Number.isFinite(known[n]) ? known[n] : median);
+  const load = Array(count).fill(0);
+  const mine = [];
+  [...list]
+    .sort((a, b) => cost(b) - cost(a) || a.localeCompare(b))
+    .forEach((n) => {
+      const to = load.indexOf(Math.min(...load));
+      load[to] += cost(n);
+      if (to === index) mine.push(n);
+    });
+  return { mine: mine.sort(), seconds: load[index] };
+}
+
+let names = wanted.length ? all.filter((n) => wanted.includes(n)) : all;
+const SHARD = /^(\d+)\/(\d+)$/.exec(process.env.SHARD || '');
+if (process.env.SHARD && !SHARD) {
+  console.error(`SHARD wants i/n, like 2/4 — got ${process.env.SHARD}`);
+  process.exit(2);
+}
+if (SHARD) {
+  const [index, count] = [Number(SHARD[1]) - 1, Number(SHARD[2])];
+  if (!(count >= 1 && index >= 0 && index < count)) {
+    console.error(`SHARD ${process.env.SHARD} is not one of 1/${count} to ${count}/${count}`);
+    process.exit(2);
+  }
+  const { mine, seconds } = shard(names, index, count);
+  console.log(`shard ${index + 1} of ${count}: ${mine.length} of ${names.length} tests, `
+    + `about ${seconds}s by durations.json`);
+  console.log(`  ${mine.join(' ')}`);
+  names = mine;
 }
 
 /* ------------------------------------------------------------------ preflight */
@@ -150,6 +209,17 @@ const broke = results.filter((r) => !r.ok && !r.silent && !STALE.has(r.name));
 const staleBroke = results.filter((r) => !r.ok && !r.silent && STALE.has(r.name));
 const passed = results.filter((r) => r.ok);
 const assertions = results.reduce((n, r) => n + r.ticks, 0);
+
+if (process.env.RECORD) {
+  // Merged into what is there, so a sharded or partial run only updates the
+  // tests it ran. Run it one at a time on a quiet machine: under JOBS the
+  // numbers are the contention as much as the test.
+  const merged = { ...known };
+  for (const r of results) merged[r.name] = Number(r.secs);
+  const sorted = Object.fromEntries(Object.keys(merged).sort().map((k) => [k, merged[k]]));
+  fs.writeFileSync(DURATIONS, `${JSON.stringify(sorted, null, 2)}\n`);
+  console.log(`\nwrote ${results.length} duration(s) to durations.json`);
+}
 
 console.log(`\n${passed.length}/${results.length} tests passed, ${assertions} assertions`);
 
