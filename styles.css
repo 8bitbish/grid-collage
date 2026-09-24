@@ -2440,6 +2440,85 @@ body.is-library .toast {
   .adjust-ring { width: 26px; height: 26px; }
 }
 
+/* ------------------------------------------------------------- effects */
+/* Built like the Adjust panel, and given the same room for the same reason:
+   the row of effects, then the settings of the one that is on. An effect is
+   on or off rather than an amount, so its ring is simply filled while on. */
+.dock.is-effecting { height: 152px; }
+.tile-effects {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.effect-item.is-active { color: var(--text); }
+.effect-item.is-active .adjust-ring { background: var(--accent); color: #fff; }
+.effect-hint {
+  margin: 0;
+  padding: 0 14px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pop-sides { display: flex; gap: 4px; flex: none; }
+.pop-side {
+  appearance: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.pop-side svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pop-side[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.effect-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.effect-head .adjust-tools { flex: 0 1 auto; min-width: 0; }
+.pop-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding-right: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.pop-pick { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.pop-pick svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* On for as long as picking is, so it brightens rather than scales: a button
+   sitting shrunk for the whole of a choosing reads as stuck. */
+.pop-pick[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: transparent; }
+.pop-side:active { transform: scale(0.92); }
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .dock.is-effecting { height: 124px; }
+  .pop-side { width: 34px; height: 34px; }
+}
+
 /* Present for a screen reader, out of the way of everyone else. */
 .sr {
   position: absolute;
