@@ -28,12 +28,14 @@ const j=o=>JSON.stringify(o);
 let pass=0, fail=0;
 const ok=(label, good, detail='')=>{ good?pass++:fail++; console.log(`  ${good?'✓':'✗'} ${label}${good||!detail?'':` — ${detail}`}`); };
 
-// Three clips, generated rather than committed: a couple of kilobytes each,
+// Five clips, generated rather than committed: a couple of kilobytes each,
 // and the point is their metadata rather than their pixels.
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cliptime-'));
 const MVHD_ONLY = path.join(scratch, 'samsung-like.mp4');
 const WITH_OFFSET = path.join(scratch, 'phone-like.mov');
 const SAME_TRIP = path.join(scratch, 'sametrip-like.mp4');
+const UTC_DATE = path.join(scratch, 'resaved-like.mov');
+const UTC_MVHD = path.join(scratch, 'maytrip-like.mp4');
 let haveFfmpeg = true;
 try {
   // Only mvhd, the way an Android clip arrives: a true instant and no offset,
@@ -49,10 +51,17 @@ try {
   // states +03:00 — so the two are one trip and the offset should carry.
   execFileSync('ffmpeg', ['-y','-loglevel','error','-f','lavfi','-i','color=c=green:s=64x64:d=1',
     '-c:v','libx264','-pix_fmt','yuv420p','-metadata','creation_time=2025-04-17T15:30:00Z', SAME_TRIP]);
+  // A date atom ending in Z, and beside it a plain mvhd clip from the same
+  // morning, for a trip whose zone only the photos can supply.
+  execFileSync('ffmpeg', ['-y','-loglevel','error','-f','lavfi','-i','color=c=yellow:s=64x64:d=1',
+    '-c:v','libx264','-pix_fmt','yuv420p','-f','mov','-metadata','date=2025-05-20T08:07:00Z',
+    '-metadata','creation_time=2025-05-20T08:07:00Z', UTC_DATE]);
+  execFileSync('ffmpeg', ['-y','-loglevel','error','-f','lavfi','-i','color=c=white:s=64x64:d=1',
+    '-c:v','libx264','-pix_fmt','yuv420p','-metadata','creation_time=2025-05-20T08:15:00Z', UTC_MVHD]);
 } catch { haveFfmpeg = false; }
 
 if (!haveFfmpeg) {
-  console.log('skipped: needs ffmpeg to build the three clips');
+  console.log('skipped: needs ffmpeg to build the clips');
   srv.close();
   process.exit(0);
 }
@@ -188,6 +197,38 @@ console.log('\n== it survives a reload ==');
   ok('the clip kept its place', clip && clip.takenISO === '2025-03-16T13:07:33.000Z', clip && clip.takenISO);
   ok('and its UTC came back off the database', clip && clip.clipUtc === '2025-03-16T11:07:33.000Z', clip && clip.clipUtc);
   ok('so did the stated offset', other && other.clipZone === '3', other && other.clipZone);
+}
+
+console.log('\n== a date ending in Z names an instant, not the zone it was shot in ==');
+// A third trip, in May, two hours ahead of UTC like the first. One clip carries
+// a date atom ending in Z — what a file re-saved through editing software tends
+// to write — and one carries only mvhd. Read as a statement, the Z would put the
+// first clip on a UTC wall clock and then hand that zone to the second.
+await p.click('#pm-close');
+await p.setInputFiles('#file-input', [
+  { name:'m1.jpg', mimeType:'image/jpeg', buffer: exifJpeg('2025:05:20 10:05:00') },
+  { name:'m2.jpg', mimeType:'image/jpeg', buffer: exifJpeg('2025:05:20 10:10:00') },
+  { name:'m3.jpg', mimeType:'image/jpeg', buffer: exifJpeg('2025:05:20 10:20:00') },
+  clipFile(UTC_DATE, 'video/quicktime'),
+  clipFile(UTC_MVHD, 'video/mp4'),
+]);
+await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='10', null, {timeout:60000});
+await p.waitForTimeout(600);
+await p.click('#btn-photos');
+await p.waitForTimeout(300);
+{
+  const all = await rows();
+  const zed = byName(all, 'resaved-like');
+  const plain = byName(all, 'maytrip-like');
+  ok('the Z clip still knows its instant', zed && zed.clipUtc === '2025-05-20T08:07:00.000Z', zed && zed.clipUtc);
+  ok('but is not taken to have named a zone', zed && zed.clipZone === '', zed && zed.clipZone);
+  // 10:07 wall in London in May is BST, so 09:07Z.
+  ok('so its photos place it at 10:07, beside them',
+     zed && zed.takenISO === '2025-05-20T09:07:00.000Z', zed && zed.takenISO);
+  ok('and it did not hand UTC to the other clip in its trip',
+     plain && plain.takenISO === '2025-05-20T09:15:00.000Z', plain && plain.takenISO);
+  const april = byName(all, 'phone-like');
+  ok('a genuine stated offset is still believed', april && april.clipZone === '3', april && april.clipZone);
 }
 
 console.log('\n== nothing threw ==');

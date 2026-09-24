@@ -1222,7 +1222,8 @@
       zone = (m[7][0] === '-' ? -1 : 1)
         * ((+digits.slice(1, 3)) * 60 + (+digits.slice(3, 5))) * 60000;
     }
-    return { taken: wall.getTime(), zone };
+    // inUtc tells a clock written in UTC apart from one that said +00:00.
+    return { taken: wall.getTime(), zone, inUtc: m[7] === 'Z' };
   }
 
   // How far this browser's clock sits from UTC at a given instant, in ms.
@@ -1277,6 +1278,15 @@
             if (bType === 'meta') iso = appleCreationDate(v, body, end) || iso;
           });
           const stamped = iso ? isoStamp(iso) : null;
+          // A trailing Z names an instant, not where the camera was. Software
+          // re-saving a clip writes its date that way, and believing it would
+          // put the clip on a UTC wall clock and then hand UTC to every other
+          // clip in its trip. A real offset, +00:00 included, still counts: a
+          // camera in London in winter says so in those terms.
+          if (stamped && stamped.inUtc) {
+            const instant = stamped.taken + wallShift(stamped.taken);
+            return { taken: instant, zone: null, utc: instant };
+          }
           if (stamped) {
             return {
               taken: stamped.taken,
