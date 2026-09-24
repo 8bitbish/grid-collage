@@ -194,7 +194,20 @@ served=[];
 await p.click('.dock-item[data-drawer="export"]');
 await p.waitForTimeout(300);
 await p.click('#btn-export');
-await p.waitForTimeout(9000);
+// Until the export has finished one way or the other, rather than nine
+// seconds: the overlay put away, and either an mp4 downloaded or the toast
+// saying the slide went out as a still. It took about three here. If neither
+// ever happens the wait runs out and the assertions below say so.
+{
+  const until=Date.now()+30000;
+  while(Date.now()<until){
+    const state=await p.evaluate(()=>({
+      done: document.getElementById('opening').hidden,
+      still: /still/i.test(document.getElementById('toast').textContent)}));
+    if(state.done && (saved.some(n=>/\.mp4$/.test(n)) || state.still)) break;
+    await p.waitForTimeout(100);
+  }
+}
 const after = await p.evaluate(()=>({
   toast: document.getElementById('toast').textContent,
   opening: document.getElementById('opening').hidden,
@@ -215,7 +228,9 @@ console.log('\n== an H.264 mp4, which this browser cannot even play ==');
   await p.click('#btn-new');
   await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:10000});
   await p.setInputFiles('#file-input',[{name:'clip.mp4',mimeType:'video/mp4',buffer:mp4}]);
-  await p.waitForTimeout(3000);
+  // Until it has either imported or refused, rather than three seconds.
+  await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='1'
+    || /can't play/.test(document.getElementById('toast').textContent), null, {timeout:15000}).catch(()=>{});
   const msg = await p.evaluate(()=>document.getElementById('toast').textContent);
   const count = await p.evaluate(()=>document.getElementById('photos-count').textContent);
   console.log('  count:', count, '| toast:', j(msg));
