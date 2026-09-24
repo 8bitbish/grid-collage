@@ -7,7 +7,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8172,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const j=o=>JSON.stringify(o);
 
 /* A baseline JPEG, hand-built, with a real EXIF APP1 carrying
@@ -72,7 +73,7 @@ const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true,devi
 const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await p.goto('http://localhost:8172/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.waitForTimeout(400);
 
 // Dates chosen relative to now, so the labels are checkable whenever this runs.

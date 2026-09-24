@@ -6,7 +6,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8146,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 // left half one colour, right half another, so a flip is visible
 function png(w,h,a,bcol){const raw=Buffer.alloc((w*3+1)*h);
   for(let y=0;y<h;y++){const o=y*(w*3+1);for(let x=0;x<w;x++){const c=x<w/2?a:bcol;
@@ -26,7 +27,7 @@ const ctx=await b.newContext({viewport:{width:1200,height:900},hasTouch:true});
 const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
-await p.goto('http://localhost:8146/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.evaluate(()=>localStorage.clear()); await p.reload();
 await p.setInputFiles('#file-input', files);
 await p.waitForFunction(()=>document.querySelectorAll('.pm-item').length===2);

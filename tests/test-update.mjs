@@ -24,7 +24,8 @@ const srv=http.createServer((q,r)=>{
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream','ETag':etag,'Cache-Control':'no-cache'});
   r.end(body);
 });
-await new Promise(r=>srv.listen(8171,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 const b=await chromium.launch({executablePath: CHROME});
 const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true});
@@ -34,7 +35,7 @@ const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.ty
 const shown = () => p.evaluate(()=>!document.getElementById('update-toast').hidden);
 
 console.log('== first visit ==');
-await p.goto('http://localhost:8171/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.waitForFunction(()=>navigator.serviceWorker.controller !== null || performance.now() > 6000, {timeout:9000});
 await p.waitForTimeout(1200);
 console.log('  worker in charge:', await p.evaluate(()=>!!navigator.serviceWorker.controller));

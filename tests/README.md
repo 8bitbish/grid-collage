@@ -15,9 +15,18 @@ node run.mjs swipe tile             # just those
 JOBS=4 node run.mjs                 # four at a time
 ```
 
-Every test binds its own port, so running them together is safe. One at a time
-is the default anyway: several import twelve 12-megapixel photos on purpose, and
-four Chromiums doing that at once is how a machine starts swapping.
+Every test asks the system for a free port rather than naming one, so no two
+can collide — not with each other, and not with another checkout running the
+suite at the same time. They used to name them, and "every test binds its own
+port" had quietly stopped being true: three pairs shared one, each pair
+written in parallel by different branches.
+
+One at a time is still the default. Four at once runs the whole suite in about
+150s rather than ten minutes, and passed three runs out of three on the ports,
+but `swipe` failed one of them: its flicks are measured against real frame
+timing, and four Chromiums on one machine slow each other's frames enough to
+turn a flick into a drag. CI gets its speed by splitting the suite across
+machines instead, each running its share one at a time.
 
 `run.mjs` exits non-zero if any test that was supposed to pass did not, and says
 plainly what it skipped and why. It replaced `runall.sh`, which listed 21 of the

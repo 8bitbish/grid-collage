@@ -22,7 +22,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
   res.end(fs.readFileSync(file));
 });
-await new Promise((r) => server.listen(8126, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext();
@@ -32,7 +33,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 
 // 1. manifest parses and every icon it names actually resolves
-await page.goto('http://localhost:8126/');
+await page.goto(`http://localhost:${PORT}/`);
 const manifest = await page.evaluate(async () => {
   const href = document.querySelector('link[rel=manifest]').href;
   const res = await fetch(href);

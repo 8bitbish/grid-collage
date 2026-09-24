@@ -52,7 +52,8 @@ const srv=http.createServer((q,r)=>{
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream',
     'ETag':'"'+crypto.createHash('sha1').update(body).digest('hex').slice(0,16)+'"','Cache-Control':'no-cache'});
   r.end(body);});
-await new Promise(r=>srv.listen(8207,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
 
@@ -67,7 +68,7 @@ for (const from of SHAS) {
   p.on('console',m=>{ if(m.type()==='error' && !/404/.test(m.text())) errs.push('console: '+m.text().slice(0,140)); });
 
   // Install: load the old build and let its worker cache the shell.
-  await p.goto('http://localhost:8207/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1200);
   ok('the old build installed', await p.evaluate(()=>!!navigator.serviceWorker.controller));
