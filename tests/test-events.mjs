@@ -149,19 +149,19 @@ await p.waitForTimeout(300);
   const dated = g;
   ok('four events found, four planted', dated.length === 4, `${dated.length}: ${j(dated.map(x=>x.when))}`);
   ok('eleven photos in each', dated.every(x=>x.photos === 11), j(dated.map(x=>x.photos)));
-  // The trip reads from its start, the way the deck will be built from it,
-  // unlike the day view, which runs newest first like a camera roll.
-  ok('earliest event first, so the trip reads in order',
-     dated[0] && /09:|9:\d\d\s*am/i.test(dated[0].when), dated[0] && dated[0].when);
-  ok('and the last event last',
-     dated[3] && /19:|7:\d\d\s*pm/i.test(dated[3].when), dated[3] && dated[3].when);
-  ok('numbered 1 to 4 down the page', j(dated.map(x=>x.n)) === j(['1','2','3','4']), j(dated.map(x=>x.n)));
-  ok('photos inside an event run in the order they were taken',
-     j(dated[0] && dated[0].names) === j([...Array(11)].map((_, k)=>`e1-${k}`)), j(dated[0] && dated[0].names));
+  // Newest first all the way down, events and the photos inside them alike,
+  // so the view reads the same way the day view and a camera roll do.
+  ok('newest event first, matching the day view',
+     dated[0] && /19:|7:\d\d\s*pm/i.test(dated[0].when), dated[0] && dated[0].when);
+  ok('and the earliest event last',
+     dated[3] && /09:|9:\d\d\s*am/i.test(dated[3].when), dated[3] && dated[3].when);
+  ok('still numbered from the start of the trip', j(dated.map(x=>x.n)) === j(['4','3','2','1']), j(dated.map(x=>x.n)));
+  ok('photos inside an event run newest first too',
+     j(dated[0] && dated[0].names) === j([...Array(11)].map((_, k)=>`e4-${10 - k}`)), j(dated[0] && dated[0].names));
   // The gap that opened an event is the number that makes a split arguable.
   ok('each event says the gap it opened after',
-     dated.slice(1).every(x=>/after/.test(x.facts)), j(dated.map(x=>x.facts)));
-  ok('the first event has no gap before it', dated[0] && !/after/.test(dated[0].facts), dated[0] && dated[0].facts);
+     dated.slice(0,3).every(x=>/after/.test(x.facts)), j(dated.map(x=>x.facts)));
+  ok('the first event has no gap before it', dated[3] && !/after/.test(dated[3].facts), dated[3] && dated[3].facts);
   console.log('   headings:', j(dated.map(x=>`${x.when} — ${x.facts}`)));
 }
 
