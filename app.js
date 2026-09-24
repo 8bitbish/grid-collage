@@ -510,6 +510,11 @@
   //          source pixel px pixels away, u_texel, and u_scale — processed
   //          pixels per pixel of a 1080px post, so a radius authored against
   //          the preview means the same thing in a 2160px export.
+  //   curves optional: a tone curve measured off Google Photos at some of the
+  //          slider's positions, as output levels at CURVE_KNOTS. The curve for
+  //          any other position is interpolated between the two measured
+  //          either side of it, nought being the straight line, and the glsl
+  //          reads it as curve_<id>(y), which takes and gives 0..1.
   //
   // Listed in the order Google Photos lists them, which is also the order the
   // tone tools run in.
@@ -517,83 +522,101 @@
     {
       id: 'whitePoint', label: 'White point', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/>',
-      // Levels at the top end, per channel, which is what makes it firmer than
-      // Highlights: up moves the level that counts as white down, so the top of
-      // the range clips; down lowers what white is drawn as, so it greys. Black
-      // stays where it is either way. At +100 anything from 0.65 up is white;
-      // at -100 white is drawn at 0.65. Strong at the ends, as the Photos one
-      // is, without either end destroying the picture outright.
+      // Measured off Google Photos, like everything else in this list. Unlike
+      // Highlights and Shadows it curves each channel on its own, which is
+      // what Levels does: of the colour models tried, that one came within a
+      // level or two of every colour patch, and adding the same to all three
+      // was seven to thirteen levels out. Up is a straight gain — x1.13 at
+      // +50, x1.33 at +100 — so whatever was above 192 is white. Down bends
+      // over at the top, so white comes out at 197 and the shadows barely
+      // move.
+      //
+      // -50 has not been measured yet: the copy meant for it came back the
+      // same as -100. Until it has, -50 is halfway to the -100 curve.
+      curves: {
+        '-100': [0, 8, 15.6, 23, 30.6, 38, 45.6, 52.8, 59.6, 67, 73.6, 81, 87.6, 94, 100.6, 107, 113.6, 119.6, 125.6, 131.6, 137.6, 143, 148.6, 154, 159.6, 164.6, 169.6, 174.6, 179.6, 184.6, 189.6, 193.8, 197],
+        50: [0, 8.6, 17.6, 27, 36.6, 45.6, 54.6, 63.6, 72.6, 81.6, 90.6, 100, 109.6, 118.6, 127.6, 136.6, 145.6, 155, 164.6, 173.6, 182.6, 191.6, 200.6, 209.6, 218.6, 228, 237.6, 246, 254, 255, 255, 255, 255],
+        100: [0, 10, 20.6, 31.6, 42.6, 53, 63.6, 74, 84.6, 95.6, 106.6, 117, 127.6, 138, 148.6, 159.6, 170.6, 181, 191.6, 202, 212.6, 223.6, 234.6, 244.6, 254, 255, 255, 255, 255, 255, 255, 255, 255],
+      },
       glsl: `
-        if (amount > 0.0) c = c / (1.0 - 0.35 * amount);
-        else c = c * (1.0 + 0.35 * amount);`,
+        c = clamp(c, 0.0, 1.0);
+        c = vec3(curve_whitePoint(c.r), curve_whitePoint(c.g), curve_whitePoint(c.b));`,
     },
     {
       id: 'highlights', label: 'Highlights', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="3.6"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/>',
-      // A curve on brightness rather than levels, so white stays white and
-      // what moves is the shape of the upper tones. The push is the slider
-      // times a mask, smoothstep from a quarter up to white, times the room
-      // left below white. The mask starts with a flat slope, so there is no
-      // crease where it begins, and everything below a quarter is exactly as
-      // it was. The (1 - y) is what pins white, and it puts the most movement
-      // around three quarters, as Photos does. 0.6 sets the strength and the
-      // limits together: the curve's slope stays between 0.4 and 1.6, so it
-      // never flattens or folds back on itself, and an 8-bit photo's levels
-      // spread about as far as White point's 1.54 spreads them and no
-      // further, which is too little to band. At -100 it takes 230 to 216
-      // and 170 to 140; White point takes them to 150 and 111.
+      // Google's own, measured rather than imitated. A chart went through
+      // Google Photos at -100, -50, +50 and +100 and came back as the curves
+      // below, read off a ramp of all 256 levels. The same chart settled the
+      // rest. The curve is global: a grey patch on black and the same patch
+      // on white came out identical, so nothing here looks at the pixels
+      // around it. And it moves all three channels by the same amount,
+      // worked out from the pixel's Rec.709 luma: yellow at -100 lost exactly
+      // 30 from R, G and B alike. That predicted all 27 colour patches on the
+      // chart to within about a level, JPEG's own noise, at every setting.
+      // Scaling by a ratio, curving each channel, Lab and Oklab were all ten
+      // to twenty times further off.
       //
-      // Brightness here is halfway between luma and the brightest channel,
-      // which for a grey are the same thing. Luma alone calls a saturated
-      // colour dark — Rec.709 puts pure blue at 0.07 — and Shadows lit a red
-      // of 200,40,40 up to 255,51,51 as though it were a shadow, which looked
-      // like neon rather than light. The brightest channel alone makes the
-      // same red a highlight. Halfway treats it as the mid-tone it looks.
-      //
-      // The pixel is scaled by new brightness over old rather than each
-      // channel curved on its own, which would pull the channels of a colour
-      // towards each other and shift its hue. Where scaling up would push a
-      // channel past one, the scale stops there instead: clipping that channel
-      // alone would change the hue, and pulling the colour towards white to
-      // keep its brightness would wash it out. The clamp first is for White
-      // point, which can hand on values above one that this mask would read
-      // as past white.
+      // Nothing below a quarter moves. Down pulls the upper tones in and
+      // lets white slip to 252; up lifts them until everything from 224 is
+      // white, which is how hard the Photos one really goes.
+      curves: {
+        '-100': [0, 8, 16, 24, 32, 40, 47.6, 55, 62.6, 70, 77.6, 85, 92.6, 99, 105.6, 112.2, 118.6, 124.2, 129.6, 135, 140.6, 146, 151.6, 157, 162.6, 169.8, 177, 186, 195.6, 207.6, 221, 237, 252],
+        '-50': [0, 8, 16, 24, 32, 40, 48, 56, 63.6, 71, 78.6, 86, 93.6, 101, 108.6, 116, 122.6, 129.8, 136.6, 143.4, 150.6, 156.8, 163.6, 170.2, 177.6, 185, 193, 201, 209.6, 219.6, 230.6, 242.2, 253],
+        50: [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80.6, 89, 97.6, 106, 114.6, 123, 132.6, 141.2, 150.6, 159.6, 168.6, 178.2, 187.6, 196.8, 205.6, 214, 222.2, 230, 237.6, 243.4, 248.4, 250.6, 255],
+        100: [0, 8, 16, 24, 32, 40, 48, 56, 64.6, 73, 81.6, 90, 98.6, 108, 117.6, 126.8, 136.6, 146.8, 157.6, 168, 178.6, 189, 199.6, 210, 220.6, 229.2, 238.2, 245, 251.4, 252.6, 254.6, 255, 255],
+      },
       glsl: `
         c = clamp(c, 0.0, 1.0);
-        float top = max(c.r, max(c.g, c.b));
-        float y = 0.5 * (luma(c) + top);
-        float toned = y + 0.6 * amount * smoothstep(0.25, 1.0, y) * (1.0 - y);
-        c *= min(toned / max(y, 1e-4), 1.0 / max(top, 1e-4));`,
+        float y = luma(c);
+        c += curve_highlights(y) - y;`,
     },
     {
       id: 'shadows', label: 'Shadows', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="8.5"/><path class="solid" d="M12 3.5a8.5 8.5 0 0 0 0 17z"/>',
-      // Highlights turned upside down: the mask runs from a quarter below
-      // white down to black, and the room it is multiplied by is the room
-      // above black, so black stays black and everything above three quarters
-      // is untouched. Up opens the shadows, down deepens them. Same constants
-      // for the same reasons, and the same slope limits, the steepest part
-      // now being just above black: at +100, 30 goes to 47 and 100 to 128,
-      // where Black point at -100 takes them to 86 and 139 and lifts black
-      // itself off the floor. Brightness is measured the same way, and the
-      // pixel scaled and capped short of clipping the same way, as in
-      // Highlights; this is the tool where the halfway brightness matters.
+      // Measured off Google Photos the same way as Highlights, and just as
+      // global. Much stronger than it looks from the slider: +100 takes level
+      // 8 to 31 and 25 to 78, and -100 crushes everything below 32 to black.
+      // Nothing above 200 moves.
+      //
+      // The colour is not quite Highlights' equal shift. Darker colours come
+      // out more saturated than an equal shift would leave them — red at 60%
+      // gained 89 in R against 53 in G — and the fit across all four settings
+      // put Google 30% of the way from adding the same to each channel
+      // towards scaling them all by the same ratio (0.26 to 0.33 in each
+      // file). That is the 0.3 below, and with it the colour patches came
+      // within a level or two of Google's; an equal shift alone was twelve
+      // to fourteen levels out.
+      curves: {
+        '-100': [0, 0, 0, 0, 0.2, 3.8, 8.2, 16.4, 24.6, 34.4, 44.6, 55.8, 67.6, 79.2, 90.6, 102, 113.6, 124, 134.6, 144.6, 154.6, 164, 173.6, 182, 190.6, 199, 207.6, 216, 224, 232, 239.6, 247, 255],
+        '-50': [0, 1.8, 2.8, 7, 11.6, 18.6, 26, 34, 42.6, 51.8, 61.6, 71.6, 81.6, 91, 100.6, 110.6, 120.6, 130.2, 139.6, 148, 157.6, 166, 174.6, 183, 191.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+        50: [0, 17, 33.6, 46.2, 57.6, 66.2, 74.6, 82, 88.6, 94.8, 100.6, 106.6, 112.6, 118, 123.6, 129.6, 135.6, 142.2, 148.6, 156.2, 162.6, 170, 177.6, 185, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+        100: [0, 31.4, 59, 76.2, 91.4, 101, 109.6, 114.6, 119.4, 122.6, 125.6, 128, 131.6, 134.4, 137.6, 141.2, 145.6, 149.8, 154.6, 160, 165.6, 172, 178.6, 185.8, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+      },
       glsl: `
         c = clamp(c, 0.0, 1.0);
-        float top = max(c.r, max(c.g, c.b));
-        float y = 0.5 * (luma(c) + top);
-        float toned = y + 0.6 * amount * smoothstep(0.25, 1.0, 1.0 - y) * y;
-        c *= min(toned / max(y, 1e-4), 1.0 / max(top, 1e-4));`,
+        float y = luma(c);
+        float toned = curve_shadows(y);
+        float spread = 1.0 + 0.3 * (toned / max(y, 1.0 / 255.0) - 1.0);
+        c = toned + min(spread, 4.0) * (c - y);`,
     },
     {
       id: 'blackPoint', label: 'Black point', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="8.5"/><circle class="solid" cx="12" cy="12" r="3.2"/>',
-      // The same at the bottom end, and the same way round as Photos: up is
-      // deeper blacks, which crushes everything below a quarter to black at
-      // +100; down lifts black to a quarter, the faded look. White stays put.
+      // Measured, and per channel for the same reason as White point. The
+      // direction was the open question before anything was measured, and
+      // it is as this app had guessed: up is deeper blacks. +100 sends
+      // everything below 64 to black; -100 lifts black to 41, the faded
+      // look. White stays put either way, give or take a level.
+      curves: {
+        '-100': [41, 46.8, 51.6, 57, 62.6, 68.6, 74.6, 80.6, 86.6, 92.6, 98.6, 105, 111.6, 118, 124.6, 131, 137.6, 144.2, 151.6, 158.2, 165.6, 172.2, 179.6, 186.6, 194, 201.2, 209, 216.6, 224.2, 232, 239.6, 247, 255],
+        '-50': [25, 31, 37.6, 44, 50.6, 57.6, 64.6, 71, 77.6, 84.6, 91.6, 98.6, 105.6, 112.6, 119.6, 126.6, 133.6, 141, 148.6, 155.6, 163, 170.2, 177.6, 185, 193.2, 201, 208.6, 216, 224, 232, 239.6, 247, 255],
+        50: [0, 0, 0, 0, 0.2, 6.6, 14, 24.6, 35.6, 45.6, 55.6, 65.6, 75.6, 85, 94.6, 104, 113.6, 122.2, 131.6, 141, 149.6, 159, 168.6, 177, 185.6, 194.6, 203.6, 212.6, 221.2, 229.8, 238.2, 246, 253],
+        100: [0, 0, 0, 0, 0, 0, 0, 0, 0, 2.8, 8.2, 22, 36.6, 49.6, 63.6, 75.8, 87.8, 99.8, 111.6, 123, 134.6, 145, 155.6, 166.4, 176.6, 187.8, 197.6, 207.6, 217.6, 227.2, 236.6, 245.2, 253],
+      },
       glsl: `
-        if (amount > 0.0) c = (c - 0.25 * amount) / (1.0 - 0.25 * amount);
-        else c = -0.25 * amount + c * (1.0 + 0.25 * amount);`,
+        c = clamp(c, 0.0, 1.0);
+        c = vec3(curve_blackPoint(c.r), curve_blackPoint(c.g), curve_blackPoint(c.b));`,
     },
     {
       id: 'sharpen', label: 'Sharpen', min: 0, max: 100, stage: 'detail',
@@ -642,6 +665,54 @@
 
   const adjustment = (id) => ADJUSTMENTS.find((a) => a.id === id);
 
+  // Where a measured curve is sampled: every eighth level, and white. Tested
+  // against the full 256 levels read off Google's output, a monotone cubic
+  // through these came within 1.7 levels everywhere, and most of that was the
+  // JPEG noise in the measurement itself.
+  const CURVE_KNOTS = [...Array(32)].map((_, i) => i * 8).concat(255);
+  const CURVED = ADJUSTMENTS.filter((a) => a.curves);
+
+  // A monotone cubic (Fritsch-Carlson) through the knots, so the curve
+  // between them is smooth and can never turn back on itself — a curve that
+  // did would swap two tones over, which no photo edit should.
+  function monotone(xs, ys) {
+    const n = xs.length;
+    const d = xs.slice(1).map((x, i) => (ys[i + 1] - ys[i]) / (x - xs[i]));
+    const m = xs.map((_, i) => {
+      if (i === 0) return d[0];
+      if (i === n - 1) return d[n - 2];
+      if (d[i - 1] * d[i] <= 0) return 0;
+      return (3 * (xs[i + 1] - xs[i - 1]))
+        / ((2 * xs[i + 1] - xs[i] - xs[i - 1]) / d[i - 1] + (xs[i + 1] + xs[i] - 2 * xs[i - 1]) / d[i]);
+    });
+    return (x) => {
+      let i = 0;
+      while (i < n - 2 && xs[i + 1] < x) i += 1;
+      const h = xs[i + 1] - xs[i];
+      const t = (x - xs[i]) / h;
+      return (2 * t ** 3 - 3 * t ** 2 + 1) * ys[i] + (t ** 3 - 2 * t ** 2 + t) * h * m[i]
+        + (-2 * t ** 3 + 3 * t ** 2) * ys[i + 1] + (t ** 3 - t ** 2) * h * m[i + 1];
+    };
+  }
+
+  // A tool's curve at one slider position, as 256 output levels. Between two
+  // measured positions each knot moves in a straight line, which is as much
+  // as can honestly be said without measuring more of them: the measured ones
+  // do not scale evenly — Shadows +100 lifts level 24 more than twice as far
+  // as +50 does — so no single curve times the slider would fit.
+  function curveTable(tool, value) {
+    const measured = [[0, CURVE_KNOTS], ...Object.entries(tool.curves).map(([at, ys]) => [Number(at), ys])]
+      .sort((a, b) => a[0] - b[0]);
+    const v = clamp(value, measured[0][0], measured[measured.length - 1][0]);
+    let i = 0;
+    while (i < measured.length - 2 && measured[i + 1][0] < v) i += 1;
+    const [a0, lo] = measured[i];
+    const [a1, hi] = measured[i + 1];
+    const t = (v - a0) / (a1 - a0);
+    const f = monotone(CURVE_KNOTS, lo.map((y, k) => y + t * (hi[k] - y)));
+    return Float32Array.from({ length: 256 }, (_, x) => clamp(f(x), 0, 255));
+  }
+
   // Whether a cell's edits add up to nothing. A plain cell never goes near the
   // GPU, so an unedited tile is drawn exactly as it was before there were edits.
   const plainLook = (adjust) => !adjust || ADJUSTMENTS.every((a) => !adjust[a.id]);
@@ -683,10 +754,24 @@
       uniform sampler2D u_image;
       uniform vec2 u_texel;
       uniform float u_scale;
+      uniform sampler2D u_curves;
       ${ADJUSTMENTS.map((a) => `uniform float u_${a.id};`).join('\n')}
       varying vec2 v_uv;
       float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
       vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
+      // A level from a curve's row, read as two bytes and interpolated here
+      // rather than by the texture: linear filtering would blend the high and
+      // low bytes separately, which is nonsense wherever the low one wraps.
+      float level(float x, float row) {
+        vec2 t = texture2D(u_curves, vec2((x + 0.5) / 256.0, (row + 0.5) / ${Math.max(1, CURVED.length)}.0)).rg;
+        return t.r * 255.0 + t.g * 255.0 / 256.0;
+      }
+      float curve(float row, float y) {
+        float x = clamp(y, 0.0, 1.0) * 255.0;
+        float i = min(floor(x), 254.0);
+        return mix(level(i, row), level(i + 1.0, row), x - i) / 255.0;
+      }
+      ${CURVED.map((a, row) => `float curve_${a.id}(float y) { return curve(${row}.0, y); }`).join('\n')}
       void main() {
         vec4 source = texture2D(u_image, v_uv);
         vec3 c = source.rgb;
@@ -744,6 +829,18 @@
 
     const uniform = (name) => gl.getUniformLocation(program, name);
     const dims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+
+    // The photo on unit 0 and the curves on unit 1, one row per curved tool.
+    // Nearest, because the shader interpolates them itself.
+    gl.uniform1i(uniform('u_image'), 0);
+    gl.uniform1i(uniform('u_curves'), 1);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.activeTexture(gl.TEXTURE0);
     // A phone can take its context back at any time. What has already been
     // drawn is safe, being plain 2D canvases; the next edit makes a new one.
     el.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lookGL = null; });
@@ -759,6 +856,8 @@
       // What is uploaded already, most recently used first. See renderLook.
       textures: [],
       newTexture,
+      // The slider positions the curve texture was last filled for.
+      curvesFor: null,
     };
     return lookGL;
   }
@@ -807,6 +906,27 @@
       // the pixels now.
       look.stage.width = 0;
       look.stage.height = 0;
+    }
+
+    // The curves for this cell's slider positions, two bytes a level so a
+    // lift of a fraction of a level is not rounded away. A few kilobytes, and
+    // only sent when the positions have changed.
+    const curvesFor = CURVED.map((a) => adjust[a.id] || 0).join(',');
+    if (CURVED.length && curvesFor !== look.curvesFor) {
+      const bytes = new Uint8Array(256 * CURVED.length * 4);
+      CURVED.forEach((tool, row) => {
+        curveTable(tool, adjust[tool.id] || 0).forEach((v, x) => {
+          const fixed = Math.min(65535, Math.round(v * 256));
+          const at = (row * 256 + x) * 4;
+          bytes[at] = fixed >> 8;
+          bytes[at + 1] = fixed & 255;
+          bytes[at + 3] = 255;
+        });
+      });
+      gl.activeTexture(gl.TEXTURE1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, CURVED.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+      gl.activeTexture(gl.TEXTURE0);
+      look.curvesFor = curvesFor;
     }
 
     look.el.width = w;
