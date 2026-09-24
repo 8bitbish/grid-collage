@@ -19,6 +19,7 @@ import { chromium } from 'playwright';
 import { CHROME, ROOT } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
+import os from 'node:os'; import { execFileSync } from 'node:child_process';
 
 const T = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webm': 'video/webm' };
 const srv = http.createServer((q, r) => {
@@ -353,10 +354,14 @@ const past = (run) => ({ under: 100 - Math.min(...run), over: Math.max(...run) -
 const runs = `before ${plainRun.join(' ')} | 100: ${sharpRun.join(' ')}`;
 check(near(sharp.bands, BANDS, 1) && near(sharp.red, RED, 1), 'Sharpen 100 leaves flat parts of the photo exactly as they were', show(sharp));
 check(past(plainRun).under <= 1 && past(plainRun).over <= 1, 'unsharpened, the edge goes from one band to the other and no further', plainRun.join(' '));
-check(past(sharpRun).under >= 8 && past(sharpRun).over >= 8, 'Sharpen 100 darkens the dark side of an edge and lightens the light side', `${past(sharpRun).under} under, ${past(sharpRun).over} over; ${runs}`);
-// The kernel reaches one pixel of a 1080px post and no further, so two pixels
-// either side of the step is as far as anything may move. A wider halo, or a
-// ripple beyond it, is the crunchy look this is meant not to have.
+// Sharpen works at Google's working size, 1232px for this 1440px photo, and
+// the preview here is smaller still, so its blur comes down to under half a
+// preview pixel and the whole ring lands either side of the step. Google's
+// own chart, at 1:1, dipped 16 and rose 6 at this edge; the export below and
+// the chart's own section at the end hold it to that scale.
+check(past(sharpRun).under >= 5 && past(sharpRun).over >= 5, 'Sharpen 100 darkens the dark side of an edge and lightens the light side', `${past(sharpRun).under} under, ${past(sharpRun).over} over; ${runs}`);
+// Past the ring, nothing. A ripple running on across the band is what the
+// halo guard is there to stop.
 check(sharpRun.slice(0, 6).every((v) => Math.abs(v - 100) <= 1) && sharpRun.slice(10).every((v) => Math.abs(v - 170) <= 1),
   'the overshoot stays at the edge and the bands are flat again two pixels off', runs);
 const half = past(halfRun);
@@ -449,6 +454,116 @@ await slide(100);
 const bright = await read();
 likeGoogle(bright, 'shadows+100 bright', 'Shadows +100 on a bright photo lifts far less');
 check(bright.bands[1] < shUp.bands[1] - 20, 'the same setting lifts the dark photo further', `100 -> ${bright.bands[1]} here, ${shUp.bands[1]} on the dark one`);
+
+/* ------------------------------------------- Sharpen against Google's chart */
+
+// The calibration chart itself, and the same chart blurred by σ 2 as the copy
+// Google sharpened was, each in a project of its own, taken to Sharpen 100 and
+// exported at 2160 so it goes through at 1:1, as the calibration does. What
+// Google made of both is in calibration/google.json. The chart and not a photo
+// made here, because Sharpen reads each photo's softness off its steepest
+// slopes, and photos made of the chart's gratings and edges did not read as
+// the chart does: one 0.11 sharp and 1.14 blurred, another 0.78 and 2.02,
+// against the chart's 0.41 and 1.57, and Sharpen is calibrated on the chart.
+const googleChart = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/calibration/google.json'), 'utf8'));
+const chartDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chart-'));
+execFileSync(process.execPath, [path.join(ROOT, 'tests/calibration/chart.mjs'), chartDir]);
+const chartPng = fs.readFileSync(path.join(chartDir, 'chart.png'));
+const blurredPng = fs.readFileSync(path.join(chartDir, 'chart-blurred.png'));
+const layout = JSON.parse(fs.readFileSync(path.join(chartDir, 'chart.json'), 'utf8'));
+fs.rmSync(chartDir, { recursive: true, force: true });
+
+// Each grating's fundamental, the 100|170 edge and the flat steps, read the
+// way measure.mjs reads them.
+const sharpenedChart = async (name, buffer) => {
+  await p.click('#btn-home');
+  await p.waitForFunction(() => document.body.classList.contains('on-home'));
+  await p.click('#btn-new');
+  await p.waitForFunction(() => !document.body.classList.contains('on-home'));
+  await p.setInputFiles('#file-input', [{ name, mimeType: 'image/png', buffer }]);
+  await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(400);
+  await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await p.waitForTimeout(200);
+  await p.click('.dock-item[data-tile="adjust"]');
+  await choose('sharpen');
+  await slide(100);
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+  await p.click('.dock-item[data-drawer="export"]');
+  await p.selectOption('#quality', '2160');
+  await p.selectOption('#format', 'image/png');
+  const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+  await p.click('#btn-export');
+  const download = await got;
+  await p.click('#dock-back');
+  if (!download) return null;
+  return p.evaluate(async ({ b64, L }) => {
+    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d');
+    g.drawImage(bmp, 0, 0);
+    const G = L.gratings;
+    const fundamentals = G.periods.map((per, i) => {
+      const d = g.getImageData(G.x, G.y + i * G.bandH + 15, G.w, G.bandH - 30).data;
+      let cs = 0, sn = 0;
+      for (let x = 20; x < G.w - 20; x++) {
+        let v = 0;
+        for (let y = 0; y < G.bandH - 30; y++) v += d[(y * G.w + x) * 4 + 1];
+        v = v / (G.bandH - 30) - G.mean;
+        cs += v * Math.cos((2 * Math.PI * x) / per); sn += v * Math.sin((2 * Math.PI * x) / per);
+      }
+      return (2 * Math.hypot(cs, sn)) / (G.w - 40);
+    });
+    const e = L.edgeGrey;
+    const edge = [...g.getImageData(e.x + e.w / 2 - 10, e.y + e.h / 2, 20, 1).data].filter((_, i) => i % 4 === 1);
+    const steps = L.steps.levels.map((_, i) => g.getImageData(L.steps.x + i * L.steps.w + L.steps.w / 2, L.steps.y + L.steps.h / 2, 1, 1).data[1]);
+    return { size: bmp.width, fundamentals, edge, steps };
+  }, { b64: fs.readFileSync(await download.path()).toString('base64'), L: layout });
+};
+const gainsOf = (fundamentals, base) => fundamentals.map((v, i) => v / base.gratings[i].fundamental);
+const PERIOD = (per) => layout.gratings.periods.indexOf(per);
+
+// Google, on the chart as it was: 1.33, 2.15, 2.07 and 1.51 at 4, 6, 8 and
+// 12px. The app came within 0.02 of each, so 0.1 is room for a GPU's own
+// rounding and nothing more.
+const sharpChart = await sharpenedChart('chart.png', chartPng);
+const googleSharp = gainsOf(googleChart['sharpen+100'].gratings.map((q) => q.fundamental), googleChart.none);
+let sharpGains = null;
+if (!sharpChart) check(false, 'the sharpened chart export arrives');
+else {
+  sharpGains = gainsOf(sharpChart.fundamentals, googleChart.none);
+  const at = [4, 6, 8, 12].map(PERIOD);
+  check(sharpChart.size === 2160 && at.every((i) => Math.abs(sharpGains[i] - googleSharp[i]) <= 0.1),
+    'Sharpen 100 lifts the chart\'s 4 to 12px gratings as Google Photos does, within 0.1',
+    `${at.map((i) => `${layout.gratings.periods[i]}px ${sharpGains[i].toFixed(2)}/${googleSharp[i].toFixed(2)}`).join(', ')}`);
+  check(sharpChart.steps.every((v, i) => Math.abs(v - googleChart.none.steps[i].out[1]) <= 1),
+    'and leaves the middle of every flat step as it was', sharpChart.steps.join(' '));
+  // Google's dips 16 and rises 6 at this edge; the app's rings about as far
+  // in all but shares it more evenly, which calibration/README.md goes into.
+  const e = past(sharpChart.edge);
+  const ge = past(googleChart['sharpen+100'].edgeGrey);
+  check(e.under >= 4 && e.under <= 20 && e.over >= 3 && e.over <= 16,
+    'the 100|170 edge rings a few levels either side, as Google\'s does', `${e.under} under, ${e.over} over; Google ${ge.under} under, ${ge.over} over`);
+}
+
+// And on the blurred chart: 2.76 and 3.11 at 8 and 12px against the blurred
+// chart's own, where the sharp chart got 2.07 and 1.51. The finer gratings
+// are all but gone there, and there is nothing left of them to lift.
+const blurredChart = await sharpenedChart('chart-blurred.png', blurredPng);
+const googleBlurred = gainsOf(googleChart['sharpen+100@blurred'].gratings.map((q) => q.fundamental), googleChart['none@blurred']);
+if (!blurredChart) check(false, 'the sharpened blurred chart export arrives');
+else {
+  const gains = gainsOf(blurredChart.fundamentals, googleChart['none@blurred']);
+  const at = [8, 12].map(PERIOD);
+  check(at.every((i) => Math.abs(gains[i] - googleBlurred[i]) <= 0.15),
+    'on the blurred chart it lifts the 8 and 12px gratings as Google Photos does, within 0.15',
+    `${at.map((i) => `${layout.gratings.periods[i]}px ${gains[i].toFixed(2)}/${googleBlurred[i].toFixed(2)}`).join(', ')}`);
+  if (sharpGains) {
+    check(at.every((i) => gains[i] > sharpGains[i] + 0.3),
+      'and leans harder on the softer photo, as Google does', `${at.map((i) => `${layout.gratings.periods[i]}px ${gains[i].toFixed(2)} against ${sharpGains[i].toFixed(2)}`).join(', ')}`);
+  }
+}
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 

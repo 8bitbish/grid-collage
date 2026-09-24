@@ -7,7 +7,7 @@
  * ramp, the 32 flat steps, the grey patch on each of its four surrounds (the
  * same on all four means the tool is global), every colour patch, the profile
  * across both edges, the gratings' amplitude by period and the noise patch's
- * spread. Prints a summary of each.
+ * spread, and the 1px lines' profile. Prints a summary of each.
  */
 import { chromium } from 'playwright';
 import { CHROME } from '../paths.mjs';
@@ -56,10 +56,37 @@ for (const f of files) {
       colours: L.colours.map((k) => ({ name: k.name, scale: k.scale, in: k.rgb, out: mean(k.x, k.y, k.w, k.h) })),
       edgeGrey: row(L.edgeGrey.x + L.edgeGrey.w / 2 - 10, mid(L.edgeGrey), 20),
       edgeBW: row(L.edgeBW.x + L.edgeBW.w / 2 - 10, mid(L.edgeBW), 20),
+      // Half the swing, and the fundamental: the amplitude at the grating's
+      // own period, from rows averaged down the band's middle. The swing was
+      // the first measure and is kept, but it counts anything else in the
+      // row, and Google's Sharpen leaves beats in the 2px and 3px bands that
+      // made both look lifted when neither was.
       gratings: L.gratings.periods.map((per, i) => {
         const r = row(L.gratings.x + 20, L.gratings.y + i * L.gratings.bandH + L.gratings.bandH / 2, L.gratings.w - 40);
-        return { period: per, amp: +((Math.max(...r) - Math.min(...r)) / 2).toFixed(1) };
+        const top = L.gratings.y + i * L.gratings.bandH + 15;
+        const d = g.getImageData(L.gratings.x, top, L.gratings.w, L.gratings.bandH - 30).data;
+        let cs = 0, sn = 0;
+        for (let x = 20; x < L.gratings.w - 20; x++) {
+          let v = 0;
+          for (let y = 0; y < L.gratings.bandH - 30; y++) v += d[(y * L.gratings.w + x) * 4 + 1];
+          v = v / (L.gratings.bandH - 30) - L.gratings.mean;
+          cs += v * Math.cos(2 * Math.PI * x / per); sn += v * Math.sin(2 * Math.PI * x / per);
+        }
+        const fundamental = +(2 * Math.hypot(cs, sn) / (L.gratings.w - 40)).toFixed(1);
+        return { period: per, amp: +((Math.max(...r) - Math.min(...r)) / 2).toFixed(1), fundamental };
       }),
+      // The 1px lines, each one's neighbourhood averaged down the patch and
+      // over thirteen of them: a detail tool's response to a single line.
+      lines: (() => {
+        const n = L.lines.h - 80;
+        const d = g.getImageData(L.lines.x, L.lines.y + 40, L.lines.w, n).data;
+        const out = new Array(24).fill(0);
+        for (let k = 1; k < 14; k++) for (let j = -11; j <= 12; j++) {
+          const x = L.lines.first + L.lines.every * k + j;
+          for (let y = 0; y < n; y++) out[j + 11] += d[(y * L.lines.w + x) * 4 + 1] / n / 13;
+        }
+        return out.map((v) => +v.toFixed(1));
+      })(),
       noise: +Math.sqrt(s2 / n - (s1 / n) ** 2).toFixed(2),
     };
   }, { b64, mime, L });
@@ -73,5 +100,5 @@ for (const [name, r] of Object.entries(results)) {
   console.log('curve     ', [0, 16, 32, 64, 96, 128, 160, 192, 224, 255].map((v) => `${v}:${Math.round(r.curve[v])}`).join(' '));
   console.log('128 on 0/64/192/255 ->', centres.join(' / '), Math.max(...centres) - Math.min(...centres) > 3 ? '  LOCAL' : '  global');
   console.log('edge 20|235', r.edgeBW.join(' '));
-  console.log('gratings  ', r.gratings.map((q) => `${q.period}px:${q.amp}`).join(' '), '| noise', r.noise);
+  console.log('gratings  ', r.gratings.map((q) => `${q.period}px:${q.fundamental}`).join(' '), '| noise', r.noise);
 }

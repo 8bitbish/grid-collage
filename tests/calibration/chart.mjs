@@ -1,8 +1,9 @@
 /* The calibration chart: one image where every region answers one question
  * about how an adjustment works. See README.md for how it is used.
  *
- *   node chart.mjs [dir]     writes chart.png and chart.json (the layout
- *                            measure.mjs reads), default ./out
+ *   node chart.mjs [dir]     writes chart.png, chart-blurred.png and
+ *                            chart.json (the layout measure.mjs reads),
+ *                            default ./out
  *
  * Square at 2160, so Grid Collage can export it pixel for pixel — 1:1, one
  * tile, 2160px — and its edits go through the same measuring as Google's.
@@ -15,7 +16,7 @@ const out = process.argv[2] || path.join(import.meta.dirname, 'out');
 fs.mkdirSync(out, { recursive: true });
 const b = await chromium.launch({ executablePath: CHROME });
 const p = await b.newPage();
-const { png, layout } = await p.evaluate(async () => {
+const { png, blurred, layout } = await p.evaluate(async () => {
   const W = 2160, H = 2160, X = 56;
   const c = new OffscreenCanvas(W, H), g = c.getContext('2d');
   const grey = (v) => `rgb(${v},${v},${v})`;
@@ -88,9 +89,18 @@ const { png, layout } = await p.evaluate(async () => {
   g.fillStyle = grey(235); g.font = '26px sans-serif'; g.fillText('grid-collage calibration chart v2 — 2160×2160', X, 2135);
   L.size = { w: W, h: H };
   const blob = await c.convertToBlob({ type: 'image/png' });
-  return { png: [...new Uint8Array(await blob.arrayBuffer())], layout: L };
+  // The same chart through the canvas's own blur(2px), which is the copy
+  // Google's Sharpen was tried on to see whether it adapts. Made here, in a
+  // browser without SwiftShader, because that is how Google's copy was made
+  // and the two blurs differ: SwiftShader's is a true Gaussian of σ 2, the
+  // ordinary one a touch wider, and Sharpen reads the difference.
+  const soft = new OffscreenCanvas(W, H), sg = soft.getContext('2d');
+  sg.filter = 'blur(2px)'; sg.drawImage(c, 0, 0);
+  const blurred = await soft.convertToBlob({ type: 'image/png' });
+  return { png: [...new Uint8Array(await blob.arrayBuffer())], blurred: [...new Uint8Array(await blurred.arrayBuffer())], layout: L };
 });
 fs.writeFileSync(`${out}/chart.png`, Buffer.from(png));
+fs.writeFileSync(`${out}/chart-blurred.png`, Buffer.from(blurred));
 fs.writeFileSync(`${out}/chart.json`, JSON.stringify(layout, null, 1));
 await b.close();
 console.log('wrote', `${out}/chart.png`, fs.statSync(`${out}/chart.png`).size, 'bytes');
