@@ -122,8 +122,17 @@ async function receiveShare(request) {
   // runs. All the app can do is know it happened and say so, which needs this
   // number. -1 means the form itself would not parse.
   let parts = -1;
+  // Kept back in case the parser refuses the form. A multipart body with no
+  // parts is nothing but its closing delimiter, and whether formData() accepts
+  // that depends on the Chromium: 151 throws on it, so the stripped share read
+  // as a form that would not parse and got the message that blames the share
+  // rather than the browser.
+  const spare = request.clone();
   try {
-    const form = await request.formData();
+    const form = await request.formData().catch(async (err) => {
+      if (/^--[^\r\n]+--\s*$/.test(await spare.text())) return new FormData();
+      throw err;
+    });
     parts = [...form.keys()].length;
     const files = form.getAll('photos').filter((f) => f && f.size);
     const cache = await caches.open(INBOX);
