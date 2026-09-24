@@ -550,7 +550,7 @@
     // off to the side and paints when it lands. A no-op once the poster
     // matches the cut, which it does for all but the first pass after a trim
     // moves — so this does not loop.
-    ensurePosters(page(), () => { render(); renderFilmstrip(); });
+    ensurePosters(page(), () => { render(); redrawFilms(); });
   }
 
   // An untouched deck is one blank page and no photos: say so on the canvas
@@ -1869,7 +1869,7 @@
     if (done.some(Boolean) && state.pages[state.current] === pg) {
       restyle();
       render();
-      renderFilmstrip();
+      redrawFilms();
     }
   }
 
@@ -1971,7 +1971,7 @@
     });
     if (!jobs.length) return;
     Promise.all(jobs).then((done) => {
-      if (done.some(Boolean)) { render(); renderFilmstrip(); }
+      if (done.some(Boolean)) { render(); redrawFilms(); }
     });
   }
 
@@ -2441,6 +2441,45 @@
     }, LIFT_MS);
   }
 
+  // Thumbnails are cached on the page and only redrawn when that page or the
+  // deck style actually changed. Redrawing all 20 on every refresh cost 78ms
+  // per page change.
+  function drawThumb(pg) {
+    const out = outputSize();
+    // The canvas is 46 CSS px tall, so on a 3x screen it wants 138 real
+    // pixels across the long edge and a flat 96 was being stretched. Capped
+    // at 3: past that the strip costs more to redraw than the sharpness is
+    // worth on a thumbnail this size.
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const tw = Math.round(64 * dpr);
+    const th = Math.round(tw * out.h / out.w);
+    const key = `${styleRev}:${pg.rev || 0}:${tw}x${th}`;
+    if (!pg.thumb || pg.thumbKey !== key) {
+      pg.thumb = pg.thumb || document.createElement('canvas');
+      pg.thumb.width = tw;
+      pg.thumb.height = th;
+      // Placeholders on, or an empty page is indistinguishable from one
+      // holding a white photo.
+      drawPage(pg.thumb.getContext('2d'), pg, tw, th, { placeholders: true });
+      pg.thumbKey = key;
+    }
+    return pg.thumb;
+  }
+
+  // When something lands later — a photo read up to size, a poster decoded —
+  // the thumbnails want redrawing but the strip does not want rebuilding.
+  // Each page keeps its canvas, and redrawing into it updates the strip where
+  // it stands. Rebuilding instead threw away every button about fifteen
+  // milliseconds after an import had just built them and made the same ones
+  // again, around the same cached canvases: work for no change anyone could
+  // see, and a strip whose elements are not the ones that were there a moment
+  // ago, which is what test-reorder kept tripping over. The whole strip is
+  // only built again if a page has no button in it yet.
+  function redrawFilms() {
+    if (state.pages.some((pg) => !pg.thumb || !pg.thumb.isConnected)) { renderFilmstrip(); return; }
+    state.pages.forEach(drawThumb);
+  }
+
   function renderFilmstrip() {
     const strip = $('filmstrip');
     strip.innerHTML = '';
@@ -2461,28 +2500,7 @@
       el.setAttribute('aria-label', `Page ${i + 1} of ${state.pages.length}`);
       if (i === state.current) el.setAttribute('aria-current', 'true');
 
-      // Thumbnails are cached on the page and only redrawn when that page or
-      // the deck style actually changed. Redrawing all 20 on every refresh
-      // cost 78ms per page change.
-      const out = outputSize();
-      // The canvas is 46 CSS px tall, so on a 3x screen it wants 138 real
-      // pixels across the long edge and a flat 96 was being stretched. Capped
-      // at 3: past that the strip costs more to redraw than the sharpness is
-      // worth on a thumbnail this size.
-      const dpr = Math.min(3, window.devicePixelRatio || 1);
-      const tw = Math.round(64 * dpr);
-      const th = Math.round(tw * out.h / out.w);
-      const key = `${styleRev}:${pg.rev || 0}:${tw}x${th}`;
-      if (!pg.thumb || pg.thumbKey !== key) {
-        pg.thumb = pg.thumb || document.createElement('canvas');
-        pg.thumb.width = tw;
-        pg.thumb.height = th;
-        // Placeholders on, or an empty page is indistinguishable from one
-        // holding a white photo.
-        drawPage(pg.thumb.getContext('2d'), pg, tw, th, { placeholders: true });
-        pg.thumbKey = key;
-      }
-      const thumb = pg.thumb;
+      const thumb = drawThumb(pg);
 
       const num = document.createElement('span');
       num.className = 'film-num';
@@ -4155,7 +4173,7 @@
     // Scrolling onto a clip starts it, and scrolling off one stops it, so
     // what you are choosing between is what you would get.
     syncPlayback();
-    ensurePosters(page(), () => { render(); renderFilmstrip(); });
+    ensurePosters(page(), () => { render(); redrawFilms(); });
     saveDeck();
   }
 
@@ -4282,7 +4300,7 @@
     // the cover, the slides either side — is now showing the wrong frame.
     // Only on letting go: reading a frame means decoding up to it, and doing
     // that on every pixel of the drag would be absurd.
-    ensurePosters(page(), () => { render(); renderFilmstrip(); });
+    ensurePosters(page(), () => { render(); redrawFilms(); });
 
     const player = players.get(state.selected);
     if (!player) return;
