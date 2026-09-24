@@ -361,10 +361,13 @@ check(past(plainRun).under <= 1 && past(plainRun).over <= 1, 'unsharpened, the e
 // calibration chart, whose same edge Google took 10 under and 7 over at 1:1.
 // The chart's own section at the end holds Sharpen to Google's numbers.
 check(past(sharpRun).under >= 5 && past(sharpRun).over >= 5, 'Sharpen 100 darkens the dark side of an edge and lightens the light side', `${past(sharpRun).under} under, ${past(sharpRun).over} over; ${runs}`);
-// Past the ring, nothing. A ripple running on across the band is what the
-// halo guard is there to stop.
-check(sharpRun.slice(0, 6).every((v) => Math.abs(v - 100) <= 1) && sharpRun.slice(10).every((v) => Math.abs(v - 170) <= 1),
-  'the overshoot stays at the edge and the bands are flat again two pixels off', runs);
+// Past the ring, next to nothing. A ripple running on across the band is
+// what the halo guard is there to stop, but not all of it: Google's own
+// 100|170 edge on the chart rises 2 over the band seven pixels out before it
+// dips into its ring, and this edge, gentle enough that only the paper's
+// guard holds it (see Sharpen's passes), ripples 3 four pixels out.
+check(sharpRun.slice(0, 6).every((v) => Math.abs(v - 100) <= 3) && sharpRun.slice(10).every((v) => Math.abs(v - 170) <= 3),
+  'the overshoot stays at the edge and the bands are within 3 of flat two pixels off', runs);
 const half = past(halfRun);
 check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && half.over < past(sharpRun).over,
   'Sharpen 50 overshoots, and less than 100 does', `${half.under} under, ${half.over} over`);
@@ -554,11 +557,14 @@ const MID = [4, 6, 8, 12].map(PERIOD);
 const listed = (ours, google, at) => at.map((i) => `${layout.gratings.periods[i]}px ${ours[i].toFixed(2)}/${google[i].toFixed(2)}`).join(', ');
 
 // Google, on the chart as it was: 1.63, 2.28, 1.88 and 1.34 at 4, 6, 8 and
-// 12px. The app comes within 0.13 from 6px up. At 4px it lifts more than
-// Google, 2.05, and that was chosen: the finest gratings are what the app
-// gave up so that a photograph's finest detail is lifted as Google lifts it
-// rather than traded away — see the section after these, and
-// calibration/README.md. Before, it was within 0.12 at 4px as well.
+// 12px. The app lifts it less, 1.50, 1.82, 1.68 and 1.34, and that was
+// chosen: fitted to three photographs, the chart is where the fit gives. The
+// app sharpens as hard as the photo reads soft, and Google does too, but the
+// chart reads about as soft as the forest, which Google sharpened half as
+// hard. What else Google goes by is not known; see Sharpen's forBlur and
+// calibration/README.md. Until the portrait and the forest the app was
+// within 0.13 here from 6px up and 0.42 over at 4px, and the forest was
+// sharpened half as hard again as Google's.
 const SIX_UP = [6, 8, 12].map(PERIOD);
 const FOUR = [PERIOD(4)];
 const sharpChart = await sharpenedChart('chart.png', chartPng, 100);
@@ -567,24 +573,25 @@ let sharpGains = null;
 if (!sharpChart) check(false, 'the sharpened chart export arrives');
 else {
   sharpGains = gainsOf(sharpChart.fundamentals, googlePhone.none);
-  check(sharpChart.size === 2160 && SIX_UP.every((i) => Math.abs(sharpGains[i] - googleSharp[i]) <= 0.15),
-    'Sharpen 100 lifts the chart\'s 6 to 12px gratings as Google Photos does, within 0.15', listed(sharpGains, googleSharp, SIX_UP));
-  check(FOUR.every((i) => sharpGains[i] >= googleSharp[i] && sharpGains[i] - googleSharp[i] <= 0.45),
-    'and the 4px one at least as much, and no more than 0.45 over', listed(sharpGains, googleSharp, FOUR));
+  check(sharpChart.size === 2160 && SIX_UP.every((i) => sharpGains[i] - googleSharp[i] <= 0.15 && googleSharp[i] - sharpGains[i] <= 0.5),
+    'Sharpen 100 lifts the chart\'s 6 to 12px gratings no more than 0.15 past Google\'s and no more than 0.5 short', listed(sharpGains, googleSharp, SIX_UP));
+  check(FOUR.every((i) => Math.abs(sharpGains[i] - googleSharp[i]) <= 0.2),
+    'and the 4px one within 0.2', listed(sharpGains, googleSharp, FOUR));
   check(sharpChart.steps.every((v, i) => Math.abs(v - googlePhone.none.steps[i].out[1]) <= 1),
     'and leaves the middle of every flat step as it was', sharpChart.steps.join(' '));
   // Google's noise patch came out at 3.01, its own q90 JPEG included; the
   // chart as it came reads 3.02, and 2.59 through the same JPEG. This is
   // grain at the pixel, finer than anything in a photograph's own detail,
-  // and it is where keeping the finest detail costs most: 3.75 through the
-  // JPEG, where trading it had 3.10. On the photos the app's soft ground
-  // came out no grainier than Google's (the fox's soft background 1.14 in
-  // the fine band against Google's 1.28), so this holds it to not much worse.
+  // and it is where keeping the finest detail costs most: 3.25 through the
+  // JPEG, where trading it had 3.10 and keeping it with the lift at 1.55
+  // throughout 3.75. On the photos the app's soft ground came out no
+  // grainier than Google's (the fox's soft background 1.20 in the fine band
+  // against Google's 1.28), so this holds it to not much worse.
   check(sharpChart.noiseJpeg - googlePhone['sharpen+100'].noise <= 0.8,
     'and the noise patch comes out no more than 0.8 louder than Google\'s once both are JPEGs',
     `${sharpChart.noiseJpeg.toFixed(2)} (${sharpChart.noise.toFixed(2)} before the JPEG); Google ${googlePhone['sharpen+100'].noise}`);
-  // Google's rings 10 under and 7 over at this edge. The app's rings 2 and
-  // 9 (1 and 4 while the finest detail was traded), and what matters more
+  // Google's rings 10 under and 7 over at this edge. The app's rings 5 and
+  // 11 (1 and 4 while the finest detail was traded), and what matters more
   // is that it goes no further out than Google's by much.
   const e = past(sharpChart.edge);
   const ge = past(googlePhone['sharpen+100'].edgeGrey);
@@ -599,10 +606,10 @@ const googleHalf = gainsOf(googlePhone['sharpen+52'].gratings.map((q) => q.funda
 if (!halfChart) check(false, 'the chart sharpened at 52 arrives');
 else {
   const gains = gainsOf(halfChart.fundamentals, googlePhone.none);
-  check(SIX_UP.every((i) => Math.abs(gains[i] - googleHalf[i]) <= 0.1),
-    'Sharpen 52 lifts the 6 to 12px ones as Google\'s does, within 0.1', listed(gains, googleHalf, SIX_UP));
-  check(FOUR.every((i) => gains[i] >= googleHalf[i] && gains[i] - googleHalf[i] <= 0.25),
-    'and the 4px one at least as much, and no more than 0.25 over', listed(gains, googleHalf, FOUR));
+  check(SIX_UP.every((i) => gains[i] - googleHalf[i] <= 0.1 && googleHalf[i] - gains[i] <= 0.3),
+    'Sharpen 52 lifts the 6 to 12px ones no more than 0.1 past Google\'s and no more than 0.3 short', listed(gains, googleHalf, SIX_UP));
+  check(FOUR.every((i) => Math.abs(gains[i] - googleHalf[i]) <= 0.1),
+    'and the 4px one within 0.1', listed(gains, googleHalf, FOUR));
   if (sharpGains) {
     check(MID.every((i) => Math.abs((gains[i] - 1) - 0.52 * (sharpGains[i] - 1)) <= 0.02),
       'and by 52% of what 100 lifts them', MID.map((i) => `${layout.gratings.periods[i]}px ${(gains[i] - 1).toFixed(3)} against ${(0.52 * (sharpGains[i] - 1)).toFixed(3)}`).join(', '));
@@ -612,7 +619,8 @@ else {
 // And on the blurred chart: 2.76 and 3.11 at 8 and 12px against the blurred
 // chart's own, where the sharp chart got 1.88 and 1.34. The finer gratings
 // are all but gone there, and there is nothing left of them to lift. The app
-// is 0.26 short at 12px, which calibration/README.md goes into.
+// comes to 2.88 and 3.19: sharpening a soft photo harder is what closed the
+// 0.26 it was short at 12px.
 const blurredChart = await sharpenedChart('chart-blurred.png', blurredPng, 100);
 const googleBlurred = gainsOf(googlePhone['sharpen+100@blurred'].gratings.map((q) => q.fundamental), googlePhone['none@blurred']);
 if (!blurredChart) check(false, 'the sharpened blurred chart export arrives');
@@ -631,9 +639,10 @@ else {
 // — 1.56 at 6px against 2.28 — because the patch's own edge is its darkest
 // and lightest, and the estimate of how soft a photo is stretches it to its
 // range first. A black and a white square far from the patch put it back
-// with the chart: 2.31. Here too the 4px grating is lifted more than
-// Google's, 1.73 against 1.42 and 2.05 against 1.76, for the same reason as
-// on the chart, and 6px on the plain patch is 0.16 over.
+// with the chart: 2.31. The app has the patch at 1.66 and the squares take
+// it to 2.04, half Google's difference, short for the same reason as the
+// chart above; its 4px is 0.15 over Google's on the patch and 0.13 under
+// with the squares.
 const patchGains = async (name, buffer) => {
   const got = await sharpenedChart(name, buffer, 100, 'patch');
   const base = googleScale[name.replace('.png', '')].none.fundamentals;
@@ -641,9 +650,7 @@ const patchGains = async (name, buffer) => {
 };
 const SCALE_MID = [4, 6, 8, 12].map((per) => PATCH.periods.indexOf(per));
 const scaleList = (ours, google) => SCALE_MID.map((i) => `${PATCH.periods[i]}px ${ours[i].toFixed(2)}/${google[i].toFixed(2)}`).join(', ');
-const within = (ours, google) => SCALE_MID.every((i) => (PATCH.periods[i] === 4
-  ? ours[i] >= google[i] && ours[i] - google[i] <= 0.35
-  : Math.abs(ours[i] - google[i]) <= 0.2));
+const within = (ours, google) => SCALE_MID.every((i) => Math.abs(ours[i] - google[i]) <= 0.3);
 const plainPatch = await patchGains('scale-2160x2160.png', patchPng);
 const bwPatch = await patchGains('scale-2160x2160-bw.png', patchBwPng);
 if (!plainPatch || !bwPatch) check(false, 'the sharpened patches arrive');
@@ -651,11 +658,11 @@ else {
   const gp = googleScale['scale-2160x2160']['sharpen+100'].gains;
   const gb = googleScale['scale-2160x2160-bw']['sharpen+100'].gains;
   check(within(plainPatch, gp),
-    'the patch of gratings on grey is lifted as Google lifts it, within 0.2 from 6px and no more than 0.35 over at 4px', scaleList(plainPatch, gp));
+    'the patch of gratings on grey is lifted as Google lifts it, within 0.3 from 4 to 12px', scaleList(plainPatch, gp));
   check(within(bwPatch, gb),
     'and with a black and a white square beside it, as Google lifts that', scaleList(bwPatch, gb));
   const six = PATCH.periods.indexOf(6);
-  check(bwPatch[six] > plainPatch[six] + 0.5,
+  check(bwPatch[six] > plainPatch[six] + 0.3,
     'the squares alone make the same gratings sharpen harder, as they did in Google Photos', `6px ${bwPatch[six].toFixed(2)} against ${plainPatch[six].toFixed(2)}`);
 }
 
@@ -675,9 +682,9 @@ else {
 // 3888x2592, a ten megapixel phone photo's shape, which covers a 2160
 // export at exactly 3240 wide: drawn at a fraction of a pixel, an edited
 // tile is resampled once more on its way out and loses its finest detail
-// whatever the edit, which would be measured instead. Its steepest slope
-// reads σ 0.70 and 0.61 across and down, its fortieth steepest 0.90 and
-// 0.88; the fox's read 0.66 and 0.59, and 0.97 and 0.91.
+// whatever the edit, which would be measured instead. Its fortieth steepest
+// slopes read σ 1.07 and 1.05 across and down, the fox's 1.15 and 1.08, so
+// it is sharpened a little less hard than the fox was.
 const { transfer, PERIODS: TRANSFER_PERIODS } = await import('./calibration/transfer.mjs');
 const googleReal = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/calibration/google-phone-real.json'), 'utf8'));
 const texture = Buffer.from(await p.evaluate(async () => {
