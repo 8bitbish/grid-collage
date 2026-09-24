@@ -54,8 +54,9 @@ Without them those seven skip and the runner names them. The ffmpeg bundled with
 Playwright cannot do it — it is built `--disable-everything` and has libvpx but
 no lavfi, so it can neither read a synthetic source nor write H.264.
 
-The three small fixtures are committed: `clip.webm` (20 KB), `photo.heic`
-(1.8 KB) and `rotated.mp4` (3 KB). The rest — twelve 4032×3024 JPEGs, twelve
+The five small fixtures are committed: `clip.webm` (20 KB), `photo.heic`
+(1.8 KB), `rotated.mp4` (3 KB) and `moving0.webm` and `moving1.webm` (37 KB and
+28 KB). The rest — twelve 4032×3024 JPEGs, twelve
 1080×1920 clips and one H.264 `clip.mp4` — come to about 70 MB and are
 generated.
 
@@ -64,6 +65,17 @@ Several tests depend on exactly that: a window longer than the clip has to show
 both colours for the canvas to count as following the video. A replacement must
 keep the two-colour structure or those tests stop meaning anything rather than
 failing honestly.
+
+`moving0.webm` and `moving1.webm` are the opposite: 320×320 test patterns,
+3s at 30fps, that change on every frame. `test-swipeplay` needs that, because
+it looks for the preview holding one picture while the clip plays on, and a
+clip that is one flat colour for a second at a time looks frozen when it is
+not. They were made like this:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=s=320x320:d=3:r=30 -c:v libvpx-vp9 -b:v 100k -an moving0.webm
+ffmpeg -f lavfi -i testsrc=s=320x320:d=3:r=30 -c:v libvpx-vp9 -b:v 100k -an moving1.webm
+```
 
 `rotated.mp4` is VP9, 640×360 coded with a 90° rotation in the container, so
 it plays as 360×640 — the way a phone stores a portrait clip. Upright it is red
