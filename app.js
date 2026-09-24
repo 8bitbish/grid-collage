@@ -306,6 +306,43 @@
     return { dw, dh, zoom, minZoom, ox: vx * ca - vy * sa, oy: vx * sa + vy * ca };
   }
 
+  // Where a tile is square to the page — any quarter turn, flipped or not —
+  // its photo is drawn at a whole number of pixels, starting on a whole
+  // pixel. An edited photo arrives as a look already the size of the tile,
+  // and drawn at a fraction of a pixel it was resampled a second time with a
+  // sub-pixel shift, which takes the finest detail out: a fox covering its
+  // tile at 3226.67 wide lost half its 2px detail and a quarter of its 3px to
+  // Black point +30, an edit that should change nothing but tone. Snapped,
+  // the look lands on the canvas pixel for pixel. Every tile snaps, edited or
+  // not, so compare and a popped-out subject line up with the look exactly;
+  // the photo grows by under two pixels to keep the tile covered, and nothing
+  // is written back, since the whole pixels of a preview are not those of an
+  // export. A tile at any other angle is resampled whatever is done.
+  function onWholePixels(p, cell, rect) {
+    const turns = cell.rot / (Math.PI / 2);
+    if (Math.abs(turns - Math.round(turns)) > 1e-6) return p;
+    const sideways = Math.abs(Math.round(turns)) % 2 === 1;
+    // Across and down the page, and where the photo's edges fall on it.
+    const snap = (size, centre, lo, hi) => {
+      const whole = Math.max(Math.ceil(size - 1e-6), Math.ceil(hi - 1e-6) - Math.floor(lo + 1e-6));
+      let start = Math.round(centre - whole / 2);
+      start = Math.min(start, Math.floor(lo + 1e-6));
+      start = Math.max(start, Math.ceil(hi - 1e-6) - whole);
+      return { whole, centre: start + whole / 2 };
+    };
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    const x = snap(sideways ? p.dh : p.dw, cx + p.ox, rect.x, rect.x + rect.w);
+    const y = snap(sideways ? p.dw : p.dh, cy + p.oy, rect.y, rect.y + rect.h);
+    return {
+      ...p,
+      dw: sideways ? y.whole : x.whole,
+      dh: sideways ? x.whole : y.whole,
+      ox: x.centre - cx,
+      oy: y.centre - cy,
+    };
+  }
+
   // Write the clamp back, so the next gesture starts from what's on screen.
   function settle(i) {
     const cell = page().cells[i];
@@ -352,7 +389,7 @@
       g.clip();
 
       if (photo && photo.bitmap) {
-        p = place(cell, photo, rect, s);
+        p = onWholePixels(place(cell, photo, rect, s), cell, rect);
         pose();
         // cell.frame is set while a video is playing in the preview, and
         // while an export walks its frames. Failing that a clip draws as its
@@ -1681,8 +1718,13 @@
     const max = lookContext() ? lookGL.max : 0;
     if (!max) return src;
     fit = Math.min(fit, max / sw, max / sh);
-    const w = Math.max(1, Math.round(sw * fit));
-    const h = Math.max(1, Math.round(sh * fit));
+    // At rest and smaller than the source, exactly the size it is drawn at,
+    // which onWholePixels has made whole: taken from one scale for both
+    // sides, a look can come out a pixel off it, and a pixel over two
+    // thousand is a sub-pixel shift sliding across the tile.
+    const exact = fit === want && want < 1;
+    const w = exact ? Math.max(1, Math.round(dw)) : Math.max(1, Math.round(sw * fit));
+    const h = exact ? Math.max(1, Math.round(dh)) : Math.max(1, Math.round(sh * fit));
     const dark = darkness(photo, src);
     // Measured only for a tool that is in use: the blur estimate reads a
     // copy the size of Google's working one, once per decode.
@@ -4550,8 +4592,20 @@
       // warming up or seeking gives you a black rectangle. Which is what a
       // clip opened with: black, until it got going. So it stays on its
       // poster until there is genuinely something better.
+      //
+      // And the callback is asked for again on every frame, for as long as
+      // the player lives, not just the once. These elements are never on
+      // screen, and with nothing waiting on their frames Chromium stopped
+      // handing new ones to drawImage about a second in: the tile held still
+      // for 250–270ms on every swipe, six swipes out of six, while the clock
+      // underneath ran on, which is the stutter a slide showed each time it
+      // came in. With a callback always pending the longest still was
+      // 17–51ms, which is a 30fps clip repeating itself on a 60Hz screen.
       const p = { el, url, cell, photoId: photo.id, ready: false };
-      const gotFrame = () => { p.ready = true; };
+      const gotFrame = () => {
+        p.ready = true;
+        if (el.requestVideoFrameCallback && players.get(i) === p) el.requestVideoFrameCallback(gotFrame);
+      };
       if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(gotFrame);
       else el.addEventListener('canplay', gotFrame, { once: true });
       players.set(i, p);
