@@ -537,6 +537,49 @@
         if (amount > 0.0) c = (c - 0.25 * amount) / (1.0 - 0.25 * amount);
         else c = -0.25 * amount + c * (1.0 + 0.25 * amount);`,
     },
+    {
+      id: 'sharpen', label: 'Sharpen', min: 0, max: 100, stage: 'detail',
+      icon: '<path d="M12 4l8.5 15h-17z"/>',
+      // An unsharp mask: each pixel pushed away from the blur around it, so an
+      // edge gains contrast and anything flat has nothing to push against.
+      //
+      // On brightness alone, the same lift added to all three channels.
+      // Sharpening each channel on its own pushes them apart wherever an edge
+      // is coloured, which fringes, and it would sharpen the blocks a JPEG
+      // stores its colour in at half resolution. At a red-to-cyan edge at 100
+      // all three channels moved together by fifteen or sixteen levels, and
+      // the differences between them, which are the colour, not at all.
+      //
+      // The blur is four reads on the diagonals, half a post pixel out. The
+      // texture filters linearly, so each read is the average of four pixels
+      // and the four together are a 3x3 blur weighted 1-2-1 each way, for the
+      // cost of four reads rather than nine. It reaches one pixel of a 1080px
+      // post, so the halo is a pixel wide and nothing ripples beyond it. In a
+      // 2160px export the reads land on the diagonal neighbours and the halo
+      // is half as wide and twice as deep, which comes to the same edge at
+      // the size it is seen: 100 to 170 went to 77 and 193 at 1080, and to 77
+      // and 194 once the 2160 was halved. In a thumbnail the reads close in on
+      // the pixel and the effect fades, as the preview's would if shrunk that
+      // far — at a tenth the size, two levels.
+      //
+      // 1.5 at 100 overshoots a hard edge by a third of its step, about what
+      // an unsharp mask of 100% at one pixel does: strong, not crunchy. The
+      // smoothstep leaves differences under half a level alone and takes the
+      // full amount from two, so grain in a flat sky is not what gets
+      // sharpened: noise in a soft gradient rose 5% at 100 while fine lines
+      // gained 68%. The last line is a soft ceiling on the lift, so a roofline
+      // against the sky gets a crisp rim rather than a glowing one. It scales
+      // with u_scale because the export's halo is twice as deep for the same
+      // look, and a fixed ceiling clipped the 2160 harder than the preview.
+      glsl: `
+        float r = 0.5 * u_scale;
+        float blur = 0.25 * (luma(at(vec2(-r, -r))) + luma(at(vec2(r, -r))) + luma(at(vec2(-r, r))) + luma(at(vec2(r, r))));
+        float detail = luma(at(vec2(0.0))) - blur;
+        detail *= smoothstep(0.002, 0.008, abs(detail));
+        float lift = 1.5 * amount * detail;
+        float limit = max(0.2 * u_scale, 0.001);
+        c += lift * inversesqrt(1.0 + lift * lift / (limit * limit));`,
+    },
   ];
 
   const adjustment = (id) => ADJUSTMENTS.find((a) => a.id === id);
