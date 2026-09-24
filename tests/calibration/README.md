@@ -113,6 +113,48 @@ white square in the corner), `measure` reads each grating's gain and writes
 of the patch at 1080², 2160² and 4032×3024, on grain of three spreads, and
 with the squares.
 
+### Real photographs
+
+A chart says what a tool does to stripes and steps. Sharpen fitted to them
+came out clearly softer than Google's on real photographs, so it is now held
+to those first. `real.mjs` does the measuring:
+
+    node real.mjs <photo> <original> <google dir> <ours dir> <out dir> [--map] [--dump]
+
+It draws the original, the phone's copy and the app's export into the same
+2160 square an export draws into, and reads them two ways: in regions chosen
+by eye (fur, gravel, skin, hair, fabric, soft background, hard edges), the
+RMS of three bands of detail — fine, the photo less a 3x3 box blur; mid, that
+less a 7x7; coarse, that less a 15x15 — each over the original's; and over
+the whole frame, the transfer function, `transfer.mjs`: the gain at each
+period from the cross-spectrum of copy and original, so detail the edit
+invents rather than lifts does not count. It writes side-by-side crops at
+1.6×, original / Google / ours, for looking at.
+
+Two things to know before measuring:
+
+- **Give it a photo whose cover lands on whole pixels.** An edited tile drawn
+  at a fraction of a pixel is resampled a second time on its way into the
+  export, and that alone takes out all of the finest detail across the axis
+  it falls on — 2px detail across came back cancelled completely, 3px
+  halved, with Black point +30 as much as with Sharpen. The fox at 3872x2592
+  covers at 3226.67 wide; 4px off either side, 3864x2592, covers at exactly
+  3220. `real.mjs` warns when it sees one. The crops were taken in PNG, and
+  Google's copies cropped identically. (That is a bug in how the app draws an
+  edited tile, not in Sharpen, and is open below.)
+- **The photos are not kept here.** They are other people's work, and the
+  portrait is of a real person. What was read off them is, in
+  `google-phone-real.json`: each photo's source and crop, the regions, and at
+  each setting Google's transfer function and region boosts.
+
+`google-phone-real.json` holds a red fox (US Fish and Wildlife Service, public
+domain, 3872x2592: fur, whiskers, gravel, soft background) at Sharpen 25, 52
+and 100, and the USFWS director's official portrait (public domain,
+3325x4987: skin, hair, fabric, a badge, bokeh) at 25. The portrait at 50 and
+100 and a rainforest photo at three settings were planned; the phone run
+stopped on the portrait at 50, when the slider settled on 54 rather than
+within 2 of 50, and nothing more was run.
+
 ## What was found
 
 Measured in September 2026, Google Photos for Android and on the web.
@@ -190,19 +232,56 @@ Measured in September 2026, Google Photos for Android and on the web.
     came (both as Google's own q90 JPEGs; the chart through the same JPEG
     reads 2.59). Colour was untouched.
 
+  Then real photographs, through `real.mjs`, which the charts had not
+  prepared anyone for:
+
+  - *On a photograph Google keeps the finest detail and lifts it.* Across the
+    whole fox at 100, 2px detail came back ×0.95, 3px ×1.20 and 4px ×1.38
+    (periods in the 2160 export). The app, having copied the charts' finest
+    gratings by moving the photo half way to its copy, had ×0.48, ×0.67 and
+    ×1.03, and the fur looked flat beside Google's. The chart's 2px grating
+    ×0.15 is stripes beating against Google's copy's grid, which a photo has
+    none of.
+  - *Its boost peaks at coarser detail on a photograph than on a chart.* The
+    fox's peaked at 12px of the export, ×2.03, in every region alike — face,
+    body fur, gravel, soft background, legs — and the portrait's at 10 to 12px
+    too: 5.6 pixels of Google's copy on the fox and 4.5 to 5.4 on the
+    portrait, where the chart's peaked at 3.4. The app, reading σ from the
+    steepest slope, put the fox's at 8px.
+  - *That is the estimate reading a photo softer than its single steepest
+    slope.* A chart's steepest slope is shared by hundreds of pixels along its
+    edges (216 on the chart, 136 on the 2160 patch, 42 on the 4032x3024 one);
+    a photograph's is one pixel — on the fox the only one within 5% of it.
+    The fortieth steepest leaves every chart and patch where it was and reads
+    the fox at σ 0.97 and 0.91 across and down, against 0.66 and 0.59 from the
+    steepest, and the portrait at 0.80 and 1.00. That moved the app's peak on
+    the fox from 8 to 10px and halved its distance from Google's (below).
+    Whether Google counts pixels, takes a percentile or does something else
+    that comes to the same on these two photos is not known.
+  - *The halo guard matters more on photographs than on charts.* In a model
+    of the passes that matched the app's exports to 0.01, taking it away put
+    every region of the fox three times as far from Google's (0.37 RMS against
+    0.13 at 100): the mid-sized detail in the gravel went ×2.12 where Google's
+    is ×1.41.
+  - *The slider is still a straight line.* The fox's transfer at 25 and 52 is
+    that at 100 scaled down, to within 0.015 from 3 to 48px. Not the finest:
+    2.5px sits at ×1.07 to ×1.09 at every setting, and 2px goes ×1.09, ×1.03,
+    ×0.95 — some of which may be Google's own JPEG.
+
   What was built: a working copy of 1.5 megapixels up or down, taken with
   bilinear lookups; the blur estimate read off it once per decode, across and
-  down separately, each slope turned into σ as above; grain split off with a
-  3x3 bilateral filter of 2.9 levels, 39% of it handed back; the three bands
-  and a fixed polynomial, α 13.7 and b 1.8, lifted 1.55 times over; the
-  paper's halo guard with the photo's slope taken through the blur, the blend
-  shared with each pixel's four neighbours and taken a fifth further; and at
-  full size, the photo moved 51% of the way to the copy brought back up
-  before the lift is added. All of it is worked out once per photo and size,
-  and the slider scales the result. The constants were fitted to the phone's
+  down separately, from the fortieth steepest slope each way, each turned
+  into σ as above; grain split off with a 3x3 bilateral filter of 2.9 levels,
+  39% of it handed back (on a photograph it barely acts: neighbours in the
+  copy differ by far more than 2.9 levels); the three bands and a fixed
+  polynomial, α 13.7 and b 1.8, lifted 1.55 times over; the paper's halo
+  guard with the photo's slope taken through the blur, the blend shared with
+  each pixel's four neighbours and taken a fifth further; and the lift added
+  to the photo as it is. All of it is worked out once per photo and size, and
+  the slider scales the result. The constants were fitted to the phone's
   copies with a Python model of the same passes, not kept here, which agreed
-  with the app's own exports to 0.02 on every grating; `app.js` has what each
-  piece is for and what it measured.
+  with the app's own exports to 0.02 on every grating and to 0.01 on the
+  fox's regions; `app.js` has what each piece is for and what it measured.
 
 How close the app now is, from `compare.mjs`:
 
@@ -214,37 +293,99 @@ How close the app now is, from `compare.mjs`:
 | White point, all eight | 1 level | 0.7–4.5 / 10.8 |
 | Black point, all eight | 1–4 levels | 1.4–5.7 / 12.5 |
 
-And Sharpen, exported through the app at 2160 and read the same way (gain by
-each grating's fundamental against the chart as it came; ours / the phone's):
+And Sharpen. Real photographs first, since they are what it is for, through
+`real.mjs`: Google's / the app's now (the app before this refit). Each
+region's boost in the three bands at 100 on the fox:
+
+| fox at 100 | fine | mid | coarse |
+| --- | --- | --- | --- |
+| face fur | 1.30 / 1.22 (1.10) | 1.65 / 1.68 (1.66) | 1.77 / 1.81 (1.55) |
+| muzzle, whiskers | 1.38 / 1.36 (1.22) | 1.75 / 1.77 (1.63) | 1.78 / 1.73 (1.48) |
+| body fur | 1.50 / 1.33 (1.14) | 1.95 / 1.83 (1.56) | 1.86 / 1.57 (1.25) |
+| gravel | 1.11 / 1.17 (0.91) | 1.42 / 1.71 (1.54) | 1.38 / 1.33 (1.14) |
+| soft background | 1.28 / 1.14 (0.91) | 1.58 / 1.51 (1.47) | 1.70 / 1.51 (1.33) |
+| eye and ear edges | 1.33 / 1.27 (1.20) | 1.66 / 1.74 (1.71) | 1.67 / 1.69 (1.42) |
+
+At 52 and 25 the same regions are as far off in proportion: RMS over every
+region and band 0.085 at 52 (0.175 before) and 0.050 at 25 (0.094); at 100
+it is 0.130 (0.275). The portrait at 25:
+
+| portrait at 25 | fine | mid | coarse |
+| --- | --- | --- | --- |
+| cheek skin | 1.06 / 1.06 (0.99) | 1.14 / 1.16 (1.12) | 1.10 / 1.09 (1.05) |
+| other cheek | 1.10 / 1.07 (1.00) | 1.19 / 1.19 (1.14) | 1.20 / 1.19 (1.12) |
+| hair | 1.11 / 1.06 (0.99) | 1.21 / 1.17 (1.15) | 1.18 / 1.16 (1.12) |
+| eyes, brows | 1.09 / 1.09 (1.02) | 1.16 / 1.19 (1.15) | 1.14 / 1.13 (1.08) |
+| shirt fabric | 1.02 / 1.06 (0.99) | 1.12 / 1.18 (1.13) | 1.09 / 1.11 (1.07) |
+| badge | 1.10 / 1.14 (1.09) | 1.13 / 1.20 (1.15) | 1.10 / 1.13 (1.09) |
+| soft background | 1.01 / 1.01 (0.95) | 1.08 / 1.04 (1.03) | 1.12 / 1.05 (1.05) |
+
+RMS 0.035 (0.057). The transfer function over the whole frame, by period in
+the 2160 export:
+
+| | 2 | 2.5 | 3 | 4 | 5 | 6 | 8 | 10 | 12 | 16 | 24 | 32 | 48 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fox 100, Google | 0.95 | 1.09 | 1.20 | 1.38 | 1.50 | 1.61 | 1.81 | 1.97 | 2.03 | 1.84 | 1.42 | 1.21 | 1.07 |
+| now | 0.95 | 0.98 | 1.04 | 1.17 | 1.34 | 1.57 | 1.93 | 1.99 | 1.89 | 1.59 | 1.26 | 1.12 | 1.04 |
+| before | 0.48 | 0.53 | 0.67 | 1.03 | 1.38 | 1.64 | 1.76 | 1.65 | 1.51 | 1.30 | 1.13 | 1.06 | 1.02 |
+| fox 52, Google | 1.03 | 1.08 | 1.10 | 1.20 | 1.26 | 1.32 | 1.43 | 1.52 | 1.55 | 1.45 | 1.22 | 1.11 | 1.04 |
+| now | 0.98 | 1.00 | 1.03 | 1.10 | 1.20 | 1.31 | 1.51 | 1.54 | 1.48 | 1.31 | 1.14 | 1.06 | 1.02 |
+| before | 0.73 | 0.76 | 0.83 | 1.03 | 1.21 | 1.35 | 1.41 | 1.35 | 1.27 | 1.16 | 1.07 | 1.03 | 1.01 |
+| fox 25, Google | 1.09 | 1.07 | 1.05 | 1.08 | 1.12 | 1.15 | 1.20 | 1.24 | 1.25 | 1.21 | 1.10 | 1.05 | 1.02 |
+| now | 1.00 | 1.00 | 1.02 | 1.05 | 1.10 | 1.15 | 1.25 | 1.26 | 1.23 | 1.15 | 1.07 | 1.03 | 1.01 |
+| before | 0.88 | 0.89 | 0.93 | 1.02 | 1.10 | 1.17 | 1.20 | 1.17 | 1.13 | 1.08 | 1.03 | 1.01 | 1.00 |
+| portrait 25, Google | 0.89 | 0.96 | 1.00 | 1.06 | 1.09 | 1.11 | 1.14 | 1.15 | 1.15 | 1.10 | 1.05 | 1.03 | 1.01 |
+| now | 0.99 | 1.00 | 1.02 | 1.05 | 1.09 | 1.15 | 1.21 | 1.19 | 1.17 | 1.10 | 1.04 | 1.02 | 1.01 |
+| before | 0.89 | 0.90 | 0.93 | 1.00 | 1.07 | 1.13 | 1.17 | 1.14 | 1.11 | 1.06 | 1.02 | 1.01 | 1.00 |
+
+What is still off is the shape: Google's lift is broader than any one
+Polyblur makes, rising sooner at 3 to 5px and running on further past 16px,
+and it is not quite the same everywhere in a photo — the fox's gravel got
+less from Google at 6 to 8px than its fur did (×1.25 against ×1.72 at 6px),
+where the app treats them alike and so lifts the gravel's mid band ×1.71
+against Google's ×1.42. See below.
+
+Then the charts, exported through the app at 2160 and read as before (gain by
+each grating's fundamental against the chart as it came; ours / the phone's,
+and in brackets the app before this refit where it moved):
 
 | | 4px | 6px | 8px | 12px | 20\|235 edge, dip, rise | 100\|170 edge, dip, rise | 1px line peak | noise, ours raw → after q90 JPEG / Google's |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 25 | 1.19 / 1.16 | 1.31 / 1.32 | 1.23 / 1.22 | 1.10 / 1.08 | 1, 4 / 3, 2 | 0, 1 / 2, 1 | +7 / +5 | 2.96 → 2.54 / 2.60 |
-| 52 | 1.39 / 1.33 | 1.65 / 1.68 | 1.48 / 1.47 | 1.21 / 1.18 | 2, 7 / 5, 4 | 1, 2 / 6, 3 | +14 / +11 | 2.96 → 2.62 / 2.74 |
-| 77 | 1.58 / 1.48 | 1.95 / 1.99 | 1.70 / 1.68 | 1.31 / 1.26 | 4, 11 / 8, 7 | 1, 3 / 8, 4 | +18 / +17 | 3.06 → 2.82 / 2.89 |
-| 100 | 1.75 / 1.63 | 2.24 / 2.28 | 1.91 / 1.88 | 1.40 / 1.34 | 5, 14 / 11, 9 | 1, 4 / 10, 7 | +20 / +22 | 3.24 → 3.10 / 3.01 |
-| 100, blurred chart | — | — | 2.84 / 2.76 | 2.85 / 3.11 | 4, 18 / −1, 0 | 1, 6 / 4, 3 | −48 / −47 | 0.83 → 0.85 / 0.87 |
-| 100, clipped chart | 1.44 / 1.44 | 1.56 / 1.69 | 1.37 / 1.43 | 1.15 / 1.17 | 4, 14 / 8, 10 | 1, 5 / 7, 8 | +8 / +13 | 3.01 → 2.85 / 2.68 |
+| 25 | 1.26 / 1.16 (1.19) | 1.35 / 1.32 (1.31) | 1.25 / 1.22 (1.23) | 1.11 / 1.08 (1.10) | 1, 8 / 3, 2 (1, 4) | 0, 2 / 2, 1 (0, 1) | +12 / +5 (+7) | 3.20 → 2.82 / 2.60 (2.54) |
+| 52 | 1.55 / 1.33 (1.39) | 1.73 / 1.68 (1.65) | 1.53 / 1.47 (1.48) | 1.23 / 1.18 (1.21) | 2, 16 / 5, 4 (2, 7) | 1, 5 / 6, 3 (1, 2) | +24 / +11 (+14) | 3.46 → 3.12 / 2.74 (2.62) |
+| 77 | 1.81 / 1.48 (1.58) | 2.08 / 1.99 (1.95) | 1.78 / 1.68 (1.70) | 1.34 / 1.26 (1.31) | 4, 20 / 8, 7 (4, 11) | 1, 7 / 8, 4 (1, 3) | +33 / +17 (+18) | 3.73 → 3.43 / 2.89 (2.82) |
+| 100 | 2.05 / 1.63 (1.75) | 2.40 / 2.28 (2.24) | 2.01 / 1.88 (1.91) | 1.44 / 1.34 (1.40) | 5, 20 / 11, 9 (5, 14) | 2, 9 / 10, 7 (1, 4) | +38 / +22 (+20) | 3.99 → 3.75 / 3.01 (3.10) |
+| 100, blurred chart | — | — | 2.94 / 2.76 (2.84) | 2.89 / 3.11 (2.85) | 5, 20 / −1, 0 (4, 18) | 2, 6 / 4, 3 (1, 6) | −48 / −47 | 0.85 → 0.86 / 0.87 |
+| 100, clipped chart | 1.74 / 1.44 (1.44) | 1.72 / 1.69 (1.56) | 1.47 / 1.43 (1.37) | 1.20 / 1.17 (1.15) | 4, 20 / 8, 10 (4, 14) | 1, 10 / 7, 8 (1, 5) | +27 / +13 (+8) | 3.89 → 3.63 / 2.68 (2.85) |
 
-The 2 and 3px gratings at 100 are 0.51 / 0.15 and 0.83 / 1.07. What Google
-leaves there is mostly beats against its copy's grid, and they were traded for
-4 to 12px and the noise, which the fit weighted most.
+A rise of 20 at the 20|235 edge is as far as it can go: that is white. The 2
+and 3px gratings at 100 are 1.01 / 0.15 and 1.25 / 1.07 (0.51 and 0.83
+before). This is what keeping a photograph's finest detail costs on a chart:
+the finest gratings, the 4px one lifted 0.42 more than Google's, a 1px line
+that peaks +38 where Google's peaks +22, and pixel-fine noise 0.74 louder
+through the same JPEG. From 6 to 12px the charts are within 0.13 of the
+phone, as they were, though the chart itself at 100 has gone from within 0.06
+to within 0.13. On the photos none of this showed as grit or halo: in the
+fine band the fox's soft background comes out less grainy than Google's (1.14
+against 1.28) and the portrait's cheek as grainy (1.06 and 1.06 at 25), and
+in the crops the whiskers and the rim of the eye ring about as far as
+Google's do.
 
 scale.mjs's patch at three sizes, each drawn into a 2160 export as the app
-draws it (`scale.mjs versus`), gain by period in the photo's own pixels; the
-app as it was before this fit is the last figure:
+draws it (`scale.mjs versus`), gain by period in the photo's own pixels; ours
+/ Google's (the app before this refit):
 
-| | 2px | 3px | 4px | 6px | 8px | 12px | 16px | worst over periods the export shows |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1080², ×2 | 1.44 / 0.92 (1.50) | 1.37 / 1.40 (2.53) | 1.27 / 1.39 (2.54) | 1.11 / 1.17 (1.75) | 1.05 / 1.08 (1.37) | 1.01 / 1.02 (1.13) | 1.01 / 1.01 (1.04) | 0.52 (1.15) |
-| 2160², ×1 | 0.50 / 0.41 (1.01) | 0.85 / 0.93 (1.10) | 1.44 / 1.42 (1.31) | 1.56 / 1.56 (2.13) | 1.37 / 1.35 (2.06) | 1.15 / 1.13 (1.51) | 1.08 / 1.06 (1.25) | 0.07 (0.71) |
-| 2160² with the squares | 0.51 / 0.42 (1.01) | 0.83 / 1.12 (1.08) | 1.75 / 1.76 (1.20) | 2.24 / 2.31 (2.25) | 1.92 / 1.98 (2.29) | 1.40 / 1.41 (1.65) | 1.19 / 1.19 (1.33) | 0.29 (0.56) |
-| 4032×3024, ×0.71 | 0.87 / 0.52 (1.15) | 0.49 / 0.59 (0.99) | 0.63 / 0.76 (1.14) | 1.30 / 1.33 (1.15) | 1.61 / 1.68 (1.82) | 1.43 / 1.48 (2.24) | 1.24 / 1.27 (1.84) | 0.13 (0.76) |
+| | 2px | 3px | 4px | 6px | 8px | 12px | 16px |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1080², ×2 | 1.73 / 0.92 (1.44) | 1.59 / 1.40 (1.37) | 1.42 / 1.39 (1.27) | 1.18 / 1.17 (1.11) | 1.09 / 1.08 (1.05) | 1.03 / 1.02 (1.01) | 1.02 / 1.01 (1.01) |
+| 2160², ×1 | 1.00 / 0.41 (0.50) | 1.26 / 0.93 (0.85) | 1.73 / 1.42 (1.44) | 1.72 / 1.56 (1.56) | 1.47 / 1.35 (1.37) | 1.20 / 1.13 (1.15) | 1.10 / 1.06 (1.08) |
+| 2160² with the squares | 1.01 / 0.42 (0.51) | 1.25 / 1.12 (0.83) | 2.05 / 1.76 (1.75) | 2.40 / 2.31 (2.24) | 2.01 / 1.98 (1.92) | 1.44 / 1.41 (1.40) | 1.22 / 1.19 (1.19) |
+| 4032×3024, ×0.71 | 1.28 / 0.52 (0.87) | 0.99 / 0.59 (0.49) | 1.09 / 0.76 (0.63) | 1.61 / 1.33 (1.30) | 1.81 / 1.68 (1.61) | 1.53 / 1.48 (1.43) | 1.30 / 1.27 (1.24) |
 
-From 4 to 12px the app is within 0.13 of the phone on every image but the
-1080² patch and the blurred chart, and within 0.07 on all but four of those
-numbers. The noise, through the same q90 JPEG as Google's, is within 0.17 on
-the chart and 0.27 on the patch.
+From 6 to 12px the app is within 0.16 of the phone on every patch bar the
+4032x3024 one's 6px, 0.28 over, and within 0.1 on eight of those twelve
+numbers; below that it lifts more than Google, for the same reason as on the
+chart.
 
 The grey is as close as the measurement can see. The colour at White and Black
 point ±100 is not: Google also takes about a tenth off a saturated colour at
@@ -258,34 +399,64 @@ do and nothing tried yet explains.
   out at slightly different points of the change, so a photo with a median
   near 128 is lifted up to six levels differently from Google at +100.
   Everything with a median below about 122 or above 130 matches to a level.
-- **Sharpen on grain rather than gratings.** In the same photo, Google lifted
-  the grain round the patch much more than the patch's gratings at the same
-  period and direction — detail running across ×1.77 at 8px against the 8px
-  grating's ×1.35, ×1.56 at 12px against ×1.13, ×1.36 at 16px against ×1.06
-  — and the same for grain of spread 4 and of 30, so it is not how strong the
-  detail is. No filter that treats every part of a photo alike can do both.
-  The app follows the gratings (×1.40, ×1.26 and ×1.15 on that grain), so on
-  photos, which are more like grain than like gratings, it probably lifts
-  8–16px detail less than Google does. A generated scene through the phone
-  would say how much.
+- **The shape of Sharpen's lift on a photograph.** Google's is broader than
+  one Polyblur gives at any σ: on the fox it is ×1.38 at 4px and still ×1.42
+  at 24px where the app's is ×1.17 and ×1.26, with the peaks two pixels
+  apart. Fitting the three bands' weights freely matched it (about 0.04 over
+  25, 52 and 100), but with weights that would ruin the charts, and a second
+  lift at a larger σ that only a photo sees (the charts' two σ being equal)
+  bought 0.13 → 0.12 for twice the passes, so neither was kept.
+- **And its content.** In the same photo Google gave the fox's gravel less
+  at 6 to 8px than its fur (×1.25 against ×1.72 at 6px). The app treats
+  every part of a photo alike and so lifts the gravel's mid band ×1.71
+  against ×1.42 — the largest miss, and it shows as a slightly grittier
+  gravel in the crops. In the model, the grain split's fall-off raised from 2.9 to 12 levels
+  with a fifth handed back took the gravel from ×1.78 to ×1.62 but the fox
+  as a whole only from 0.132 to 0.118 RMS, and would have cost the chart's
+  noise patch; a guard of 2.0 times rather than 1.2, to ×1.70, and it took
+  every ring off the chart's hard edges. Neither was kept. The earlier
+  finding that grain round the scale patch was lifted more than its gratings
+  was read off the spectrum's power, which counts aliasing and noise as lift.
+  On the photos, read by the transfer function, which does not, most of the
+  difference went with reading σ from the fortieth steepest slope, and what
+  is left is this.
+- **How Google really reads a photo's softness.** The fortieth steepest slope
+  fits the fox and the portrait and leaves every chart where it was, but two
+  photos cannot tell it from a percentile or from something else that comes
+  to the same on them, and the 4032x3024 patch, whose edge is only 42 copy
+  pixels at its steepest, allows nothing past the forty-first. More photos
+  through the phone would say: the portrait at 50 and 100 and a rainforest at
+  25, 50 and 100 were planned and not run.
+- **Edited tiles drawn at a fraction of a pixel.** An edited tile is rendered
+  at the tile's size rounded to a whole pixel and then drawn at the unrounded
+  size, so unless the cover lands on whole pixels it is resampled a second
+  time with a sub-pixel shift: the fox's export lost all of its 2px detail
+  across and half its 3px, with Black point +30 as with Sharpen. Unedited
+  tiles are not affected. Most photos will not land on whole pixels. This is
+  a fault in drawing a look, not in any one tool, and wants fixing on its
+  own.
 - **Small photos.** The app takes a photo under 1.5 megapixels up to the
   copy, as Google evidently does, but the 1080² patch's 2px grating comes out
-  ×1.44 where Google's is ×0.92, and that is 4px in a 2160 export. Carrying σ
+  ×1.73 where Google's is ×0.92 (×1.44 while the finest detail was traded),
+  and that is 4px in a 2160 export. Carrying σ
   up from the photo's own size, and coming back down with a box rather than
   bilinearly, were both further off.
 - **The rest of the chart.** Held to 20..235, the chart reads the same
   steepest slope as the patch and the app sharpens the two alike (6px
-  ×1.56), but Google took the clipped chart to ×1.69: something else on the
-  chart — its colour, text, 1px lines or the scene — reads a little softer to
-  Google's estimate than to the app's.
+  ×1.72), but Google took the clipped chart to ×1.69 and the patch to ×1.56:
+  something else on the chart — its colour, text, 1px lines or the scene —
+  reads a little softer to Google's estimate than to the app's. That the app
+  now matches the clipped chart is the finest detail no longer being traded,
+  not this being solved.
 - **Sharpen's hard edges and single lines.** At 100 the chart's 20|235 edge
-  rings 5 under and 13 over against Google's 11 and 9, the 100|170 edge 1 and
-  4 against 10 and 7, and the blurred chart's 20|235 edge rises 18 where
-  Google's does not rise at all. The 1px line's peak is right (+20 against
-  +22) but it has no dark lobe beside it where Google's dips 9. Google's copy
-  also softens a hard edge or not depending on where it falls against its
-  grid — the patch's edge came back 26|209, the chart's 9|233 — and the app's
-  grid does not fall where Google's does.
+  rings 5 under and to white over against Google's 11 and 9, the 100|170
+  edge 2 and 9 against 10 and 7, and the blurred chart's 20|235 edge rises
+  to white where Google's does not rise at all. The 1px line peaks +38
+  against +22 — it was +20 while the finest detail was traded — and has no
+  dark lobe beside it where Google's dips 9. Google's copy also softens a
+  hard edge or not depending on where it falls against its grid — the
+  patch's edge came back 26|209, the chart's 9|233 — and the app's grid does
+  not fall where Google's does.
 - **Which way the blur is stretched.** The app stretches it across and down;
   the paper stretches it along whatever direction is gentlest. On everything
   measured those were the same or nearly, and the paper's way fitted the

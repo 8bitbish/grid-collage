@@ -774,16 +774,20 @@
       // is its gain at 100 scaled down by the setting, to within 0.02, so one
       // polynomial serves every setting.
       //
-      // Detail finer than the copy is partly traded for the copy's own,
-      // which is why the finest gratings come back weaker rather than as they
-      // were: at 4032x3024 the 2, 3 and 4px ones lost a half to a quarter.
-      // See glsl.
+      // Detail finer than the copy is kept as it was, and the lift added to
+      // it. On the charts Google's finest gratings came back weaker — at
+      // 4032x3024 the 2, 3 and 4px ones lost a half to a quarter — and this
+      // once copied that by moving the photo half way to the copy. On real
+      // photographs Google does nothing of the kind. What the chart showed
+      // was stripes beating against the copy's grid, which a photo has none
+      // of. See glsl.
       //
       // And σ follows the photo, read off its steepest slopes after
       // stretching it to its own range. That is what set the calibration
       // chart apart from scale.mjs's patch of the same gratings on grey,
       // sharpened ×2.28 and ×1.56 at 6px: the patch's darkest and lightest
-      // were its own edge. See blurOf.
+      // were its own edge. Not the very steepest, though: a photo is
+      // sharpened as though softer than that. See blurOf.
       //
       // On brightness alone, the same lift added to all three channels, so a
       // coloured edge does not fringe; Google's colour patches came back
@@ -795,9 +799,10 @@
       // itself: c 81 and 0.38 here, fitted with the rest to Google's copies,
       // where the paper has 89.8 and 0.764. They put the chart's slope of
       // 107.5 levels a pixel at σ 0.64, the patch's 127.5 at 0.51 and the
-      // blurred chart's 60 at 1.29. No slope can be steeper than a step
-      // across the whole range, 127.5 in a central difference, so σ is never
-      // below 0.51; past 3 the passes' kernels run out.
+      // blurred chart's 60 at 1.29, and the fox's 78 and 82 across and down
+      // at 0.97 and 0.91. No slope can be steeper than a step across the
+      // whole range, 127.5 in a central difference, so σ is never below
+      // 0.51; past 3 the passes' kernels run out.
       forBlur(slopes) {
         const sigma = (f) => (f > 0 ? clamp(Math.sqrt(Math.max(0, (81 / f) ** 2 - 0.38 ** 2)), 0.5, 3) : 0.5);
         return { x: sigma(slopes.x), y: sigma(slopes.y) };
@@ -831,7 +836,17 @@
         // the price is the 100|170 edge, 1 and 5 against Google's 10 and 7
         // where without it it was 9 and 8. A sinusoid and its sharpened self
         // slope the same way everywhere, so no grating is touched by the
-        // guard. Grain is: it took the noise patch from 3.40 to 3.09.
+        // guard. Grain is: it took the noise patch from 3.40 to 3.09. And a
+        // photo is, far more than any chart: in a model of these passes that
+        // matched the app's exports of the fox to 0.01, taking the guard away
+        // put every region's boost at 100 nearly three times as far from
+        // Google's (0.37 RMS against 0.13), with the mid-sized detail in the
+        // fur and gravel lifted up to half as much again as Google lifts it
+        // (gravel ×2.12 against ×1.41). It is not only for edges.
+        //
+        // On a photo the grain split does next to nothing — its neighbours
+        // in the copy differ by far more than 2.9 levels — so it answers
+        // only to faint noise like the chart's.
         prepare: [
           {
             out: 'luma',
@@ -857,16 +872,15 @@
           { out: 'first', from: ['across', 'bands'], blur: 'y', glsl: 'float y1 = read1(vec2(0.0)).x; return vec2(y1, y1 - blurred().x);' },
           { out: 'across', from: ['first'], blur: 'x', glsl: 'return vec2(blurred().y, 0.0);' },
           { out: 'bands', from: ['across', 'first', 'luma'], blur: 'y', glsl: 'return vec2(read1(vec2(0.0)).y - blurred().x, read2(vec2(0.0)).x);' },
-          // The lift at 100, guarded, with the copy's own brightness beside
-          // it for glsl. α 13.7 and b 1.8 are the 6.87 and 7.07, and the lift
-          // is 1.55 times the polynomial's.
+          // The lift at 100, guarded. α 13.7 and b 1.8 are the 6.87 and 7.07,
+          // and the lift is 1.55 times the polynomial's.
           {
             out: 'across', from: ['first', 'bands'],
             glsl: `
               vec2 x = vec2(1.0, 0.0);
               vec2 y = vec2(0.0, 1.0);
               float back = min(1.0, 1.2 * max(pull(vec2(0.0)), max(max(pull(x), pull(-x)), max(pull(y), pull(-y)))));
-              return vec2((1.0 - back) * lift(vec2(0.0)), luma(source()));`,
+              return vec2((1.0 - back) * lift(vec2(0.0)), 0.0);`,
             helpers: `
               float lift(vec2 px) {
                 vec2 a = read0(px);
@@ -889,22 +903,24 @@
           },
         ],
       },
-      // The lift, and the detail finer than the copy partly traded for the
-      // copy's own: at 100 the photo is moved 51% of the way to the copy
-      // brought back up, before the lift is added. Without that the chart's
-      // 3px grating came out ×1.25 where Google's is ×1.07, the 4032x3024
-      // chart's 3 and 4px ones ×1.00 and ×1.11 where Google's are ×0.60 and
-      // ×0.76, and the noise patch 3.75 where Google's is 3.01. Where the
-      // look is no bigger than the copy the two are the same and this is
-      // nothing.
+      // The lift, added to the photo as it is. Until the fox this moved the
+      // photo 51% of the way to the copy brought back up first, because that
+      // is what took the chart's 3px grating from ×1.25 to Google's ×1.07
+      // and the 4032x3024 patch's 3 and 4px ones towards ×0.60 and ×0.76.
+      // Photographs are what the tool is for and they said otherwise: with
+      // it, the fox's 2px detail came out ×0.48 at 100 where Google's kept
+      // ×0.95, and its 3px ×0.67 against ×1.20, and the fur looked flat
+      // beside Google's. Without it, 0.95 and 1.05. The gratings pay: at
+      // 100 the chart's 2, 3 and 4px ones are ×1.01, ×1.25 and ×2.05 where
+      // Google's are ×0.15, ×1.07 and ×1.63, and its faint noise patch 3.75
+      // against 3.01 through the same JPEG.
       //
-      // Both scaled by the slider after the guard, not before: guarded at
+      // Scaled by the slider after the guard, not before: guarded at
       // each setting, a hard edge rang further at 25 than at 100 (19 levels
       // over against 14), because a weaker lift runs against the photo's
       // slope in fewer places. Google's rang 2, 4, 7 and 9 at 25 to 100.
       glsl: `
-        vec2 r = result_sharpen();
-        c += amount * (r.x - 0.51 * (luma(c) - r.y));`,
+        c += amount * result_sharpen().x;`,
     },
   ];
 
@@ -1030,9 +1046,22 @@
   // and white. A black and a white square added to the patch took it to
   // ×2.31; the chart held to 20..235 went down to ×1.69.
   //
+  // Not the very steepest slope, though, but the fortieth steepest. A chart
+  // is made of hard edges, and its steepest slope is shared by hundreds of
+  // pixels along them: 216 on the calibration chart, 136 on the 2160 patch,
+  // 42 on the 4032x3024 one. A photograph's steepest is one pixel — on the
+  // fox, the only one within 5% of it — and read from that pixel the fox
+  // came out σ 0.66 across, which put the app's boost at 8px of a 2160
+  // export where Google's is at 12, on every part of the fox alike, and
+  // on the portrait too. The fortieth steepest reads the fox at 0.97 and
+  // 0.91 and leaves every chart and patch where it was. With it and the fine
+  // detail kept (see Sharpen's glsl), the fox's regions came out half as far
+  // from Google's as they had been, 0.13 RMS at 100 against 0.28.
+  //
   // Once per decode, from a copy at the working size taken with plain
   // bilinear lookups, as the passes take theirs. Smoother resampling rings,
   // and the ringing moves the stretch: Lanczos took the patch out to 14..237.
+  const STEEPEST = 40;
   const blurs = new WeakMap();
   function blurOf(src, grid) {
     let found = blurs.get(src);
@@ -1058,15 +1087,26 @@
     found = { x: 0, y: 0 };
     if (hi > lo) {
       const perLevel = 255 / (hi - lo);
+      // The steepest STEEPEST slopes so far along each axis, gentlest first,
+      // so the one a new slope has to beat is always at the front. Nearly
+      // every pixel fails that one comparison.
+      const across = new Float32Array(STEEPEST);
+      const down = new Float32Array(STEEPEST);
+      const keep = (top, v) => {
+        if (v <= top[0]) return;
+        let i = 1;
+        for (; i < STEEPEST && top[i] < v; i += 1) top[i - 1] = top[i];
+        top[i - 1] = v;
+      };
       for (let r = 1; r < h - 1; r += 1) {
         for (let x = 1; x < w - 1; x += 1) {
           const i = r * w + x;
-          found.x = Math.max(found.x, Math.abs(y[i + 1] - y[i - 1]));
-          found.y = Math.max(found.y, Math.abs(y[i + w] - y[i - w]));
+          keep(across, Math.abs(y[i + 1] - y[i - 1]));
+          keep(down, Math.abs(y[i + w] - y[i - w]));
         }
       }
-      found.x *= perLevel / 2;
-      found.y *= perLevel / 2;
+      found.x = across[0] * perLevel / 2;
+      found.y = down[0] * perLevel / 2;
     }
     blurs.set(src, found);
     return found;

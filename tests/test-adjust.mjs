@@ -554,25 +554,38 @@ const MID = [4, 6, 8, 12].map(PERIOD);
 const listed = (ours, google, at) => at.map((i) => `${layout.gratings.periods[i]}px ${ours[i].toFixed(2)}/${google[i].toFixed(2)}`).join(', ');
 
 // Google, on the chart as it was: 1.63, 2.28, 1.88 and 1.34 at 4, 6, 8 and
-// 12px. The app came within 0.12 at 4px and 0.06 at the rest.
+// 12px. The app comes within 0.13 from 6px up. At 4px it lifts more than
+// Google, 2.05, and that was chosen: the finest gratings are what the app
+// gave up so that a photograph's finest detail is lifted as Google lifts it
+// rather than traded away — see the section after these, and
+// calibration/README.md. Before, it was within 0.12 at 4px as well.
+const SIX_UP = [6, 8, 12].map(PERIOD);
+const FOUR = [PERIOD(4)];
 const sharpChart = await sharpenedChart('chart.png', chartPng, 100);
 const googleSharp = gainsOf(googlePhone['sharpen+100'].gratings.map((q) => q.fundamental), googlePhone.none);
 let sharpGains = null;
 if (!sharpChart) check(false, 'the sharpened chart export arrives');
 else {
   sharpGains = gainsOf(sharpChart.fundamentals, googlePhone.none);
-  check(sharpChart.size === 2160 && MID.every((i) => Math.abs(sharpGains[i] - googleSharp[i]) <= 0.15),
-    'Sharpen 100 lifts the chart\'s 4 to 12px gratings as Google Photos does, within 0.15', listed(sharpGains, googleSharp, MID));
+  check(sharpChart.size === 2160 && SIX_UP.every((i) => Math.abs(sharpGains[i] - googleSharp[i]) <= 0.15),
+    'Sharpen 100 lifts the chart\'s 6 to 12px gratings as Google Photos does, within 0.15', listed(sharpGains, googleSharp, SIX_UP));
+  check(FOUR.every((i) => sharpGains[i] >= googleSharp[i] && sharpGains[i] - googleSharp[i] <= 0.45),
+    'and the 4px one at least as much, and no more than 0.45 over', listed(sharpGains, googleSharp, FOUR));
   check(sharpChart.steps.every((v, i) => Math.abs(v - googlePhone.none.steps[i].out[1]) <= 1),
     'and leaves the middle of every flat step as it was', sharpChart.steps.join(' '));
   // Google's noise patch came out at 3.01, its own q90 JPEG included; the
-  // chart as it came reads 3.02, and 2.59 through the same JPEG.
-  check(Math.abs(sharpChart.noiseJpeg - googlePhone['sharpen+100'].noise) <= 0.3,
-    'and the noise patch comes out as loud as Google\'s, within 0.3 once both are JPEGs',
+  // chart as it came reads 3.02, and 2.59 through the same JPEG. This is
+  // grain at the pixel, finer than anything in a photograph's own detail,
+  // and it is where keeping the finest detail costs most: 3.75 through the
+  // JPEG, where trading it had 3.10. On the photos the app's soft ground
+  // came out no grainier than Google's (the fox's soft background 1.14 in
+  // the fine band against Google's 1.28), so this holds it to not much worse.
+  check(sharpChart.noiseJpeg - googlePhone['sharpen+100'].noise <= 0.8,
+    'and the noise patch comes out no more than 0.8 louder than Google\'s once both are JPEGs',
     `${sharpChart.noiseJpeg.toFixed(2)} (${sharpChart.noise.toFixed(2)} before the JPEG); Google ${googlePhone['sharpen+100'].noise}`);
-  // Google's rings 10 under and 7 over at this edge. The guard takes the
-  // app's further in than that — 1 and 4 — and what matters more is that
-  // it goes no further out.
+  // Google's rings 10 under and 7 over at this edge. The app's rings 2 and
+  // 9 (1 and 4 while the finest detail was traded), and what matters more
+  // is that it goes no further out than Google's by much.
   const e = past(sharpChart.edge);
   const ge = past(googlePhone['sharpen+100'].edgeGrey);
   check(e.under <= ge.under + 5 && e.over <= ge.over + 5,
@@ -586,8 +599,10 @@ const googleHalf = gainsOf(googlePhone['sharpen+52'].gratings.map((q) => q.funda
 if (!halfChart) check(false, 'the chart sharpened at 52 arrives');
 else {
   const gains = gainsOf(halfChart.fundamentals, googlePhone.none);
-  check(MID.every((i) => Math.abs(gains[i] - googleHalf[i]) <= 0.1),
-    'Sharpen 52 lifts them as Google\'s does, within 0.1', listed(gains, googleHalf, MID));
+  check(SIX_UP.every((i) => Math.abs(gains[i] - googleHalf[i]) <= 0.1),
+    'Sharpen 52 lifts the 6 to 12px ones as Google\'s does, within 0.1', listed(gains, googleHalf, SIX_UP));
+  check(FOUR.every((i) => gains[i] >= googleHalf[i] && gains[i] - googleHalf[i] <= 0.25),
+    'and the 4px one at least as much, and no more than 0.25 over', listed(gains, googleHalf, FOUR));
   if (sharpGains) {
     check(MID.every((i) => Math.abs((gains[i] - 1) - 0.52 * (sharpGains[i] - 1)) <= 0.02),
       'and by 52% of what 100 lifts them', MID.map((i) => `${layout.gratings.periods[i]}px ${(gains[i] - 1).toFixed(3)} against ${(0.52 * (sharpGains[i] - 1)).toFixed(3)}`).join(', '));
@@ -616,7 +631,9 @@ else {
 // — 1.56 at 6px against 2.28 — because the patch's own edge is its darkest
 // and lightest, and the estimate of how soft a photo is stretches it to its
 // range first. A black and a white square far from the patch put it back
-// with the chart: 2.31.
+// with the chart: 2.31. Here too the 4px grating is lifted more than
+// Google's, 1.73 against 1.42 and 2.05 against 1.76, for the same reason as
+// on the chart, and 6px on the plain patch is 0.16 over.
 const patchGains = async (name, buffer) => {
   const got = await sharpenedChart(name, buffer, 100, 'patch');
   const base = googleScale[name.replace('.png', '')].none.fundamentals;
@@ -624,19 +641,157 @@ const patchGains = async (name, buffer) => {
 };
 const SCALE_MID = [4, 6, 8, 12].map((per) => PATCH.periods.indexOf(per));
 const scaleList = (ours, google) => SCALE_MID.map((i) => `${PATCH.periods[i]}px ${ours[i].toFixed(2)}/${google[i].toFixed(2)}`).join(', ');
+const within = (ours, google) => SCALE_MID.every((i) => (PATCH.periods[i] === 4
+  ? ours[i] >= google[i] && ours[i] - google[i] <= 0.35
+  : Math.abs(ours[i] - google[i]) <= 0.2));
 const plainPatch = await patchGains('scale-2160x2160.png', patchPng);
 const bwPatch = await patchGains('scale-2160x2160-bw.png', patchBwPng);
 if (!plainPatch || !bwPatch) check(false, 'the sharpened patches arrive');
 else {
   const gp = googleScale['scale-2160x2160']['sharpen+100'].gains;
   const gb = googleScale['scale-2160x2160-bw']['sharpen+100'].gains;
-  check(SCALE_MID.every((i) => Math.abs(plainPatch[i] - gp[i]) <= 0.1),
-    'the patch of gratings on grey is lifted as Google lifts it, within 0.1', scaleList(plainPatch, gp));
-  check(SCALE_MID.every((i) => Math.abs(bwPatch[i] - gb[i]) <= 0.1),
+  check(within(plainPatch, gp),
+    'the patch of gratings on grey is lifted as Google lifts it, within 0.2 from 6px and no more than 0.35 over at 4px', scaleList(plainPatch, gp));
+  check(within(bwPatch, gb),
     'and with a black and a white square beside it, as Google lifts that', scaleList(bwPatch, gb));
   const six = PATCH.periods.indexOf(6);
   check(bwPatch[six] > plainPatch[six] + 0.5,
     'the squares alone make the same gratings sharpen harder, as they did in Google Photos', `6px ${bwPatch[six].toFixed(2)} against ${plainPatch[six].toFixed(2)}`);
+}
+
+/* ------------------------------------- Sharpen on a photograph's texture */
+
+// The gratings above say how Google treats stripes, and a Sharpen held only
+// to them came out clearly softer than Google's on real photographs: on a
+// fox through Google Photos on the phone, 12px detail was lifted ×2.03 at
+// 100 where the app managed ×1.51, and 2px detail kept ×0.95 where the app
+// left ×0.48. The photos cannot be kept here, so this generates a stand-in
+// with a photograph's make-up — short strands at every angle over soft
+// mottling, most faint and a few strong, so its steepest slopes thin out
+// the way a photo's do — and holds the app to what Google did to the fox,
+// period by period (calibration/google-phone-real.json, read as
+// calibration/transfer.mjs reads it).
+//
+// 3888x2592, a ten megapixel phone photo's shape, which covers a 2160
+// export at exactly 3240 wide: drawn at a fraction of a pixel, an edited
+// tile is resampled once more on its way out and loses its finest detail
+// whatever the edit, which would be measured instead. Its steepest slope
+// reads σ 0.70 and 0.61 across and down, its fortieth steepest 0.90 and
+// 0.88; the fox's read 0.66 and 0.59, and 0.97 and 0.91.
+const { transfer, PERIODS: TRANSFER_PERIODS } = await import('./calibration/transfer.mjs');
+const googleReal = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/calibration/google-phone-real.json'), 'utf8'));
+const texture = Buffer.from(await p.evaluate(async () => {
+  const W = 3888, H = 2592;
+  let seed = 5;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const c = new OffscreenCanvas(W, H);
+  const g = c.getContext('2d');
+  // Mottling: random greys on grids 16 to 128px apart, bilinearly between.
+  const acc = new Float32Array(W * H);
+  [[16, 20], [32, 30], [64, 40], [128, 50]].forEach(([s, amp]) => {
+    const gw = Math.ceil(W / s) + 2;
+    const grid = Float32Array.from({ length: gw * (Math.ceil(H / s) + 2) }, () => rnd() - 0.5);
+    for (let y = 0; y < H; y++) {
+      const fy = y / s, y0 = Math.floor(fy), ty = fy - y0;
+      for (let x = 0; x < W; x++) {
+        const fx = x / s, x0 = Math.floor(fx), tx = fx - x0, i = y0 * gw + x0;
+        const top = grid[i] + tx * (grid[i + 1] - grid[i]);
+        const bot = grid[i + gw] + tx * (grid[i + gw + 1] - grid[i + gw]);
+        acc[y * W + x] += amp * (top + ty * (bot - top));
+      }
+    }
+  });
+  const img = g.createImageData(W, H);
+  for (let i = 0; i < acc.length; i++) {
+    const v = Math.max(0, Math.min(255, Math.round(128 + acc[i])));
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  for (let n = 0; n < 90000; n++) {
+    const x = rnd() * W, y = rnd() * H, a = rnd() * Math.PI, len = 8 + 40 * rnd();
+    const v = Math.round(255 * rnd());
+    g.strokeStyle = `rgba(${v},${v},${v},${(0.15 + 0.85 * rnd() ** 6).toFixed(3)})`;
+    g.lineWidth = 1 + 2.5 * rnd();
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + len * Math.cos(a), y + len * Math.sin(a)); g.stroke();
+  }
+  // Softened a little, as a lens and a phone's processing leave a photo.
+  const k = [0, 1, 2, 3].map((i) => Math.exp(-(i * i) / 2));
+  const sum = k[0] + 2 * (k[1] + k[2] + k[3]);
+  const im = g.getImageData(0, 0, W, H);
+  const src = Float32Array.from({ length: W * H }, (_, i) => im.data[i * 4]);
+  const tmp = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let v = k[0] * src[y * W + x];
+    for (let i = 1; i <= 3; i++) v += k[i] * (src[y * W + Math.max(0, x - i)] + src[y * W + Math.min(W - 1, x + i)]);
+    tmp[y * W + x] = v / sum;
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let v = k[0] * tmp[y * W + x];
+    for (let i = 1; i <= 3; i++) v += k[i] * (tmp[Math.max(0, y - i) * W + x] + tmp[Math.min(H - 1, y + i) * W + x]);
+    const o = (y * W + x) * 4;
+    im.data[o] = im.data[o + 1] = im.data[o + 2] = Math.round(v / sum);
+  }
+  g.putImageData(im, 0, 0);
+  const u8 = new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.95 })).arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  return btoa(bin);
+}), 'base64');
+
+await p.click('#btn-home');
+await p.waitForFunction(() => document.body.classList.contains('on-home'));
+await p.click('#btn-new');
+await p.waitForFunction(() => !document.body.classList.contains('on-home'));
+await p.setInputFiles('#file-input', [{ name: 'strands.jpg', mimeType: 'image/jpeg', buffer: texture }]);
+await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1, null, { timeout: 30000 });
+await p.keyboard.press('Escape');
+await p.waitForTimeout(400);
+await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+await p.waitForTimeout(200);
+await p.click('.dock-item[data-tile="adjust"]');
+await choose('sharpen');
+await slide(100);
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+await p.click('.dock-item[data-drawer="export"]');
+await p.selectOption('#quality', '2160');
+await p.selectOption('#format', 'image/png');
+const gotTexture = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+await p.click('#btn-export');
+const textureDownload = await gotTexture;
+await p.click('#dock-back');
+if (!textureDownload) check(false, 'the sharpened stand-in arrives');
+else {
+  // Brightness of the stand-in drawn into the export as the app draws it,
+  // centred and covering, and of the export itself.
+  const [before, after] = await p.evaluate(async ({ photo, exported }) => {
+    const frame = async (b64, mime) => {
+      const bmp = await createImageBitmap(await (await fetch(`data:${mime};base64,${b64}`)).blob());
+      const g = new OffscreenCanvas(2160, 2160).getContext('2d');
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      const s = Math.max(2160 / bmp.width, 2160 / bmp.height);
+      g.drawImage(bmp, 1080 - (bmp.width * s) / 2, 1080 - (bmp.height * s) / 2, bmp.width * s, bmp.height * s);
+      const d = g.getImageData(0, 0, 2160, 2160).data;
+      return Array.from({ length: 2160 * 2160 }, (_, i) => Math.round(0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]));
+    };
+    return [await frame(photo, 'image/jpeg'), await frame(exported, 'image/png')];
+  }, { photo: texture.toString('base64'), exported: fs.readFileSync(await textureDownload.path()).toString('base64') });
+  const gains = transfer(Float64Array.from(before), Float64Array.from(after), 2160, 2160);
+  const fox = googleReal.fox.settings['100'].transfer;
+  const at = (periods) => periods.map((q) => TRANSFER_PERIODS.indexOf(q));
+  const shown = (idx) => idx.map((i) => `${TRANSFER_PERIODS[i]}px ${gains[i].toFixed(2)}/${fox[i].toFixed(2)}`).join(', ');
+  // Google kept the fox's 2.5 and 3px detail at ×1.09 and ×1.20. Trading it
+  // for the copy's, as the gratings once said to, left the stand-in ×0.57
+  // and ×0.83.
+  const finest = at([2.5, 3]);
+  check(finest.every((i) => gains[i] >= 0.9),
+    'Sharpen 100 keeps a photograph\'s finest detail rather than trading it away', shown(finest));
+  // And from 3 to 24px it lifts as Google lifted the fox, within 0.3. With
+  // σ read off the single steepest slope, as it was, the stand-in peaked at
+  // 6 to 8px and its 12px detail came out ×1.45 against Google's ×2.03.
+  const body = at([3, 4, 5, 6, 8, 10, 12, 16, 24]);
+  check(body.every((i) => Math.abs(gains[i] - fox[i]) <= 0.3),
+    'and lifts the rest of its detail as Google lifted the fox\'s, within 0.3 from 3 to 24px', shown(body));
 }
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
