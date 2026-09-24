@@ -8,3 +8,6 @@ package-lock.json
 
 # Old builds test-update-path checks out of the history to install from.
 .oldver/
+
+# The calibration chart and anything measured locally; google.json is kept.
+calibration/out/
