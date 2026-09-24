@@ -1625,21 +1625,60 @@
 
   const posterFrame = (blob) => frameAt(blob, 0);
 
+  // What makes two files the same file: its name and its size in bytes, as it
+  // arrived. Both survive the share sheet unchanged — a gallery shares a clip
+  // under the same name every time — and together they are specific enough
+  // that two different photos never share them in practice. A content hash
+  // would be surer and would mean reading every byte of a clip hundreds of
+  // megabytes long before deciding to ignore it.
+  const sameFileKey = (name, size) => `${name}\u0000${size}`;
+  // A photo imported before sourceSize was recorded falls back on the size of
+  // what was stored, which is the original file for everything but a HEIC —
+  // nothing is resized on the way in, so only those were re-encoded.
+  const photoFileKey = (photo) => {
+    const size = photo.sourceSize ?? (photo.blob ? photo.blob.size : null);
+    return photo.name && size !== null ? sameFileKey(photo.name, size) : null;
+  };
+
   async function addPhotos(files) {
     // An empty type is not a "no": some pickers hand a file back with no type
     // on it at all, and those were being dropped without a word. Only a type
     // that positively says "not a picture" is turned away here — anything
     // else goes to the decoder, which can say what is actually wrong with it.
-    const images = [];
+    const candidates = [];
     const skipped = [];
     [...files].forEach((f) => {
       const refused = f.type && !f.type.startsWith('image/') && !f.type.startsWith('video/')
         && !/\.hei[cf]$/i.test(f.name);
-      (refused ? skipped : images).push(f);
+      (refused ? skipped : candidates).push(f);
     });
-    if (!images.length) {
+    if (!candidates.length) {
       if (skipped.length === 1) toast(`${skipped[0].name} isn't a photo or a video`);
       else if (skipped.length) toast(`None of those ${skipped.length} files are photos or video`);
+      return;
+    }
+
+    // Anything already in this carousel is left out before any of it is
+    // decoded, and so is a file offered twice in one go. Sharing the same
+    // pictures in again is easy to do by accident — a second share of an
+    // overlapping selection is the usual way — and a tray holding each of
+    // them twice was the result, with nothing on screen to say so.
+    const known = new Set(state.photos.map(photoFileKey).filter(Boolean));
+    const images = [];
+    let repeats = 0;
+    candidates.forEach((f) => {
+      const key = sameFileKey(f.name, f.size);
+      if (known.has(key)) { repeats += 1; return; }
+      known.add(key);
+      images.push(f);
+    });
+    if (!images.length) {
+      // Picked from the chooser and nothing came of it, so the next import is
+      // an ordinary one again rather than being routed back into a closed sheet.
+      importForChooser = false;
+      const one = candidates.length === 1 && candidates[0].type.startsWith('video/') ? 'video' : 'photo';
+      toast(repeats === 1 ? `That ${one} is already in this carousel`
+        : `All ${repeats} are already in this carousel`);
       return;
     }
 
@@ -1682,6 +1721,7 @@
         const file = queue.shift();
         try {
           const photo = await ingest(file, file.name);
+          photo.sourceSize = file.size;
           results[index] = photo;
           if (index >= SHARP_ON_ARRIVAL) {
             arriving.add(photo);
@@ -1738,6 +1778,11 @@
       return;
     }
     afterImport(wasEmpty);
+    // After whatever the import itself had to say, and before any file that
+    // would not open, which matters more than a count of ones left out.
+    if (repeats && added.length) {
+      toast(`Added ${added.length} · skipped ${repeats} already in this carousel`);
+    }
     sayProblems();
   }
 
@@ -4441,6 +4486,9 @@
       // still place it — and so a clip already shifted by a guess can be
       // shifted again by a better one when more of the trip arrives.
       takenUtc: photo.takenUtc ?? null, takenZone: photo.takenZone ?? null,
+      // The size of the file as it arrived, which is how a second import of
+      // it is recognised. Not the stored blob's, because a HEIC is re-encoded.
+      sourceSize: photo.sourceSize ?? null,
       // Measured once at import and stored, because the pixels it was measured
       // from no longer exist by the time anything reads it back — and neither
       // does the EXIF, which a HEIC loses on the way in.
@@ -4848,6 +4896,7 @@
           // why those keep whatever date they were given and only a re-import
           // moves them.
           takenUtc: row.takenUtc ?? null, takenZone: row.takenZone ?? null,
+          sourceSize: row.sourceSize ?? null,
           blob: row.blob, proxyBlob: row.proxy,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
