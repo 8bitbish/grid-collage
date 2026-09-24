@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.24p">
+<link rel="stylesheet" href="styles.css?v=2026.09.24q">
 </head>
 <body class="on-home">
 
@@ -441,6 +441,8 @@
               <div class="adjust-tools" id="edge-tools" role="group" aria-label="Edge"></div>
             </div>
             <div class="adjust-row">
+              <!-- Remove colour's colour. Tap the photo to pick another. -->
+              <span class="edge-key" id="edge-key" role="img" aria-label="Colour being removed" hidden></span>
               <div class="dock-slider" id="edge-slide">
                 <label class="dock-label" for="edge"><span id="edge-name">Hair</span> <span class="val" id="edge-val">50</span></label>
                 <input type="range" id="edge" min="0" max="100" step="1" value="50">
@@ -561,6 +563,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.24p"></script>
+<script src="app.js?v=2026.09.24q"></script>
 </body>
 </html>

@@ -2139,7 +2139,14 @@
   const ONNX = './vendor/onnxruntime/';
   const VITMATTE = './vendor/vitmatte/vitmatte-small.onnx';
   const MATTE_EDGE = 1024;     // measured at 1024; 1536 was 3-5x slower and no better
-  const MATTE_BAND = 0.02;     // the unsure band, either side of the edge, of the crop's long side
+  // The unsure band, either side of MagicTouch's edge, of the crop's long
+  // side. At 2% a clump of the dark room behind a portrait's hair stayed in
+  // as sure subject, because MagicTouch had it and the band did not reach it;
+  // at 4% ViTMatte decides it and takes it out, and flyaways further off the
+  // head come in, at no cost in time. Running ViTMatte in tiles at twice the
+  // resolution as well made strands a little finer and took 6-9s a photo on
+  // a desktop GPU against 1.2-1.7s, so it is not done.
+  const MATTE_BAND = 0.04;
   const MATTE_PAD = 0.06;      // room round the subjects' box
   let matter = null;
 
@@ -2300,9 +2307,12 @@
   //
   // Radii are fractions of the cutout's long side, so the preview, drawn
   // small, and a 2160px export agree.
-  const EDGE_DEFAULTS = { hair: 50, feather: 0, shift: 0 };
+  // `key` is Remove colour's colour, [r, g, b]; it means nothing while
+  // `remove` is at nought, so it does not count towards an edge being set.
+  const EDGE_DEFAULTS = { hair: 50, feather: 0, shift: 0, remove: 0, key: null };
+  const EDGE_AMOUNTS = ['hair', 'feather', 'shift', 'remove'];
   const edgeOf = (pop) => ({ ...EDGE_DEFAULTS, ...((pop && pop.edge) || {}) });
-  const plainEdge = (edge) => !edge || Object.keys(EDGE_DEFAULTS).every((k) => (edge[k] ?? EDGE_DEFAULTS[k]) === EDGE_DEFAULTS[k]);
+  const plainEdge = (edge) => !edge || EDGE_AMOUNTS.every((k) => (edge[k] ?? EDGE_DEFAULTS[k]) === EDGE_DEFAULTS[k]);
   const EDGE_TOOLS = [
     { id: 'hair', label: 'Hair', min: 0, max: 100,
       icon: '<path d="M5 20c1-6 3-11 7-15"/><path d="M9 20c.5-4 2-8 5-11"/><path d="M13 20c.3-3 1.4-5.7 3.5-8"/><path d="M17 20c.2-2 .9-3.8 2-5"/>' },
@@ -2310,7 +2320,10 @@
       icon: '<circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="7.5" stroke-dasharray="2 2.6"/>' },
     { id: 'shift', label: 'Shift edge', min: -100, max: 100,
       icon: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M3 12h2M19 12h2M12 3v2M12 19v2"/>' },
+    { id: 'remove', label: 'Remove colour', min: 0, max: 100,
+      icon: '<path d="M12 3.5c3 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.5-6 5.5-10z"/><path d="M4 20L20 4"/>' },
   ];
+  const REMOVE_MAX = 0.3;       // Oklab distance at 100: about as far as sky is from a beige wall
   const HAIR_RADIUS = 0.0013;   // of the long side: 4px at 3072, the window a strand is told apart in
   const HAIR_STANDOUT = 0.12;   // how far from the local mean counts as a strand
   const FEATHER_MAX = 0.008;    // of the long side at 100: 25px at 3072
@@ -2324,7 +2337,7 @@
   // a ramp is the mean round it. At 50 a pixel is firmed as far as it agrees
   // with its neighbours and left as far as it stands out; at 0 everything is
   // firmed, a crisp cut; at 100 nothing is, every wisp the matte found.
-  function edgeAlpha(bytes, w, h, edge) {
+  function edgeAlpha(bytes, px, w, h, edge) {
     const long = Math.max(w, h);
     let A = new Float32Array(w * h);
     for (let i = 0; i < A.length; i++) A[i] = bytes[i] / 255;
@@ -2339,6 +2352,27 @@
         const strand = clamp(Math.abs(a - mean[i]) / HAIR_STANDOUT, 0, 1);
         const judged = strand * a + (1 - strand) * firm;
         A[i] = t < 0.5 ? firm + (judged - firm) * t * 2 : judged + (a - judged) * (t - 0.5) * 2;
+      }
+    }
+    // Remove colour, the way a green screen is keyed or Photoshop's Color
+    // Range picks: whatever is near enough the key colour stops being
+    // subject — sky showing through a building's railings, or left along its
+    // edge, or tinting the hair that crosses it. Near is measured in Oklab,
+    // where equal distances look equally different, and a half-covered edge
+    // pixel, part hair and part sky, is part of the way there and loses part
+    // of its cover, which with the edge colours cleaned after takes the blue
+    // out of what is left.
+    if (edge.remove && edge.key) {
+      const [kl, ka, kb] = oklab(edge.key[0], edge.key[1], edge.key[2]);
+      const far = (edge.remove / 100) * REMOVE_MAX;
+      const gone = far * 0.6;
+      for (let i = 0; i < A.length; i++) {
+        if (A[i] <= 0) continue;
+        const [l, a, b2] = oklab(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+        const d = Math.hypot(l - kl, a - ka, b2 - kb);
+        if (d >= far) continue;
+        const u = clamp((d - gone) / (far - gone), 0, 1);
+        A[i] *= u * u * (3 - 2 * u);
       }
     }
     // Shift: across a hard edge a box blur of radius r runs straight from 0,
@@ -2366,6 +2400,59 @@
     const out = new Uint8ClampedArray(w * h);
     for (let i = 0; i < out.length; i++) out[i] = A[i] * 255;
     return out;
+  }
+
+  // sRGB to Oklab (Björn Ottosson's), for telling how different two colours
+  // look. A table for the gamma step, since it runs on every pixel of a
+  // cutout.
+  const LINEAR = Float32Array.from({ length: 256 }, (_, v) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  function oklab(r, g, b) {
+    const R = LINEAR[r]; const G = LINEAR[g]; const B = LINEAR[b];
+    const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+    const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+    const s2 = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+    return [
+      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s2,
+      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s2,
+      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s2,
+    ];
+  }
+
+  // What is most often just outside the subject: the colour Remove colour
+  // starts on. Read off a small copy of the photo and its cut — a ring a few
+  // pixels wide round the edge, sorted into coarse bins, the fullest bin's
+  // mean. A building on a clear day gives the sky; a person on a wall, the
+  // wall.
+  function ringColour(photo) {
+    if (photo.subject.ring) return photo.subject.ring;
+    const { mask } = photo.subject;
+    const k = Math.min(1, 256 / Math.max(photo.w, photo.h));
+    const w = Math.max(1, Math.round(photo.w * k));
+    const h = Math.max(1, Math.round(photo.h * k));
+    const g = scratch(w, h).getContext('2d');
+    g.drawImage(photo.bitmap, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    g.clearRect(0, 0, w, h);
+    g.drawImage(mask, 0, 0, w, h);
+    const md = g.getImageData(0, 0, w, h).data;
+    const inside = new Float32Array(w * h);
+    for (let i = 0; i < inside.length; i++) inside[i] = md[i * 4 + 3] > 128 ? 1 : 0;
+    const nearby = boxMean(inside, w, h, 4);
+    const bins = new Map();
+    for (let i = 0; i < inside.length; i++) {
+      if (md[i * 4 + 3] > 12 || nearby[i] <= 0) continue;
+      const key = ((px[i * 4] >> 4) << 8) | ((px[i * 4 + 1] >> 4) << 4) | (px[i * 4 + 2] >> 4);
+      const bin = bins.get(key) || [0, 0, 0, 0];
+      bin[0] += px[i * 4]; bin[1] += px[i * 4 + 1]; bin[2] += px[i * 4 + 2]; bin[3] += 1;
+      bins.set(key, bin);
+    }
+    let best = null;
+    bins.forEach((bin) => { if (!best || bin[3] > best[3]) best = bin; });
+    photo.subject.ring = best ? best.slice(0, 3).map((v) => Math.round(v / best[3])) : [255, 255, 255];
+    return photo.subject.ring;
   }
 
   // The part of the mask that is confidently subject, as fractions of the
@@ -2541,7 +2628,7 @@
     const sh = drawn.height;
     if (!sw || !sh) return null;
     const edge = edgeOf(pop);
-    const edgeSig = `${edge.hair},${edge.feather},${edge.shift}`;
+    const edgeSig = `${edge.hair},${edge.feather},${edge.shift},${edge.remove},${edge.key}`;
     const look = plainLook(cell.adjust) ? '' : ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',');
     const full = Math.min(1, CUTOUT_EDGE / Math.max(sw, sh), subject.mask.width / sw, subject.mask.height / sh);
     const fit = edgeSliding ? Math.min(full, Math.max(dw / sw, dh / sh) / 2) : full;
@@ -2566,7 +2653,7 @@
       && slideBase.photo === photo.bitmap && slideBase.look === look && slideBase.mask === subject.mask
       ? slideBase : readBase(cell, photo, look, subject, drawn, w, h);
     if (edgeSliding) slideBase = base;
-    const alpha = edgeAlpha(base.stored, w, h, edge);
+    const alpha = edgeAlpha(base.stored, base.px, w, h, edge);
     let out;
     if (edgeSliding) {
       out = new Uint8ClampedArray(base.px);
@@ -5523,8 +5610,10 @@
     if (pointers.size === 0) { endRun(); snapshot(); }
     // Choosing subjects: a tap chooses, and a drag still moves the photo, so
     // which it was is only known on letting go.
-    if (picking && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
-    if (pointers.size === 0 && tileSub === 'effects') armHoldPick(e, i, p);
+    if ((picking || sampling()) && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
+    // Not while a colour is being picked: holding on the sky to pick it would
+    // make the sky the subject.
+    if (pointers.size === 0 && tileSub === 'effects' && !sampling()) armHoldPick(e, i, p);
     else cancelHoldPick();
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
@@ -5664,7 +5753,8 @@
     const picked = pickPress && pickPress.id === e.pointerId && pickPress.moved < 8
       && e.type === 'pointerup' && pointers.size === 1 ? pickPress : null;
     if (pickPress && pickPress.id === e.pointerId) pickPress = null;
-    if (picked) pickAt(picked.i, picked.at);
+    if (picked && sampling()) sampleKey(picked.at);
+    else if (picked) pickAt(picked.i, picked.at);
     pointers.delete(e.pointerId);
     if (gesture) settle(gesture.i);
     if (pointers.size) {
@@ -6820,6 +6910,39 @@
     $('edge-val').textContent = String(edge[tool.id]);
     paintSlider(input);
     $('edge-reset').disabled = plainEdge(pop.edge);
+    const keyed = tool.id === 'remove';
+    $('edge-key').hidden = !keyed;
+    if (keyed) {
+      const key = edge.key || (photoFor(cell).subject ? ringColour(photoFor(cell)) : null);
+      if (key) $('edge-key').style.setProperty('--key', `rgb(${key.join(',')})`);
+      // Said where the slider's name goes until a colour has been picked,
+      // since picking is by tapping the photo and nothing else says so.
+      if (!edge.key) $('edge-name').textContent = 'Tap photo to pick';
+    }
+  }
+
+  // Remove colour is open, so a tap on the tile picks its colour rather than
+  // doing anything else.
+  const sampling = () => edgeMode && edgeTool === 'remove';
+
+  // The colour under a tap, as the tile shows it — its edits and all — from
+  // a small square of the preview, so one odd pixel does not decide it.
+  function sampleKey(pt) {
+    const cell = page().cells[state.selected];
+    const pop = effectOf(cell, 'popOut');
+    if (!pop) return;
+    const d = ctx.getImageData(Math.max(0, Math.round(pt.x) - 2), Math.max(0, Math.round(pt.y) - 2), 5, 5).data;
+    const key = [0, 1, 2].map((c) => { let t = 0; for (let i = 0; i < 25; i++) t += d[i * 4 + c]; return Math.round(t / 25); });
+    snapshot();
+    const edge = edgeOf(pop);
+    edge.key = key;
+    // Picking a colour with the slider at nought would look like it did
+    // nothing, so it starts at a middling amount.
+    if (!edge.remove) edge.remove = 40;
+    buzz('tap');
+    setEffect(cell, 'popOut', { ...pop, edge });
+    syncEffects();
+    refresh();
   }
 
   function slideEdge() {
@@ -6840,6 +6963,9 @@
     if (edge[tool.id] === value) return;
     snapshot(`edge:${tool.id}`);
     edge[tool.id] = value;
+    // Moved without a colour picked, it removes the one most often just
+    // outside the subject.
+    if (tool.id === 'remove' && !edge.key) edge.key = ringColour(photoFor(cell));
     setEffect(cell, 'popOut', { ...pop, edge: plainEdge(edge) ? undefined : edge });
     edgeSliding = true;
     syncEffects();
