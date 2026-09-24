@@ -72,6 +72,16 @@ const REGIONS = {
     badge: [1140, 1130, 180, 190],
     'soft background': [120, 200, 480, 400],
   },
+  // Hoh rainforest, Carl Bubar, public domain, 3672x4896: covers at exactly
+  // 2160x2880, so needs no crop. Held back from the refit to check it.
+  forest: {
+    canopy: [310, 40, 400, 280],
+    ferns: [620, 960, 300, 240],
+    'branches on sky': [90, 800, 400, 380],
+    moss: [1030, 1500, 300, 260],
+    'hanging moss': [1690, 1400, 280, 380],
+    'leaf edges': [700, 1780, 400, 280],
+  },
 };
 
 const args = process.argv.slice(2);
