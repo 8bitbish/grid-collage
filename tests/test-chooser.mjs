@@ -130,5 +130,20 @@ const cleared = await dims();
 console.log('escape from the chooser:', JSON.stringify(cleared),
   cleared.pagesBar!=='none' && cleared.dock<100 ? '✓ fully reset' : '✗ stuck');
 
+// A scroll made while the reel is opening is kept, not undone. The reel used
+// to put itself on its start a frame after it opened, so anything that moved
+// it before that frame — a flick on a phone busy opening a long reel, where
+// scrolling carries on while the page cannot draw — was put straight back.
+await p.mouse.click(box.x+box.width/2, box.y+box.height/2);
+await p.waitForTimeout(250);
+const kept = await p.evaluate(()=>new Promise((done)=>{
+  document.querySelector('.dock-item[data-tile="replace"]').click();
+  const strip=document.getElementById('choose-strip'); const el=strip.children[2];
+  strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth)/2;
+  setTimeout(()=>done([...strip.children].findIndex((c)=>c.classList.contains('is-current'))), 600);
+}));
+console.log('  a scroll made as the reel opens is kept:', kept, kept===2 ? '✓' : '✗ undone');
+await p.keyboard.press('Escape');
+
 console.log(errs.length?'✗ ERRORS: '+errs.join(' | '):'✓ no page errors');
 await b.close(); srv.close();

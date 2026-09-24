@@ -4079,7 +4079,14 @@
     centred = start;
     markCentred(start);
     if (!cell) { applyCentred(); markCentred(start); }
-    requestAnimationFrame(() => scrollChooserTo(start, false));
+    // Here, not a frame later. Reading the entry's position lays the reel out
+    // at the size it is about to be shown at, so there is nothing to wait for,
+    // and waiting had a cost: whatever scrolled the reel in between was undone
+    // when the frame came round and put it back on the start. A finger cannot
+    // manage that inside one frame, but on a phone busy opening a long reel
+    // the frame can be hundreds of milliseconds late while scrolling carries
+    // on without it — and a flick made then went back where it came from.
+    scrollChooserTo(start, false);
   }
 
   function markCentred(index) {
