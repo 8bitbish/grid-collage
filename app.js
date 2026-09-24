@@ -528,6 +528,64 @@
         else c = c * (1.0 + 0.35 * amount);`,
     },
     {
+      id: 'highlights', label: 'Highlights', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="12" cy="12" r="3.6"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/>',
+      // A curve on brightness rather than levels, so white stays white and
+      // what moves is the shape of the upper tones. The push is the slider
+      // times a mask, smoothstep from a quarter up to white, times the room
+      // left below white. The mask starts with a flat slope, so there is no
+      // crease where it begins, and everything below a quarter is exactly as
+      // it was. The (1 - y) is what pins white, and it puts the most movement
+      // around three quarters, as Photos does. 0.6 sets the strength and the
+      // limits together: the curve's slope stays between 0.4 and 1.6, so it
+      // never flattens or folds back on itself, and an 8-bit photo's levels
+      // spread about as far as White point's 1.54 spreads them and no
+      // further, which is too little to band. At -100 it takes 230 to 216
+      // and 170 to 140; White point takes them to 150 and 111.
+      //
+      // Brightness here is halfway between luma and the brightest channel,
+      // which for a grey are the same thing. Luma alone calls a saturated
+      // colour dark — Rec.709 puts pure blue at 0.07 — and Shadows lit a red
+      // of 200,40,40 up to 255,51,51 as though it were a shadow, which looked
+      // like neon rather than light. The brightest channel alone makes the
+      // same red a highlight. Halfway treats it as the mid-tone it looks.
+      //
+      // The pixel is scaled by new brightness over old rather than each
+      // channel curved on its own, which would pull the channels of a colour
+      // towards each other and shift its hue. Where scaling up would push a
+      // channel past one, the scale stops there instead: clipping that channel
+      // alone would change the hue, and pulling the colour towards white to
+      // keep its brightness would wash it out. The clamp first is for White
+      // point, which can hand on values above one that this mask would read
+      // as past white.
+      glsl: `
+        c = clamp(c, 0.0, 1.0);
+        float top = max(c.r, max(c.g, c.b));
+        float y = 0.5 * (luma(c) + top);
+        float toned = y + 0.6 * amount * smoothstep(0.25, 1.0, y) * (1.0 - y);
+        c *= min(toned / max(y, 1e-4), 1.0 / max(top, 1e-4));`,
+    },
+    {
+      id: 'shadows', label: 'Shadows', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="12" cy="12" r="8.5"/><path class="solid" d="M12 3.5a8.5 8.5 0 0 0 0 17z"/>',
+      // Highlights turned upside down: the mask runs from a quarter below
+      // white down to black, and the room it is multiplied by is the room
+      // above black, so black stays black and everything above three quarters
+      // is untouched. Up opens the shadows, down deepens them. Same constants
+      // for the same reasons, and the same slope limits, the steepest part
+      // now being just above black: at +100, 30 goes to 47 and 100 to 128,
+      // where Black point at -100 takes them to 86 and 139 and lifts black
+      // itself off the floor. Brightness is measured the same way, and the
+      // pixel scaled and capped short of clipping the same way, as in
+      // Highlights; this is the tool where the halfway brightness matters.
+      glsl: `
+        c = clamp(c, 0.0, 1.0);
+        float top = max(c.r, max(c.g, c.b));
+        float y = 0.5 * (luma(c) + top);
+        float toned = y + 0.6 * amount * smoothstep(0.25, 1.0, 1.0 - y) * y;
+        c *= min(toned / max(y, 1e-4), 1.0 / max(top, 1e-4));`,
+    },
+    {
       id: 'blackPoint', label: 'Black point', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="8.5"/><circle class="solid" cx="12" cy="12" r="3.2"/>',
       // The same at the bottom end, and the same way round as Photos: up is
