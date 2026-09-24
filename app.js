@@ -347,7 +347,7 @@
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
         // the preview's compare button, held down.
-        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh, s);
+        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
@@ -507,10 +507,8 @@
   //          so nought is exactly the photo and costs nothing. It sees
   //          `amount` (the slider over 100) and rewrites `c`, the pixel as
   //          gamma-encoded RGB in 0..1. Helpers: luma(c), at(px) for the
-  //          source pixel px pixels away, u_texel, u_scale — processed
-  //          pixels per pixel of a 1080px post, so a radius authored against
-  //          the preview means the same thing in a 2160px export — and
-  //          result_<id>() for a tool with passes.
+  //          source pixel px pixels away, u_texel, and result_<id>() for a
+  //          tool with passes.
   //   passes optional, for a tool that needs more than one look at the photo:
   //          blurs, or anything else a single pass cannot reach. `prepare`
   //          runs once per photo and size, `apply` on every slider move; each
@@ -678,45 +676,179 @@
     {
       id: 'sharpen', label: 'Sharpen', min: 0, max: 100, stage: 'detail',
       icon: '<path d="M12 4l8.5 15h-17z"/>',
-      // An unsharp mask: each pixel pushed away from the blur around it, so an
-      // edge gains contrast and anything flat has nothing to push against.
+      // Google's Sharpen is Polyblur (Delbracio, Garcia-Dorado, Choi, Kelly
+      // and Milanfar, Google Research, 2021): model the photo's softness as
+      // a Gaussian blur K of some σ, then undo it with a polynomial in K,
+      //   p(K) = (α/2 - b + 2)K³ + (3b - α - 6)K² + (5 - 3b + α/2)K + b,
+      // which comes to blurring the photo three times over and adding up
+      // weighted copies. Written around K = 1, with y = 1 - K, it is
+      //   p = 1 + y + (α/2)y² - (α/2 - b + 2)y³,
+      // and each yⁿ is a band of detail, small wherever the photo is flat.
+      // That is the form used here: the three bands are worked out once per
+      // photo and size, and moving the slider only reweights them.
       //
-      // On brightness alone, the same lift added to all three channels.
-      // Sharpening each channel on its own pushes them apart wherever an edge
-      // is coloured, which fringes, and it would sharpen the blocks a JPEG
-      // stores its colour in at half resolution. At a red-to-cyan edge at 100
-      // all three channels moved together by fifteen or sixteen levels, and
-      // the differences between them, which are the colour, not at all.
+      // Measured off Google's copies of the calibration chart, not taken from
+      // the paper, and three things there were not what the paper describes.
       //
-      // The blur is four reads on the diagonals, half a post pixel out. The
-      // texture filters linearly, so each read is the average of four pixels
-      // and the four together are a 3x3 blur weighted 1-2-1 each way, for the
-      // cost of four reads rather than nine. It reaches one pixel of a 1080px
-      // post, so the halo is a pixel wide and nothing ripples beyond it. In a
-      // 2160px export the reads land on the diagonal neighbours and the halo
-      // is half as wide and twice as deep, which comes to the same edge at
-      // the size it is seen: 100 to 170 went to 77 and 193 at 1080, and to 77
-      // and 194 once the 2160 was halved. In a thumbnail the reads close in on
-      // the pixel and the effect fades, as the preview's would if shrunk that
-      // far — at a tenth the size, two levels.
+      // It works on a smaller copy. The 2px and 3px gratings came back
+      // aliased — beats with periods of 14.2, 10.4 and 4.2px, which a filter
+      // working at the chart's own size cannot make — and all three put the
+      // copy at 0.5702 of the chart's 2160px, to four figures: 1232px, which
+      // is a square of 1.5 megapixels with its side rounded up to 16. So the
+      // finest detail is not lifted at all (2px gratings ×1.01 at 100, 3px
+      // ×0.88) and what is lifted is at 4–12px. The copy is taken with plain
+      // bilinear lookups and the detail brought back up the same way: only
+      // that left enough of the 3px grating through to alias as strongly as
+      // Google's did (5.8 against 5.5 levels), where properly filtered
+      // resampling left almost none.
       //
-      // 1.5 at 100 overshoots a hard edge by a third of its step, about what
-      // an unsharp mask of 100% at one pixel does: strong, not crunchy. The
-      // smoothstep leaves differences under half a level alone and takes the
-      // full amount from two, so grain in a flat sky is not what gets
-      // sharpened: noise in a soft gradient rose 5% at 100 while fine lines
-      // gained 68%. The last line is a soft ceiling on the lift, so a roofline
-      // against the sky gets a crisp rim rather than a glowing one. It scales
-      // with u_scale because the export's halo is twice as deep for the same
-      // look, and a fixed ceiling clipped the 2160 harder than the preview.
+      // The polynomial does not lift the finest band. Fitted at that copy's
+      // scale, with one σ of 0.75 for every setting, b falls from 1 at 25 to
+      // 0 at 100, so the detail right at the copy's own limit is left as it
+      // was or softened, and α climbs from 0 to 21. That reproduced Google's
+      // gains at 4, 6, 8 and 12px to within 0.05 at all four settings.
+      //
+      // It leans harder on a softer photo. On the chart blurred by σ 2px, no
+      // σ with Sharpen 100's α and b came near Google's gain there (×2.8 at
+      // 8px, ×3.1 at 12px, against ×2.4 at best); a wider σ with the lift
+      // scaled up as well did. See forBlur.
+      //
+      // On brightness alone, as the unsharp mask before it was: the same lift
+      // added to all three channels, so a coloured edge does not fringe.
+      // Google's colour patches came back unmoved.
+      //
+      // Grain is set aside first and handed back untouched, as the paper
+      // suggests, so it is not what gets sharpened. Without that the chart's
+      // noise patch came out 5 to 26% louder; with it, 0 to 9%, and after a
+      // JPEG round trip like the one Google's copies had been through, 2.59
+      // and 2.86 at 25 and 100 against Google's 2.61 and 2.93.
+      //
+      // And the paper's halo guard, made stronger: where the sharpened copy's
+      // slope runs against the photo's own, blend back towards the photo just
+      // far enough that it no longer does. A soft edge keeps its steeper
+      // middle and loses the ring around it, which is what Google's blurred
+      // chart shows. See apply for what it took.
+      grid: 1.5e6,
+      // σ in the working copy's pixels, and how hard to lean. blurOf reads
+      // the sharp chart as 0.41 — the working copy's own resampling and the
+      // slope measurement, as sharp as anything gets — and the blurred one
+      // as 1.57, and Google's gratings were matched by σ 0.75 at 1.0 and σ
+      // 1.1 at 1.95 times the lift. Straight lines through those two; below
+      // the sharp chart is as sharp as a photo can be, and past twice the
+      // blurred chart's excess is unmeasured, so it goes no further.
+      forBlur(found) {
+        const beyond = clamp(found - 0.41, 0, 2);
+        return { sigma: 0.75 + 0.30 * beyond, gain: 1 + 0.82 * beyond };
+      },
+      passes: {
+        // Once per photo and size. The copy's brightness with its grain set
+        // aside, then the three bands, each the last one less its blur. Four
+        // buffers do it: 'across' holds each horizontal half of a blur;
+        // 'first' ends with the first two bands, and 'bands' with the third
+        // and the brightness, having held the first band on the way.
+        //
+        // The grain is split off with a small bilateral filter: each pixel
+        // averaged with its neighbours, less the further they differ, so a
+        // difference of a few levels is smoothed and an edge or a grating's
+        // swing is kept. Eight levels to the fall-off, which is the 508: one
+        // over twice (8/255) squared. A 5x5 took the noise
+        // patch no quieter than this 3x3 (3.20 against 3.28 at 100) for
+        // nearly three times the reads, and a wider fall-off no quieter
+        // either, while beginning to soften the gratings.
+        prepare: [
+          {
+            out: 'luma',
+            glsl: `
+              float centre = luma(source());
+              float sum = 0.0;
+              float weight = 0.0;
+              for (int j = -1; j <= 1; j++) {
+                for (int i = -1; i <= 1; i++) {
+                  vec2 d = vec2(float(i), float(j));
+                  float y = luma(texture2D(u_image, v_uv + d * u_texel).rgb);
+                  float w = exp(-0.5 * dot(d, d) - (y - centre) * (y - centre) * 508.0);
+                  sum += w * y;
+                  weight += w;
+                }
+              }
+              return vec2(sum / weight, centre);`,
+          },
+          { out: 'across', from: ['luma'], blur: 'x', glsl: 'return blurred();' },
+          { out: 'bands', from: ['across', 'luma'], blur: 'y', glsl: 'return vec2(read1(vec2(0.0)).x - blurred().x, 0.0);' },
+          { out: 'across', from: ['bands'], blur: 'x', glsl: 'return blurred();' },
+          { out: 'first', from: ['across', 'bands'], blur: 'y', glsl: 'float y1 = read1(vec2(0.0)).x; return vec2(y1, y1 - blurred().x);' },
+          { out: 'across', from: ['first'], blur: 'x', glsl: 'return vec2(blurred().y, 0.0);' },
+          { out: 'bands', from: ['across', 'first', 'luma'], blur: 'y', glsl: 'return vec2(read1(vec2(0.0)).y - blurred().x, read2(vec2(0.0)).x);' },
+        ],
+        // On every slider move: the bands weighted into a lift, and the halo
+        // guard, which needs the lift either side of each pixel. The paper's
+        // guard as it stands barely touched a hard edge: it compares slopes
+        // pixel to pixel, and a pixel beside a hard edge in the copy is flat,
+        // so the ring there had no slope to run against. Two changes, each
+        // measured on the chart at 100, the 100|170 edge first:
+        //
+        //   the paper's                        27 under, 21 over
+        //   the photo's slope taken through K  27 under, 22 over
+        //   the strongest pull of the pixel
+        //   and its four neighbours            27 under,  7 over
+        //   both                                8 under, 11 over
+        //   Google's                           16 under,  6 over
+        //
+        // and on the blurred chart, from 18 and 13 to 3 and 4, where Google's
+        // was 4 and 3. The paper takes the blend to vary slowly, which is
+        // what sharing it with the neighbours makes so. No grating from 4 to
+        // 12px moved by more than 0.01: a sinusoid and its sharpened self
+        // slope the same way everywhere, so there is nothing for the guard
+        // to catch. The 3px one, finer than the copy holds, came down from
+        // 1.17 to 1.10, towards Google's 0.88.
+        apply: {
+          out: 'across', from: ['first', 'bands'],
+          glsl: `
+            vec2 x = vec2(1.0, 0.0);
+            vec2 y = vec2(0.0, 1.0);
+            float back = max(pull(vec2(0.0)), max(max(pull(x), pull(-x)), max(pull(y), pull(-y))));
+            return vec2((1.0 - back) * lift(vec2(0.0)), 0.0);`,
+          helpers: `
+            uniform float u_gain;
+            uniform float u_square;
+            uniform float u_cube;
+            float lift(vec2 px) {
+              vec2 a = read0(px);
+              return u_gain * (a.x + u_square * a.y - u_cube * read1(px).x);
+            }
+            // The photo through K: its brightness less its first band.
+            float soft(vec2 px) { return read1(px).y - read0(px).x; }
+            float sharp(vec2 px) { return read1(px).y + lift(px); }
+            // How far back towards the photo the pixel px has to go so its
+            // slope no longer runs against the photo's: the paper's
+            // M / (|∇v|² + M), for M = -∇v·∇v̄ where that is positive.
+            float pull(vec2 px) {
+              vec2 x = vec2(1.0, 0.0);
+              vec2 y = vec2(0.0, 1.0);
+              vec2 slope = vec2(soft(px + x) - soft(px - x), soft(px + y) - soft(px - y));
+              vec2 after = vec2(sharp(px + x) - sharp(px - x), sharp(px + y) - sharp(px - y));
+              float against = -dot(slope, after);
+              return against > 0.0 ? against / (dot(slope, slope) + against) : 0.0;
+            }`,
+          // Straight lines through Google's four settings, fitted at the copy's
+          // scale: α 0, 6.75, 13.75, 21 and b 0.98, 0.70, 0.38, 0 at 25 to 100.
+          // Below 25 the lift fades out in proportion rather than following
+          // the lines on down, because no α and b in the family is nothing
+          // at all: p'(1) is -1 whatever they are.
+          uniforms(amount, blur) {
+            const s = Math.max(amount, 0.25);
+            const alpha = 28 * s - 7;
+            const b = 1.31 * (1 - s);
+            return {
+              u_gain: (amount / s) * blur.gain,
+              u_square: alpha / 2,
+              u_cube: alpha / 2 - b + 2,
+            };
+          },
+        },
+      },
       glsl: `
-        float r = 0.5 * u_scale;
-        float blur = 0.25 * (luma(at(vec2(-r, -r))) + luma(at(vec2(r, -r))) + luma(at(vec2(-r, r))) + luma(at(vec2(r, r))));
-        float detail = luma(at(vec2(0.0))) - blur;
-        detail *= smoothstep(0.002, 0.008, abs(detail));
-        float lift = 1.5 * amount * detail;
-        float limit = max(0.2 * u_scale, 0.001);
-        c += lift * inversesqrt(1.0 + lift * lift / (limit * limit));`,
+        c += result_sharpen().x;`,
     },
   ];
 
@@ -975,7 +1107,6 @@
       ${glslStore(packed)}
       uniform sampler2D u_image;
       uniform vec2 u_texel;
-      uniform float u_scale;
       uniform sampler2D u_curves;
       ${ADJUSTMENTS.map((a) => `uniform float u_${a.id};`).join('\n')}
       vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
@@ -1270,7 +1401,7 @@
   // in which case the tile is drawn as it came. `detail` has, for each tool
   // with passes, its working copy's size and what it does for this photo's
   // blur; see lookOf.
-  function renderLook(src, adjust, w, h, scale, dark, detail) {
+  function renderLook(src, adjust, w, h, dark, detail) {
     const look = lookContext();
     if (!look) return null;
     const { gl } = look;
@@ -1361,7 +1492,6 @@
     look.el.height = h;
     gl.viewport(0, 0, w, h);
     gl.uniform2f(look.main.at('u_texel'), 1 / w, 1 / h);
-    gl.uniform1f(look.main.at('u_scale'), scale);
     ADJUSTMENTS.forEach((a) => gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -1385,8 +1515,7 @@
 
   // What a cell draws as: the source itself when it has no edits, otherwise
   // the source with its edits applied at about the size it will be drawn.
-  // `scale` is drawPage's own, output pixels per pixel of a 1080px post.
-  function lookOf(cell, photo, src, dw, dh, scale) {
+  function lookOf(cell, photo, src, dw, dh) {
     if (plainLook(cell.adjust)) return src;
     const sw = src.width;
     const sh = src.height;
@@ -1429,7 +1558,7 @@
       return hit.canvas;
     }
 
-    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw), dark, detail);
+    const canvas = renderLook(src, cell.adjust, w, h, dark, detail);
     if (!canvas) return src;
     const entry = { cell, src, sig, w, h, canvas };
     // Two a cell: the preview's size and one other, which is usually the
