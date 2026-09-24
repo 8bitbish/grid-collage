@@ -2494,24 +2494,16 @@ body.is-library .toast {
   flex: 1;
   min-width: 0;
   margin: 0;
-  padding-right: 14px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
 }
-.pop-pick { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
-.pop-pick svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/* On for as long as picking is, so it brightens rather than scales: a button
-   sitting shrunk for the whole of a choosing reads as stuck. */
-.pop-pick[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: transparent; }
+.effect-main, .effect-edge { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.effect-edge .effect-head { padding-left: 14px; }
+.pop-tool[aria-pressed="true"] { color: var(--text); }
+.pop-tool[aria-pressed="true"] .adjust-ring { background: var(--accent); color: #fff; }
+.pop-tool.is-set .adjust-ring { box-shadow: 0 0 0 1.5px var(--accent); }
+
 .pop-side:active { transform: scale(0.92); }
 
 @media (max-height: 520px) and (orientation: landscape) {

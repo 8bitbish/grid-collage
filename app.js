@@ -190,6 +190,14 @@
   // counts as its subject, and the chosen ones are tinted.
   let picking = false;
   let pickPress = null;
+  // A press held still on the tile while Effects is open, waiting to become
+  // a hold; and, once one has chosen, how long what it chose stays tinted.
+  let holdPress = null;
+  let tintUntil = 0;
+  // Pop out's edge controls are open, in place of its sides, and which of
+  // them the slider is set to.
+  let edgeMode = false;
+  let edgeTool = 'hair';
   let importForChooser = false;
   // The picker is standing in for a share sheet that arrived empty, so what
   // comes back belongs wherever the shared photos would have gone rather than
@@ -399,7 +407,8 @@
     // decode the still stayed on screen: the clip in one slot flickered back
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing, picking: picking ? state.selected : -1 });
+    const tinted = picking || performance.now() < tintUntil;
+    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing, picking: tinted ? state.selected : -1 });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
@@ -496,7 +505,7 @@
   function popSubject(g, cell, photo, rect, pop, drawn, p, pose, W, H) {
     if (photo.subject === undefined) awaitSubject(photo);
     if (!photo.subject) return;
-    const cut = cutoutOf(cell, photo.subject, drawn, p.dw, p.dh);
+    const cut = cutoutOf(cell, photo, photo.subject, drawn, pop, p.dw, p.dh);
     if (!cut) return;
     const on = (side) => pop.sides.includes(side);
     const x0 = on('left') ? 0 : rect.x;
@@ -1815,8 +1824,13 @@
   // Every prominent thing the detector knows a name for, as points: the
   // middle of each box. Prominent is area times confidence, within a third of
   // the most prominent — so two people side by side both count, and the
-  // stranger walking past behind them does not. The middle of the photo if
-  // the detector knows nothing in it.
+  // stranger walking past behind them does not.
+  //
+  // Nothing at all if the detector knows nothing in the photo. It used to
+  // fall back on the middle of the frame, and in a street or a landscape
+  // the middle of the frame is a building: MagicTouch cut one out, faithfully,
+  // and it popped out over the neighbours. Now the panel asks for a hold on
+  // the subject instead.
   function detectPoints(detect, src) {
     const k = SEGMENT_EDGE / Math.max(src.width, src.height);
     const w = Math.max(1, Math.round(src.width * k));
@@ -1827,7 +1841,7 @@
       const b = d.boundingBox;
       return { x: (b.originX + b.width / 2) / w, y: (b.originY + b.height / 2) / h, weight: b.width * b.height * d.categories[0].score };
     }).sort((a, b) => b.weight - a.weight);
-    if (!found.length) return [{ x: 0.5, y: 0.5 }];
+    if (!found.length) return [];
     return found.filter((d) => d.weight >= found[0].weight / 3).slice(0, SUBJECTS_MAX).map(({ x, y }) => ({ x, y }));
   }
   const SUBJECTS_MAX = 6;
@@ -2264,35 +2278,94 @@
           lifted[i] = clamp(a, 0, 1);
         }
       }
-      return firmRamps(lifted, w, h);
+      // Stored as the model left it. How firm its soft parts are made is the
+      // Hair setting, and is decided each time the cutout is made.
+      const alpha = new Uint8ClampedArray(w * h);
+      for (let i = 0; i < alpha.length; i++) alpha[i] = lifted[i] * 255;
+      return alpha;
     } catch (err) {
       console.warn('Matting failed; using the guided cut', err);
       return null;
     }
   }
 
-  // A matte is honest about an edge that is out of focus: the back of a
-  // portrait's head, dark hair on a dark room, came out as a ramp 30-40px wide
-  // at 2160, and drawn over a pale neighbour that ramp is a haze of smoke.
-  // Strands are part-covered too, and must stay so. What tells them apart is
-  // their neighbourhood: a strand stands out from the mean round it, a ramp
-  // is the mean round it. So a pixel is hardened as far as it agrees with its
-  // neighbours, and left as it is as far as it stands out.
-  const RAMP_RADIUS = 4;      // in pixels at CUT_EDGE
-  const RAMP_STANDOUT = 0.12; // how far from the local mean counts as a strand
-  function firmRamps(A, w, h) {
-    const r = Math.max(1, Math.round((RAMP_RADIUS * Math.max(w, h)) / CUT_EDGE));
-    const mean = boxMean(A, w, h, r);
-    const alpha = new Uint8ClampedArray(w * h);
-    for (let i = 0; i < A.length; i++) {
-      const a = A[i];
-      if (a <= 0 || a >= 1) { alpha[i] = a * 255; continue; }
-      const t = clamp((a - 0.25) / 0.5, 0, 1);
-      const firm = t * t * (3 - 2 * t);
-      const strand = clamp(Math.abs(a - mean[i]) / RAMP_STANDOUT, 0, 1);
-      alpha[i] = (strand * a + (1 - strand) * firm) * 255;
+  /* ------------------------------------------------------- the edge, by hand */
+  //
+  // No model finds every edge right, so the edge can be set by hand, the way
+  // Photoshop's Select and Mask does: how much fine detail to keep, how soft
+  // to make it, and whether to move it in or out. All three are worked on the
+  // stored cut when the cutout is made, so none of them runs a model, and
+  // they are part of the effect, so the same photo can be popped out two
+  // ways on two slides.
+  //
+  // Radii are fractions of the cutout's long side, so the preview, drawn
+  // small, and a 2160px export agree.
+  const EDGE_DEFAULTS = { hair: 50, feather: 0, shift: 0 };
+  const edgeOf = (pop) => ({ ...EDGE_DEFAULTS, ...((pop && pop.edge) || {}) });
+  const plainEdge = (edge) => !edge || Object.keys(EDGE_DEFAULTS).every((k) => (edge[k] ?? EDGE_DEFAULTS[k]) === EDGE_DEFAULTS[k]);
+  const EDGE_TOOLS = [
+    { id: 'hair', label: 'Hair', min: 0, max: 100,
+      icon: '<path d="M5 20c1-6 3-11 7-15"/><path d="M9 20c.5-4 2-8 5-11"/><path d="M13 20c.3-3 1.4-5.7 3.5-8"/><path d="M17 20c.2-2 .9-3.8 2-5"/>' },
+    { id: 'feather', label: 'Feather', min: 0, max: 100,
+      icon: '<circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="7.5" stroke-dasharray="2 2.6"/>' },
+    { id: 'shift', label: 'Shift edge', min: -100, max: 100,
+      icon: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M3 12h2M19 12h2M12 3v2M12 19v2"/>' },
+  ];
+  const HAIR_RADIUS = 0.0013;   // of the long side: 4px at 3072, the window a strand is told apart in
+  const HAIR_STANDOUT = 0.12;   // how far from the local mean counts as a strand
+  const FEATHER_MAX = 0.008;    // of the long side at 100: 25px at 3072
+  const SHIFT_MAX = 0.006;      // of the long side at ±100: 18px at 3072
+
+  // Hair, 0 to 100. A matte is honest about an edge that is out of focus: the
+  // back of a portrait's head, dark hair on a dark room, came out as a ramp
+  // 30-40px wide at 2160, and drawn over a pale neighbour that ramp is a haze
+  // of smoke. Strands are part-covered too, and must stay so. What tells them
+  // apart is their neighbourhood: a strand stands out from the mean round it,
+  // a ramp is the mean round it. At 50 a pixel is firmed as far as it agrees
+  // with its neighbours and left as far as it stands out; at 0 everything is
+  // firmed, a crisp cut; at 100 nothing is, every wisp the matte found.
+  function edgeAlpha(bytes, w, h, edge) {
+    const long = Math.max(w, h);
+    let A = new Float32Array(w * h);
+    for (let i = 0; i < A.length; i++) A[i] = bytes[i] / 255;
+    const t = edge.hair / 100;
+    if (t < 1) {
+      const mean = boxMean(A, w, h, Math.max(1, Math.round(HAIR_RADIUS * long)));
+      for (let i = 0; i < A.length; i++) {
+        const a = A[i];
+        if (a <= 0 || a >= 1) continue;
+        const u = clamp((a - 0.25) / 0.5, 0, 1);
+        const firm = u * u * (3 - 2 * u);
+        const strand = clamp(Math.abs(a - mean[i]) / HAIR_STANDOUT, 0, 1);
+        const judged = strand * a + (1 - strand) * firm;
+        A[i] = t < 0.5 ? firm + (judged - firm) * t * 2 : judged + (a - judged) * (t - 0.5) * 2;
+      }
     }
-    return alpha;
+    // Shift: across a hard edge a box blur of radius r runs straight from 0,
+    // r outside, to 1, r inside, so its quarter mark is r/2 outside the edge
+    // and its three-quarter mark r/2 inside. Out keeps whatever the blur
+    // reaches a quarter of, in only what it fills three quarters of, each
+    // with the same short ramp, and neither adds back what the other took.
+    // A first version measured 5px out and 1px in at the same setting: its
+    // contraction was mostly softening, not moving.
+    if (edge.shift) {
+      const r = Math.max(2, Math.round((Math.abs(edge.shift) / 100) * SHIFT_MAX * long * 2));
+      const B = boxMean(A, w, h, r);
+      const mid = edge.shift > 0 ? 0.25 : 0.75;
+      for (let i = 0; i < A.length; i++) {
+        const u = clamp((B[i] - (mid - 0.1)) / 0.2, 0, 1);
+        const moved = u * u * (3 - 2 * u);
+        A[i] = edge.shift > 0 ? Math.max(A[i], moved) : Math.min(A[i], moved);
+      }
+    }
+    // Feather: two box blurs of half the radius, near enough a gaussian.
+    if (edge.feather) {
+      const r = Math.max(1, Math.round(((edge.feather / 100) * FEATHER_MAX * long) / 2));
+      A = boxMean(boxMean(A, w, h, r), w, h, r);
+    }
+    const out = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < out.length; i++) out[i] = A[i] * 255;
+    return out;
   }
 
   // The part of the mask that is confidently subject, as fractions of the
@@ -2382,8 +2455,30 @@
         const { detect } = await loadSegmenter();
         photo.subjectPoints = detectPoints(detect, await sourceOf(photo));
       }
-      return keepSubject(photo, await cutSubjects(photo, photo.subjectPoints), false);
+      return cutFor(photo, photo.subjectPoints);
     })().finally(() => finding.delete(photo));
+    finding.set(photo, job);
+    return job;
+  }
+
+  // The photo's subject made from these points, and kept: none at all when
+  // there are none, which is stored too, so the panel asks rather than the
+  // detector being asked again.
+  async function cutFor(photo, points) {
+    photo.subjectPoints = points;
+    if (points.length) return keepSubject(photo, await cutSubjects(photo, points), false);
+    photo.subject = null;
+    photo.subjectBlob = null;
+    if (persisted.has(photo.id)) savePhoto(photo);
+    return null;
+  }
+
+  // Held down on: whatever is under the finger becomes the subject, and the
+  // only one. What a hold is for is saying "that one" when the detector chose
+  // wrong, or chose nothing.
+  function holdSubject(photo, u, v) {
+    if (finding.has(photo)) return finding.get(photo);
+    const job = cutFor(photo, [{ x: u, y: v }]).finally(() => finding.delete(photo));
     finding.set(photo, job);
     return job;
   }
@@ -2407,14 +2502,7 @@
       if (hit >= 0) points.splice(hit, 1);
       else if (points.length < SUBJECTS_MAX) points.push({ x: u, y: v });
       else return photo.subject;
-      photo.subjectPoints = points;
-      if (!points.length) {
-        photo.subject = null;
-        photo.subjectBlob = null;
-        if (persisted.has(photo.id)) savePhoto(photo);
-        return null;
-      }
-      return keepSubject(photo, await cutSubjects(photo, points), false);
+      return cutFor(photo, points);
     })().finally(() => finding.delete(photo));
     finding.set(photo, job);
     return job;
@@ -2428,18 +2516,44 @@
     .filter(wantsSubject).map((c) => findSubject(photoFor(c)).catch(() => null)));
 
   // The subject, cut out of whatever the tile is drawing — the photo with its
-  // edits on — at about the size it is drawn, by the same rule as a look.
+  // edits on — with its edge set as the effect says and its edge colours
+  // cleaned, made once and then only scaled as it is drawn.
+  //
+  // At the cut's own size, capped, and not at the size the tile shows it:
+  // made at the drawn size, it had to be made again every time that size
+  // changed, and turning a photo changes it on every step, because turning
+  // raises the zoom the cover clamp needs. Each remake read two images back
+  // off the GPU and cleaned their edge colours, and measured on the rotate
+  // slider over a 2x2 of photos that was a 44ms median step and a 616ms worst.
+  //
+  // Moving a slider on the edge is the exception: while it moves the cutout
+  // is made at half the size shown, from pixels read once at the start of the
+  // drag, and without its edge colours cleaned — the full one is made when
+  // it is let go. At the size shown and in full, each step of a drag took a
+  // 75ms median.
+  const CUTOUT_EDGE = 2560;
   const cutouts = new WeakMap();
-  function cutoutOf(cell, subject, drawn, dw, dh) {
+  let edgeSliding = false;
+  let slideBase = null;
+
+  function cutoutOf(cell, photo, subject, drawn, pop, dw, dh) {
     const sw = drawn.width;
     const sh = drawn.height;
     if (!sw || !sh) return null;
-    const want = Math.min(1, Math.max(dw / sw, dh / sh));
-    const fit = gesture ? Math.min(1, 2 ** (Math.ceil(Math.log2(want) * 4) / 4)) : want;
+    const edge = edgeOf(pop);
+    const edgeSig = `${edge.hair},${edge.feather},${edge.shift}`;
+    const look = plainLook(cell.adjust) ? '' : ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',');
+    const full = Math.min(1, CUTOUT_EDGE / Math.max(sw, sh), subject.mask.width / sw, subject.mask.height / sh);
+    const fit = edgeSliding ? Math.min(full, Math.max(dw / sw, dh / sh) / 2) : full;
     const w = Math.max(1, Math.round(sw * fit));
     const h = Math.max(1, Math.round(sh * fit));
     const kept = cutouts.get(cell) || [];
-    const hit = kept.find((c) => c.drawn === drawn && c.mask === subject.mask && c.w === w && c.h === h);
+    const same = (c) => c.photo === photo.bitmap && c.look === look && c.mask === subject.mask && c.edgeSig === edgeSig;
+    const hit = kept.find((c) => same(c) && c.w === w && c.h === h)
+      // A look is made at the size it is shown, so mid-gesture a new one
+      // arrives every few frames; the cutout already made from the last one
+      // is the same picture at a slightly different size.
+      || (gesture ? kept.find(same) : null);
     if (hit) return hit.canvas;
 
     const canvas = document.createElement('canvas');
@@ -2448,21 +2562,40 @@
     const g = canvas.getContext('2d');
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = 'high';
-    g.drawImage(drawn, 0, 0, w, h);
-    const px = g.getImageData(0, 0, w, h).data;
-    const m = scratch(w, h).getContext('2d');
-    m.imageSmoothingQuality = 'high';
-    m.drawImage(subject.mask, 0, 0, w, h);
-    const md = m.getImageData(0, 0, w, h).data;
-    const alpha = new Uint8ClampedArray(w * h);
-    for (let i = 0; i < alpha.length; i++) alpha[i] = md[i * 4 + 3];
-    // The radii were set at the cut's own size, and this is drawn at another.
-    const k = w / subject.mask.width;
-    g.putImageData(new ImageData(foregroundColour(px, alpha, w, h, Math.max(3, Math.round(90 * k)), Math.max(1, Math.round(6 * k))), w, h), 0, 0);
-    kept.unshift({ drawn, mask: subject.mask, w, h, canvas });
+    const base = slideBase && slideBase.cell === cell && slideBase.w === w && slideBase.h === h
+      && slideBase.photo === photo.bitmap && slideBase.look === look && slideBase.mask === subject.mask
+      ? slideBase : readBase(cell, photo, look, subject, drawn, w, h);
+    if (edgeSliding) slideBase = base;
+    const alpha = edgeAlpha(base.stored, w, h, edge);
+    let out;
+    if (edgeSliding) {
+      out = new Uint8ClampedArray(base.px);
+      for (let i = 0; i < alpha.length; i++) out[i * 4 + 3] = alpha[i];
+    } else {
+      // The radii were set at the cut's own size, and this is made at another.
+      const k = w / subject.mask.width;
+      out = foregroundColour(base.px, alpha, w, h, Math.max(3, Math.round(90 * k)), Math.max(1, Math.round(6 * k)));
+    }
+    g.putImageData(new ImageData(out, w, h), 0, 0);
+    kept.unshift({ photo: photo.bitmap, look, mask: subject.mask, edgeSig, w, h, canvas });
     kept.splice(2);
     cutouts.set(cell, kept);
     return canvas;
+  }
+
+  // The two things a cutout is made from, read back off the GPU: the tile's
+  // picture and the stored cut, both at w×h.
+  function readBase(cell, photo, look, subject, drawn, w, h) {
+    const g = scratch(w, h).getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(drawn, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    g.clearRect(0, 0, w, h);
+    g.drawImage(subject.mask, 0, 0, w, h);
+    const md = g.getImageData(0, 0, w, h).data;
+    const stored = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < stored.length; i++) stored[i] = md[i * 4 + 3];
+    return { cell, photo: photo.bitmap, look, mask: subject.mask, w, h, px, stored };
   }
 
   // What colour each part-covered pixel of the subject really is. A strand of
@@ -5391,6 +5524,8 @@
     // Choosing subjects: a tap chooses, and a drag still moves the photo, so
     // which it was is only known on letting go.
     if (picking && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
+    if (pointers.size === 0 && tileSub === 'effects') armHoldPick(e, i, p);
+    else cancelHoldPick();
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
@@ -5400,6 +5535,7 @@
     if (pickPress && e.pointerId === pickPress.id) {
       pickPress.moved = Math.max(pickPress.moved, Math.hypot(e.clientX - pickPress.x, e.clientY - pickPress.y));
     }
+    if (holdPress && e.pointerId === holdPress.id && Math.hypot(e.clientX - holdPress.x, e.clientY - holdPress.y) > 8) cancelHoldPick();
     if (crossPress && e.pointerId === crossPress.id) {
       crossPress.moved = Math.max(crossPress.moved,
         Math.hypot(e.clientX - crossPress.x, e.clientY - crossPress.y));
@@ -5521,6 +5657,7 @@
       return;
     }
 
+    if (holdPress && holdPress.id === e.pointerId) cancelHoldPick();
     if (!pointers.has(e.pointerId)) return;
     // Only a single finger that barely moved; a second finger down makes it a
     // pinch, which is not a tap however little the first one moved.
@@ -6201,6 +6338,7 @@
     if (name === 'trim') syncTrim();
     if (name === 'effects') syncEffects();
     else if (picking) setPicking(false);
+    if (name !== 'effects') edgeMode = false;
     if (name === 'adjust') syncAdjust();
     // Letting go of the panel lets go of the compare button with it: a hold
     // that ends somewhere the pointerup never reaches must not leave the
@@ -6619,10 +6757,16 @@
       btn.setAttribute('aria-pressed', String(on));
     });
     const pop = effectOf(cell, 'popOut');
+    if (!pop) edgeMode = false;
+    $('effect-main').hidden = edgeMode;
+    $('effect-edge').hidden = !edgeMode;
     $('effect-hint').hidden = !plainEffects(cell.effects);
     $('popout-row').hidden = !pop;
-    $('pop-note').hidden = !pop;
+    $('pop-pick').hidden = !pop;
+    $('pop-edge').hidden = !pop;
     if (!pop) { setPicking(false); return; }
+    $('pop-edge').classList.toggle('is-set', !plainEdge(pop.edge));
+    if (edgeMode) { syncEdge(cell, pop); return; }
     [...$('pop-sides').children].forEach((btn) => {
       btn.setAttribute('aria-pressed', String(pop.sides.includes(btn.dataset.side)));
     });
@@ -6634,10 +6778,82 @@
     let note = 'Pops out over the photos around it';
     if (photo && finding.has(photo)) note = 'Finding the subject…';
     else if (picking) note = photo && photo.subject ? 'Tap a subject to take it away, or something else to add it' : 'Tap what should pop out';
-    else if (photo && photo.subject === null) note = 'No subject chosen — tap Subjects to choose one';
+    else if (photo && photo.subject === null) note = 'Hold on what should pop out';
     else if (spill && !showing) note = 'Move or zoom the photo so the subject crosses that edge';
     $('pop-note').textContent = note;
     $('pop-pick').setAttribute('aria-pressed', String(picking));
+  }
+
+  function buildEdgeTools() {
+    const row = $('edge-tools');
+    row.innerHTML = '';
+    EDGE_TOOLS.forEach((tool) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dock-item adjust-tool';
+      btn.dataset.edge = tool.id;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = `<span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true">${tool.icon}</svg></span><span>${tool.label}</span>`;
+      btn.addEventListener('click', () => { edgeTool = tool.id; syncEffects(); });
+      row.appendChild(btn);
+    });
+  }
+
+  function syncEdge(cell, pop) {
+    const edge = edgeOf(pop);
+    const tool = EDGE_TOOLS.find((t) => t.id === edgeTool) || EDGE_TOOLS[0];
+    [...$('edge-tools').children].forEach((btn) => {
+      const t = EDGE_TOOLS.find((x) => x.id === btn.dataset.edge);
+      const moved = edge[t.id] - EDGE_DEFAULTS[t.id];
+      btn.classList.toggle('is-active', t.id === tool.id);
+      btn.setAttribute('aria-pressed', String(t.id === tool.id));
+      // The ring says how far from where it started, as Adjust's does.
+      btn.classList.toggle('is-set', !!moved);
+      btn.style.setProperty('--amount', Math.abs(moved) / (t.max - t.min) * (t.min < 0 ? 2 : 1));
+    });
+    const input = $('edge');
+    input.min = String(tool.min);
+    input.max = String(tool.max);
+    input.value = String(edge[tool.id]);
+    $('edge-slide').classList.toggle('from-centre', tool.min < 0);
+    $('edge-name').textContent = tool.label;
+    $('edge-val').textContent = String(edge[tool.id]);
+    paintSlider(input);
+    $('edge-reset').disabled = plainEdge(pop.edge);
+  }
+
+  function slideEdge() {
+    const cell = page().cells[state.selected];
+    const pop = effectOf(cell, 'popOut');
+    if (!pop) return;
+    const tool = EDGE_TOOLS.find((t) => t.id === edgeTool);
+    const input = $('edge');
+    let value = Number(input.value);
+    // Shift is caught at nought on the way past, as Adjust's two-way tools are.
+    if (tool.min < 0 && Math.abs(value) <= 3 && value !== 0) {
+      value = 0;
+      input.value = '0';
+      paintSlider(input);
+      buzz('snap');
+    }
+    const edge = edgeOf(pop);
+    if (edge[tool.id] === value) return;
+    snapshot(`edge:${tool.id}`);
+    edge[tool.id] = value;
+    setEffect(cell, 'popOut', { ...pop, edge: plainEdge(edge) ? undefined : edge });
+    edgeSliding = true;
+    syncEffects();
+    render();
+  }
+
+  function resetEdge() {
+    const cell = page().cells[state.selected];
+    const pop = effectOf(cell, 'popOut');
+    if (!pop || plainEdge(pop.edge)) return;
+    snapshot();
+    setEffect(cell, 'popOut', { ...pop, edge: undefined });
+    syncEffects();
+    refresh();
   }
 
   function toggleEffect(id) {
@@ -6663,13 +6879,15 @@
   // taken off again rather than left looking broken.
   //
   // Nothing found is not a failure now that subjects can be chosen by hand:
-  // the effect stays on and the panel goes straight to choosing.
+  // the effect stays on and the panel asks for a hold on the subject. Not
+  // straight into Subjects, as it first did, where a tap chooses: then the
+  // tap that starts a drag to frame the photo chose whatever it landed on.
   function ensureSubject(cell, photo, id, fresh, i) {
     if (photo.subject) return;
     photo.subjectFailed = false;
     findSubject(photo).then((subject) => {
       if (!subject) {
-        if (page().cells[state.selected] === cell && tileSub === 'effects') setPicking(true);
+        // Said by the panel's note, which syncEffects below brings up to date.
       } else if (id === 'popOut' && effectOf(cell, id) === fresh && page().cells[i] === cell) {
         // Still as it was turned on, so nobody has chosen a side yet.
         setEffect(cell, id, { ...fresh, sides: [bestSide(cell, photo, cellRects()[i], canvas.width, canvas.height)] });
@@ -6720,6 +6938,56 @@
     const lx = (dx * cos + dy * sin) * (cell.flipX ? -1 : 1);
     const ly = (-dx * sin + dy * cos) * (cell.flipY ? -1 : 1);
     return { u: lx / p.dw + 0.5, v: ly / p.dh + 0.5 };
+  }
+
+  // Held down on, in the Effects panel: that object, and only it, pops out.
+  // Long enough not to be a tap on its way to a drag, and the same 450ms the
+  // homepage's hold waits (HOLD_MS, declared further down, too late to name).
+  const HOLD_PICK_MS = 450;
+  function armHoldPick(e, i, pt) {
+    cancelHoldPick();
+    const photo = photoFor(page().cells[i]);
+    if (!photo || photo.kind === 'video') return;
+    holdPress = { id: e.pointerId, x: e.clientX, y: e.clientY, i, at: pt };
+    holdPress.timer = setTimeout(() => holdPickAt(holdPress), HOLD_PICK_MS);
+  }
+
+  function cancelHoldPick() {
+    if (!holdPress) return;
+    clearTimeout(holdPress.timer);
+    holdPress = null;
+  }
+
+  function holdPickAt(press) {
+    holdPress = null;
+    const cell = page().cells[press.i];
+    const photo = photoFor(cell);
+    if (!photo) return;
+    const { u, v } = photoPointAt(press.i, press.at);
+    if (u < 0 || u > 1 || v < 0 || v > 1) return;
+    // The finger stays down, but it has chosen: it is no longer panning, and
+    // letting go is not a tap.
+    pointers.delete(press.id);
+    gesture = null;
+    pickPress = null;
+    buzz('pick');
+    let fresh = null;
+    if (!effectOf(cell, 'popOut')) {
+      fresh = effectEntry('popOut').fresh();
+      setEffect(cell, 'popOut', fresh);
+    }
+    holdSubject(photo, u, v)
+      .then((subject) => {
+        if (subject && fresh && effectOf(cell, 'popOut') === fresh) {
+          setEffect(cell, 'popOut', { ...fresh, sides: [bestSide(cell, photo, cellRects()[press.i], canvas.width, canvas.height)] });
+        }
+        // Tinted for a moment, so what was chosen is seen being chosen.
+        tintUntil = performance.now() + 900;
+        setTimeout(render, 950);
+      })
+      .catch((err) => { console.warn('Choosing the subject failed', err); toast("Couldn't find the subject there"); })
+      .then(() => { refresh(); syncEffects(); });
+    syncEffects();
   }
 
   function pickAt(i, pt) {
@@ -8438,6 +8706,16 @@
 
   buildEffects();
   $('pop-pick').addEventListener('click', () => setPicking(!picking));
+  buildEdgeTools();
+  feedback('edge');
+  $('pop-edge').addEventListener('click', () => { setPicking(false); edgeMode = true; syncEffects(); });
+  $('edge-done').addEventListener('click', () => { edgeMode = false; syncEffects(); });
+  $('edge').addEventListener('pointerdown', () => { endRun(); });
+  $('edge').addEventListener('input', slideEdge);
+  // Let go of, the cutout is made again at full size, and the filmstrip, the
+  // cover and the saved deck catch up.
+  $('edge').addEventListener('change', () => { endRun(); edgeSliding = false; slideBase = null; refresh(); });
+  $('edge-reset').addEventListener('click', resetEdge);
   [...$('pop-sides').children].forEach((btn) => {
     btn.addEventListener('click', () => toggleSide(btn.dataset.side));
   });
