@@ -183,6 +183,9 @@
   document.addEventListener('touchstart', () => {}, { passive: true });
 
   let pendingCell = null;
+  // The compare button is held down: the preview shows the photos as they
+  // came, without their edits, until it is let go.
+  let comparing = false;
   let importForChooser = false;
   // The picker is standing in for a share sheet that arrived empty, so what
   // comes back belongs wherever the shared photos would have gone rather than
@@ -340,7 +343,12 @@
         // for a photo is the whole story. A video element, a decoded frame
         // and an ImageBitmap are all things drawImage takes, so a moving
         // picture composes through exactly the same code as a still one.
-        g.drawImage(cell.frame || cell.poster || photo.bitmap, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        const still = cell.frame || cell.poster || photo.bitmap;
+        // Edits are for photos for now: a clip would need its look redrawn on
+        // every frame it plays and every frame an export walks. `original` is
+        // the preview's compare button, held down.
+        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, still, p.dw, p.dh, s);
+        g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -372,7 +380,7 @@
     // decode the still stayed on screen: the clip in one slot flickered back
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected });
+    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
@@ -472,6 +480,280 @@
     g.moveTo(cx - arm, cy); g.lineTo(cx + arm, cy);
     g.moveTo(cx, cy - arm); g.lineTo(cx, cy + arm);
     g.stroke();
+  }
+
+  /* ---------------------------------------------------------- adjustments */
+  //
+  // Photo edits, modelled on the Adjust tab in Google Photos: a row of named
+  // tools, one slider each, tone tools centred on nought and running -100 to
+  // +100, detail tools running up from nought. The numbers are stored on the
+  // cell as authored, `cell.adjust = { whitePoint: 20 }`, for the same reason
+  // zoom and trim are: the same photo can be on two slides edited two ways,
+  // and the deck's JSON already carries everything a cell holds through undo,
+  // persistence and duplicating a page.
+  //
+  // Everything about a tool lives in its entry here. The panel's buttons, the
+  // slider's range and the shader are all built from this list, so adding a
+  // tool is one entry and a test, and nothing else has to learn its name.
+  //
+  //   id     the key in cell.adjust, and the uniform u_<id> in the shader
+  //   min    -100 for a tool that works both ways, 0 for one that only adds
+  //   stage  'detail' for a tool that reads neighbouring pixels, 'tone' for
+  //          one that looks at a pixel on its own. Detail runs first, on the
+  //          photo as it arrived: at() reads the source texture, so a detail
+  //          tool placed after a tone tool would be sharpening pixels the tone
+  //          tools had not touched yet.
+  //   glsl   runs inside its own block only when the slider is off nought,
+  //          so nought is exactly the photo and costs nothing. It sees
+  //          `amount` (the slider over 100) and rewrites `c`, the pixel as
+  //          gamma-encoded RGB in 0..1. Helpers: luma(c), at(px) for the
+  //          source pixel px pixels away, u_texel, and u_scale — processed
+  //          pixels per pixel of a 1080px post, so a radius authored against
+  //          the preview means the same thing in a 2160px export.
+  //
+  // Listed in the order Google Photos lists them, which is also the order the
+  // tone tools run in.
+  const ADJUSTMENTS = [
+    {
+      id: 'whitePoint', label: 'White point', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/>',
+      // Levels at the top end, per channel, which is what makes it firmer than
+      // Highlights: up moves the level that counts as white down, so the top of
+      // the range clips; down lowers what white is drawn as, so it greys. Black
+      // stays where it is either way. At +100 anything from 0.65 up is white;
+      // at -100 white is drawn at 0.65. Strong at the ends, as the Photos one
+      // is, without either end destroying the picture outright.
+      glsl: `
+        if (amount > 0.0) c = c / (1.0 - 0.35 * amount);
+        else c = c * (1.0 + 0.35 * amount);`,
+    },
+    {
+      id: 'blackPoint', label: 'Black point', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="12" cy="12" r="8.5"/><circle class="solid" cx="12" cy="12" r="3.2"/>',
+      // The same at the bottom end, and the same way round as Photos: up is
+      // deeper blacks, which crushes everything below a quarter to black at
+      // +100; down lifts black to a quarter, the faded look. White stays put.
+      glsl: `
+        if (amount > 0.0) c = (c - 0.25 * amount) / (1.0 - 0.25 * amount);
+        else c = -0.25 * amount + c * (1.0 + 0.25 * amount);`,
+    },
+  ];
+
+  const adjustment = (id) => ADJUSTMENTS.find((a) => a.id === id);
+
+  // Whether a cell's edits add up to nothing. A plain cell never goes near the
+  // GPU, so an unedited tile is drawn exactly as it was before there were edits.
+  const plainLook = (adjust) => !adjust || ADJUSTMENTS.every((a) => !adjust[a.id]);
+
+  // Always a new object rather than a change to the old one. An undo snapshot
+  // holds a cell's edits by reference until it is serialised, so changing them
+  // in place would change the history along with the present.
+  function setAdjust(cell, id, value) {
+    const next = { ...(cell.adjust || {}) };
+    if (value) next[id] = value; else delete next[id];
+    cell.adjust = Object.keys(next).length ? next : undefined;
+  }
+
+  // One WebGL context for every edited tile, made the first time one is drawn.
+  // Not ctx.filter, which Safari does not implement, and not getImageData,
+  // which at 12MP is seconds per slider move on a phone.
+  let lookGL = null;
+
+  const LOOK_VERTEX = `
+    attribute vec2 a_pos;
+    varying vec2 v_uv;
+    void main() {
+      // Upside down on purpose. Row nought of a texture is the top of the
+      // image, and the bottom of clip space is the bottom of the canvas it
+      // is read back from. UNPACK_FLIP_Y would say the same thing, but the
+      // spec has it ignored for an ImageBitmap, which is what a photo is.
+      v_uv = vec2(a_pos.x + 1.0, 1.0 - a_pos.y) * 0.5;
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }`;
+
+  function lookFragment() {
+    const order = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
+    return `
+      #ifdef GL_FRAGMENT_PRECISION_HIGH
+      precision highp float;
+      #else
+      precision mediump float;
+      #endif
+      uniform sampler2D u_image;
+      uniform vec2 u_texel;
+      uniform float u_scale;
+      ${ADJUSTMENTS.map((a) => `uniform float u_${a.id};`).join('\n')}
+      varying vec2 v_uv;
+      float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+      vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
+      void main() {
+        vec4 source = texture2D(u_image, v_uv);
+        vec3 c = source.rgb;
+        ${order.map((a) => `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`).join('\n')}
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), source.a);
+      }`;
+  }
+
+  function lookContext() {
+    if (lookGL !== null) return lookGL;
+    lookGL = false;
+    const el = document.createElement('canvas');
+    // Straight alpha and a kept buffer: the result is copied out with
+    // drawImage straight after drawing, and a PNG with a transparent corner
+    // should still show the background through it once edited.
+    const gl = el.getContext('webgl', {
+      alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, depth: false,
+    });
+    if (!gl) return lookGL;
+    const shader = (type, source) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, source);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error('adjust shader:', gl.getShaderInfoLog(s));
+        return null;
+      }
+      return s;
+    };
+    const vs = shader(gl.VERTEX_SHADER, LOOK_VERTEX);
+    const fs = shader(gl.FRAGMENT_SHADER, lookFragment());
+    if (!vs || !fs) return lookGL;
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return lookGL;
+    gl.useProgram(program);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const pos = gl.getAttribLocation(program, 'a_pos');
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    const uniform = (name) => gl.getUniformLocation(program, name);
+    const dims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+    // A phone can take its context back at any time. What has already been
+    // drawn is safe, being plain 2D canvases; the next edit makes a new one.
+    el.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lookGL = null; });
+    lookGL = {
+      gl, el,
+      // A 48MP original is past what some GPUs take in one texture.
+      max: Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), dims[0], dims[1]),
+      texel: uniform('u_texel'),
+      scale: uniform('u_scale'),
+      amounts: ADJUSTMENTS.map((a) => [a.id, uniform(`u_${a.id}`)]),
+      // Where a big source is brought down to size before upload.
+      stage: document.createElement('canvas'),
+    };
+    return lookGL;
+  }
+
+  // One cell's edits drawn over one source at one size, into a canvas of its
+  // own so the context is free for the next tile. Null if there is no WebGL,
+  // in which case the tile is drawn as it came.
+  function renderLook(src, adjust, w, h, scale) {
+    const look = lookContext();
+    if (!look) return null;
+    const { gl } = look;
+
+    // Resampled to size by the 2D canvas first, with the same high-quality
+    // smoothing drawPage uses, rather than left to the GPU's bilinear filter —
+    // which, taking a 12MP photo down to a 1080px tile, aliases badly.
+    let input = src;
+    if (w !== src.width || h !== src.height) {
+      look.stage.width = w;
+      look.stage.height = h;
+      const sg = look.stage.getContext('2d');
+      sg.imageSmoothingEnabled = true;
+      sg.imageSmoothingQuality = 'high';
+      sg.drawImage(src, 0, 0, w, h);
+      input = look.stage;
+    }
+
+    look.el.width = w;
+    look.el.height = h;
+    gl.viewport(0, 0, w, h);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
+    gl.uniform2f(look.texel, 1 / w, 1 / h);
+    gl.uniform1f(look.scale, scale);
+    look.amounts.forEach(([id, at]) => gl.uniform1f(at, (adjust[id] || 0) / 100));
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    // The staging copy can be the size of an export, and iOS counts every
+    // canvas's backing store against a budget of its own.
+    look.stage.width = 0;
+    look.stage.height = 0;
+
+    const out = document.createElement('canvas');
+    out.width = w;
+    out.height = h;
+    out.getContext('2d').drawImage(look.el, 0, 0);
+    return out;
+  }
+
+  // Rendered looks, kept per cell because the same tile is drawn over and over
+  // — every preview frame, every filmstrip redraw, every frame of a video
+  // export that has a still beside a clip. A WeakMap rather than a property,
+  // so a copied page's JSON does not drag canvases along with it.
+  const looks = new WeakMap();
+  const lookQueue = [];
+  // About a hundred megabytes of canvas, oldest out first. A look is the size
+  // of the tile on screen, so this is a dozen full-page edits at 2x.
+  const LOOK_BUDGET = 24e6;
+  const unlist = (list, item) => { const i = list.indexOf(item); if (i !== -1) list.splice(i, 1); };
+
+  // What a cell draws as: the source itself when it has no edits, otherwise
+  // the source with its edits applied at about the size it will be drawn.
+  // `scale` is drawPage's own, output pixels per pixel of a 1080px post.
+  function lookOf(cell, src, dw, dh, scale) {
+    if (plainLook(cell.adjust)) return src;
+    const sw = src.width;
+    const sh = src.height;
+    if (!sw || !sh) return src;
+    // Never more pixels than the source has or the tile shows. Rounded up to
+    // quarter-octave steps, so a pinch redraws a look every few frames rather
+    // than on every one, and the few percent more is lost to smoothing.
+    const want = Math.min(1, Math.max(dw / sw, dh / sh));
+    let fit = Math.min(1, 2 ** (Math.ceil(Math.log2(want) * 4) / 4));
+    const max = lookContext() ? lookGL.max : 0;
+    if (!max) return src;
+    fit = Math.min(fit, max / sw, max / sh);
+    const w = Math.max(1, Math.round(sw * fit));
+    const h = Math.max(1, Math.round(sh * fit));
+    const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',');
+
+    const kept = looks.get(cell) || [];
+    const hit = kept.find((l) => l.src === src && l.sig === sig && l.w === w && l.h === h);
+    if (hit) {
+      unlist(lookQueue, hit);
+      lookQueue.push(hit);
+      return hit.canvas;
+    }
+
+    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw));
+    if (!canvas) return src;
+    const entry = { cell, src, sig, w, h, canvas };
+    // Two a cell: the preview's size and one other, which is usually the
+    // filmstrip's. Anything older is a slider position already moved past.
+    kept.unshift(entry);
+    kept.splice(2).forEach((old) => unlist(lookQueue, old));
+    looks.set(cell, kept);
+    lookQueue.push(entry);
+
+    let total = lookQueue.reduce((n, l) => n + l.w * l.h, 0);
+    while (total > LOOK_BUDGET && lookQueue.length > 1) {
+      const old = lookQueue.shift();
+      total -= old.w * old.h;
+      const list = looks.get(old.cell);
+      if (list) unlist(list, old);
+    }
+    return canvas;
   }
 
   /* ----------------------------------------------------------- deck edits */
@@ -2991,6 +3273,10 @@
     // there when it means something.
     $('tile-trim-btn').hidden = !(photo && photo.kind === 'video');
     if (tileSub === 'trim' && !(photo && photo.kind === 'video')) showTileSub(null);
+    // And edits are photos only, so the reverse.
+    $('tile-adjust-btn').hidden = !photo || photo.kind === 'video';
+    if (tileSub === 'adjust' && (!photo || photo.kind === 'video')) showTileSub(null);
+    else if (tileSub === 'adjust') syncAdjust();
 
     if (!photo) {
       // The reel is how an empty tile gets filled, so don't shut it just
@@ -4061,8 +4347,13 @@
   function showTileSub(name) {
     tileSub = name;
     $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip', 'replace', 'trim'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
     if (name === 'trim') syncTrim();
+    if (name === 'adjust') syncAdjust();
+    // Letting go of the panel lets go of the compare button with it: a hold
+    // that ends somewhere the pointerup never reaches must not leave the
+    // preview showing the unedited photo.
+    else if (comparing) { comparing = false; render(); }
 
     // Choosing a photo wants room: the pages bar steps aside and the dock
     // takes two rows, so the options are large enough to judge at a glance.
@@ -4074,6 +4365,9 @@
     // to 4px of bar apiece. The pages bar stays up for this one, unlike the
     // chooser — which page is being cut still matters.
     $('dock').classList.toggle('is-trimming', name === 'trim');
+    // Adjusting has two rows — the tools and the slider for the one chosen —
+    // and wants the same room for the same reason.
+    $('dock').classList.toggle('is-adjusting', name === 'adjust');
     if (choosing) renderChooser();
     // Page thumbnails aren't visible while choosing, so they catch up on the
     // way out rather than being redrawn for every photo scrolled past.
@@ -4351,6 +4645,98 @@
     render();
   }
 
+  /* ------------------------------------------------------------ adjusting */
+
+  // Which tool the slider is set to. Kept across tiles and across visits to
+  // the panel: moving from one photo to the next wanting the same correction
+  // is the usual case, and the slider already being on it is the point.
+  let adjustTool = ADJUSTMENTS[0].id;
+
+  function buildAdjustTools() {
+    const row = $('adjust-tools');
+    row.innerHTML = '';
+    ADJUSTMENTS.forEach((a) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dock-item adjust-tool';
+      btn.dataset.adjust = a.id;
+      btn.setAttribute('aria-pressed', 'false');
+      // The ring round the icon is how Photos says a tool is in use and by
+      // how much, which lets the row double as a summary of the edit.
+      btn.innerHTML = `<span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span><span>${a.label}</span>`;
+      btn.addEventListener('click', () => { adjustTool = a.id; syncAdjust(); });
+      row.appendChild(btn);
+    });
+  }
+
+  function syncAdjust() {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    const tool = adjustment(adjustTool) || ADJUSTMENTS[0];
+    const value = (cell.adjust && cell.adjust[tool.id]) || 0;
+
+    [...$('adjust-tools').children].forEach((btn) => {
+      const a = adjustment(btn.dataset.adjust);
+      const v = (cell.adjust && cell.adjust[a.id]) || 0;
+      const on = a.id === tool.id;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('is-set', !!v);
+      btn.style.setProperty('--amount', Math.abs(v) / Math.max(Math.abs(a.min), a.max));
+    });
+
+    const input = $('adjust');
+    input.min = String(tool.min);
+    input.max = String(tool.max);
+    input.value = String(value);
+    // A tool that works both ways fills from the middle, like the angle
+    // slider: nought is untouched, and a bar growing from the left end would
+    // say -100 was.
+    $('adjust-slide').classList.toggle('from-centre', tool.min < 0);
+    $('adjust-name').textContent = tool.label;
+    $('adjust-val').textContent = String(value);
+    paintSlider(input);
+    $('adjust-reset').disabled = plainLook(cell.adjust);
+  }
+
+  function dragAdjust() {
+    const cell = page().cells[state.selected];
+    if (!cell) return;
+    const tool = adjustment(adjustTool);
+    const input = $('adjust');
+    let value = Number(input.value);
+    // Nought is caught on the way past, for a tool that has one in the
+    // middle. Getting a slider back to exactly nought by eye is otherwise a
+    // matter of luck, and nought is the one value that means "leave it".
+    if (tool.min < 0 && Math.abs(value) <= 2 && value !== 0) {
+      value = 0;
+      input.value = '0';
+      paintSlider(input);
+      buzz('snap');
+    }
+    if (((cell.adjust && cell.adjust[tool.id]) || 0) === value) return;
+    snapshot(`adjust:${tool.id}`);
+    setAdjust(cell, tool.id, value);
+    syncAdjust();
+    render();
+  }
+
+  function resetAdjust() {
+    const cell = page().cells[state.selected];
+    if (!cell || plainLook(cell.adjust)) return;
+    snapshot();
+    cell.adjust = undefined;
+    syncAdjust();
+    refresh();
+  }
+
+  function holdCompare(on) {
+    if (comparing === on) return;
+    comparing = on;
+    $('adjust-compare').classList.toggle('is-held', on);
+    render();
+  }
+
   function openDrawer(name) {
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
@@ -4364,6 +4750,8 @@
   function closeDrawer() {
     drawer = null;
     tileSub = null;
+    $('dock').classList.remove('is-adjusting');
+    if (comparing) { comparing = false; render(); }
     document.querySelector('.app').classList.remove('is-choosing');
     $('dock').classList.remove('is-choosing');
     cancelSwap();
@@ -4627,6 +5015,9 @@
         cells: pg.cells.map((c) => (c ? {
           photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy,
           flipX: !!c.flipX, flipY: !!c.flipY, t0: c.t0 || 0, t1: c.t1 || 0,
+          // Only when there is something to keep, so an unedited deck's JSON
+          // is the same as it was before edits existed.
+          ...(plainLook(c.adjust) ? {} : { adjust: { ...c.adjust } }),
         } : null)),
       })),
     };
@@ -4651,8 +5042,9 @@
         const pg = newPage(layout);
         pg.cells = blankCells(layout).map((_, i) => {
           const c = p.cells[i];
-          // Drop references to photos that are no longer in the tray.
-          return c && photoById(c.photo) ? { ...c } : null;
+          // Drop references to photos that are no longer in the tray. The
+          // edits are copied too: this object is still the undo stack's.
+          return c && photoById(c.photo) ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined } : null;
         });
         return pg;
       });
@@ -4994,8 +5386,9 @@
         const pg = newPage(layout);
         pg.cells = blankCells(layout).map((_, i) => {
           const c = p.cells[i];
-          // Drop references to photos that are no longer in the tray.
-          return c && photoById(c.photo) ? { ...c } : null;
+          // Drop references to photos that are no longer in the tray. The
+          // edits are copied too: this object is still the undo stack's.
+          return c && photoById(c.photo) ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined } : null;
         });
         return pg;
       });
@@ -6014,6 +6407,28 @@
     // it was still reading 100% while the photo sat at 141%.
     syncPanel();
   });
+
+  buildAdjustTools();
+  feedback('adjust');
+  $('adjust').addEventListener('pointerdown', () => { endRun(); });
+  $('adjust').addEventListener('input', dragAdjust);
+  // The filmstrip, the cover and the saved deck catch up on letting go, not
+  // on every step of the drag: the preview is the only thing being watched.
+  $('adjust').addEventListener('change', () => { endRun(); refresh(); });
+  $('adjust-reset').addEventListener('click', resetAdjust);
+  const compare = $('adjust-compare');
+  compare.addEventListener('pointerdown', (e) => {
+    try { compare.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+    holdCompare(true);
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => {
+    compare.addEventListener(type, () => holdCompare(false));
+  });
+  // A keyboard has no hold, so Space and Enter hold it for as long as the
+  // key is down, the way they press a button.
+  compare.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); holdCompare(true); } });
+  compare.addEventListener('keyup', () => holdCompare(false));
+  compare.addEventListener('blur', () => holdCompare(false));
 
   $('btn-export').addEventListener('click', exportDeck);
   // A press is settled by the pointer sequence in the stage handlers, and this

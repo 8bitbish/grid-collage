@@ -306,6 +306,12 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M9 7L4 12l5 5z"/><path d="M15 7l5 5-5 5z"/></svg>
             <span>Flip</span>
           </button>
+          <!-- Photos only, so hidden on a clip the way Trim is hidden on a
+               photo. -->
+          <button class="dock-item" id="tile-adjust-btn" type="button" data-tile="adjust">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/></svg>
+            <span>Adjust</span>
+          </button>
           <button class="dock-item" type="button" data-tile="reset">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.3 5.7"/><path d="M4 5v7h7"/></svg>
             <span>Reset</span>
@@ -362,6 +368,25 @@
           <div class="choose-rail">
             <div class="choose-strip" id="choose-strip"></div>
             <span class="choose-focus" id="choose-focus" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <!-- One row of tools, one slider for whichever is chosen, the way the
+             Adjust tab in Google Photos works. The tools are written in by
+             app.js from its list of adjustments, so a new one needs nothing
+             here. Compare shows the photo unedited for as long as it is held. -->
+        <div class="tile-sub tile-adjust" id="tile-adjust" hidden>
+          <div class="adjust-tools" id="adjust-tools" role="group" aria-label="Adjustments"></div>
+          <div class="adjust-row">
+            <div class="dock-slider" id="adjust-slide">
+              <label class="dock-label" for="adjust"><span id="adjust-name"></span> <span class="val" id="adjust-val">0</span></label>
+              <input type="range" id="adjust" min="-100" max="100" step="1" value="0">
+              <span class="slider-read" aria-hidden="true">0</span>
+            </div>
+            <button class="btn btn-ghost btn-icon" id="adjust-compare" type="button" aria-label="Hold to see the original" title="Hold to see the original">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><path class="solid" d="M12 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7z"/></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="adjust-reset" type="button">Reset</button>
           </div>
         </div>
 
