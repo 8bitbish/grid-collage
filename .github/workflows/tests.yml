@@ -48,15 +48,29 @@ jobs:
       # Nothing is pinned to a build number: paths.mjs searches
       # PLAYWRIGHT_BROWSERS_PATH first and falls back to this, which is why the
       # suite runs both here and on a container with a browser preinstalled.
-      # The download is cached against package.json; --with-deps still runs
-      # every time, because the system libraries live outside the cache.
+      # The download is cached against package.json. The system libraries it
+      # needs are not in the cache and come from apt, and apt is the one step
+      # here whose time is not the repository's own: --with-deps took 13 to 17
+      # seconds on three machines and 132 on the fourth. The runner image ships
+      # Chrome, so they are usually there already. So the browser is launched
+      # before anything is installed for it, and apt is asked only if that
+      # fails.
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('tests/package.json') }}
       - name: Install a browser
         working-directory: tests
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install chromium
+          launch='import("playwright").then(async ({ chromium }) => { await (await chromium.launch()).close(); })'
+          if node -e "$launch"; then
+            echo "chromium launches with the libraries the image already has"
+          else
+            echo "chromium is missing system libraries; installing them"
+            npx playwright install-deps chromium
+            node -e "$launch"
+          fi
 
       # ffmpeg with lavfi, libvpx, libvorbis and libx264, for make.sh and for
       # test-rotated, which reads its export back. The runner image has none.
