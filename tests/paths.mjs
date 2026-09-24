@@ -8,6 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 // One level up from this file, whatever the person cloning called the
 // directory they cloned into.
@@ -48,3 +49,34 @@ function findChrome() {
 }
 
 export const CHROME = findChrome();
+
+// An old build of the app, checked out of the history into tests/.oldver/<sha>
+// the first time it is asked for and kept after, for the tests that install one
+// and then deploy over it. Both of those read /tmp/oldver/<sha> once, a
+// directory nothing created: the old build 404'd, nothing was ever installed,
+// and the upgrade each one checks then passed against a fresh install of the
+// new build — update-path was fixed for it first and freshness went on doing
+// it, which is why this is in one place now.
+//
+// Unpacked beside the target and renamed into place, so two tests asking for
+// the same build at once never read one half-written.
+export function oldBuild(sha) {
+  const dir = path.join(import.meta.dirname, '.oldver', sha);
+  if (fs.existsSync(path.join(dir, 'index.html'))) return dir;
+  // A shallow clone — which is what CI checks out unless told otherwise — has
+  // none of these, and git archive's own error does not say so.
+  try {
+    execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: ROOT, stdio: 'ignore' });
+  } catch {
+    throw new Error(`${sha} is not in this clone's history — a shallow clone? `
+      + 'CI needs fetch-depth: 0 on its checkout');
+  }
+  const tmp = `${dir}.${process.pid}.tmp`;
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  // Two processes rather than a shell pipeline, so a failure names itself.
+  const tar = execFileSync('git', ['archive', '--format=tar', sha], { cwd: ROOT, maxBuffer: 1 << 28 });
+  execFileSync('tar', ['-x', '-C', tmp], { input: tar, maxBuffer: 1 << 28 });
+  try { fs.renameSync(tmp, dir); } catch { fs.rmSync(tmp, { recursive: true, force: true }); }
+  return dir;
+}

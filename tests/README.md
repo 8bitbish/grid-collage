@@ -155,7 +155,11 @@ identically there, so none of them belonged to a change:
   `paths.mjs` exists to end. It reported `✗ the old build installed` three times
   and read like a deploy problem; the old shell was simply 404ing, so no worker
   ever took control. Checked out of the history now, where those three revisions
-  have been all along.
+  have been all along. `freshness` read the same directory and went on doing so
+  after `update-path` was fixed, and it had nothing to fail on: its upgrade
+  checks passed against a first visit to the new build. Both use `oldBuild` in
+  `paths.mjs` now, and `freshness` asserts the old build is in control before
+  deploying over it — against the old path, that check fails four times.
 - `video` asserted that a video slide goes out as a still, on the grounds that
   this Chromium cannot encode. The premise half holds — `VideoEncoder` really is
   undefined — but the conclusion never did: mediabunny brings its own encoder

@@ -3,13 +3,14 @@
    while downloading the new one for next time. These are the properties
    that stop it going back to that. */
 import { chromium } from 'playwright';
-import { CHROME, ROOT as REPO, SHOTS } from './paths.mjs';
-import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto';
+import { CHROME, ROOT as REPO, SHOTS, oldBuild } from './paths.mjs';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import os from 'node:os';
 
 const NEW = REPO;
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript',
          '.wasm':'application/wasm','.webmanifest':'application/manifest+json','.png':'image/png'};
 let ROOT=NEW;
+let NEWVER;   // the second deploy, copied in by the section that needs it
 let offline=false;
 const srv=http.createServer((q,r)=>{
   if(offline){ r.destroy(); return; }
@@ -46,13 +47,17 @@ const b=await chromium.launch({executablePath: CHROME});
 
 console.log('\n== a deploy shows up on the first launch, not the second ==');
 for (const from of ['9a0254a','2d27f57','a480308']) {
-  ROOT=`/tmp/oldver/${from}`;
+  ROOT=oldBuild(from);
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
   const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,140)));
   await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1200);
+  // That there was an old build to upgrade from at all. Without it this passed
+  // against a 404: nothing installed, and a first visit to the new build is
+  // trivially on the new build.
+  ok(`${from} is installed and in control`, await p.evaluate(()=>!!navigator.serviceWorker.controller));
 
   ROOT=NEW;                                     // the deploy lands
   await p.reload({waitUntil:'load'});
@@ -93,12 +98,13 @@ console.log('\n== being quick has not cost offline ==');
 
 console.log('\n== the cache does not collect every build ever shipped ==');
 {
-  ROOT='/tmp/oldver/a480308';
+  ROOT=oldBuild('a480308');
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
   await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1200);
+  ok('a480308 is installed and in control', await p.evaluate(()=>!!navigator.serviceWorker.controller));
   ROOT=NEW;
   await p.reload({waitUntil:'load'});
   await p.waitForTimeout(2500);
@@ -125,16 +131,18 @@ console.log('\n== an app left open picks it up without being told ==');
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1800);
 
-  fs.rmSync('/tmp/newver',{recursive:true,force:true});
+  // Its own directory rather than /tmp/newver, which two checkouts running the
+  // suite at once would both have been copying into and serving from.
+  NEWVER=fs.mkdtempSync(path.join(os.tmpdir(),'grid-collage-newver-'));
   // The copy is a second deploy of the app, so it wants the app and nothing
   // else. Without the filter this drags in .git and, once anyone has installed
   // the suite's own dependencies, tests/node_modules — hundreds of megabytes
   // copied per run for files the served copy never reads.
-  fs.cpSync(NEW,'/tmp/newver',{recursive:true,
+  fs.cpSync(NEW,NEWVER,{recursive:true,
     filter:(src)=>!/(^|\/)(\.git|tests|node_modules)(\/|$)/.test(src.slice(NEW.length))});
-  fs.writeFileSync('/tmp/newver/index.html',
-    fs.readFileSync('/tmp/newver/index.html','utf8').replaceAll(V,'9999.99.99z'));
-  ROOT='/tmp/newver';
+  fs.writeFileSync(path.join(NEWVER,'index.html'),
+    fs.readFileSync(path.join(NEWVER,'index.html'),'utf8').replaceAll(V,'9999.99.99z'));
+  ROOT=NEWVER;
 
   const t0=Date.now();
   await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
@@ -161,7 +169,7 @@ console.log('\n== but never out from under someone mid-edit ==');
   const inProject=await p.evaluate(()=>!document.body.classList.contains('on-home'));
   ok('a project is open', inProject);
 
-  ROOT='/tmp/newver';
+  ROOT=NEWVER;
   await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   await p.waitForTimeout(3000);
   const after=await p.evaluate(()=>({
