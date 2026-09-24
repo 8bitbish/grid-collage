@@ -202,9 +202,22 @@ await page.waitForTimeout(250);
 await page.click('.dock-item[data-drawer="export"]');
 await page.waitForTimeout(300);
 await page.click('#btn-export');
-await page.waitForTimeout(6000);
-console.log('✓ export produced', downloads.length, 'files:', downloads.slice(0, 6).join(', ') + (downloads.length > 6 ? ' …' : ''));
-console.log('  numbered in order:', downloads.every((n, i) => n === `${String(i + 1).padStart(2, '0')}.jpg`) ? '✓' : '✗ ' + downloads.join(','));
+// The app says how many it is saving, and hands them over a quarter of a
+// second apart; wait for that many rather than six seconds. This used to print
+// a tick beside however many arrived, and check their names with every(),
+// which an empty list passes — so an export that saved nothing passed too.
+const promised = await page.waitForFunction(() => {
+  const m = /Saving (\d+) page/.exec(document.getElementById('toast').textContent);
+  return m && Number(m[1]);
+}, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => 0);
+{
+  const until = Date.now() + 30000;
+  while (downloads.length < promised && Date.now() < until) await page.waitForTimeout(100);
+}
+console.log(promised && downloads.length === promised ? '✓' : '✗', 'export produced', downloads.length,
+  `of the ${promised} it said it was saving:`, downloads.slice(0, 6).join(', ') + (downloads.length > 6 ? ' …' : ''));
+console.log('  numbered in order:', downloads.length > 0
+  && downloads.every((n, i) => n === `${String(i + 1).padStart(2, '0')}.jpg`) ? '✓' : '✗ ' + downloads.join(','));
 
 await page.screenshot({ path: '/tmp/shot-carousel.png' });
 console.log(errors.length ? '✗ ERRORS:\n' + errors.join('\n') : '✓ no page errors');
