@@ -224,6 +224,70 @@ await p.click('#btn-undo');
 await p.waitForTimeout(300);
 check(near((await read()).bands, bpDown.bands, 1), 'and Reset can be undone');
 
+/* -------------------------------------------------------------- Highlights */
+
+// Here rather than beside Black point because undo, the reload and the export
+// above are all measured against Black point's last two positions, and every
+// slider move in between would be one more step of history to walk back over.
+// Reset first, so these read the photo as it came and nothing else.
+if (!(await p.locator('#tile-adjust').isVisible())) {
+  await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await p.waitForTimeout(200);
+  await p.click('.dock-item[data-tile="adjust"]');
+  await p.waitForTimeout(200);
+}
+await p.click('#adjust-reset');
+await p.waitForTimeout(300);
+const plain = await read();
+check(near(plain.bands, BANDS, 1) && near(plain.red, RED, 1), 'back to the photo as it came before the tone curves', show(plain));
+
+// The red is saturated and has green equal to blue, so its hue is kept exactly
+// when green over red and blue over red both stay at the file's 0.2.
+const keepsHue = (r) => Math.abs(r.red[1] / r.red[0] - RED[1] / RED[0]) <= 0.01 && Math.abs(r.red[2] - r.red[1]) <= 1;
+
+await choose('highlights');
+await slide(-100);
+const hiDown = await read();
+// The curve's own numbers: 170 -> 140, 230 -> 216, 30 exactly where it was.
+check(near(hiDown.bands, [30, 91, 140, 216], 3), 'Highlights -100 pulls the bright tones down', show(hiDown));
+check(Math.abs(hiDown.bands[0] - 30) <= 2, 'and leaves the deep shadows alone', `30 -> ${hiDown.bands[0]}`);
+check(230 - hiDown.bands[3] < 230 - wpDown.bands[3], 'gentler than White point at -100', `230 -> ${hiDown.bands[3]}, White point ${wpDown.bands[3]}`);
+check(keepsHue(hiDown), 'red keeps its hue', `red ${hiDown.red.join(',')}`);
+
+await slide(100);
+const hiUp = await read();
+check(near(hiUp.bands, [30, 109, 200, 244], 3), 'Highlights +100 brightens the bright tones without clipping them', show(hiUp));
+check(Math.abs(hiUp.bands[0] - 30) <= 2, 'and leaves the deep shadows alone', `30 -> ${hiUp.bands[0]}`);
+check(hiUp.bands[2] - 170 < wpUp.bands[2] - 170, 'gentler than White point at +100', `170 -> ${hiUp.bands[2]}, White point ${wpUp.bands[2]}`);
+check(keepsHue(hiUp), 'red keeps its hue', `red ${hiUp.red.join(',')}`);
+
+await slide(0);
+check(near((await read()).bands, BANDS, 1), 'Highlights back at nought is the photo again');
+
+/* ----------------------------------------------------------------- Shadows */
+
+await choose('shadows');
+await slide(100);
+const shUp = await read();
+// 30 -> 47 and 100 -> 128, with 230 exactly where it was.
+check(near(shUp.bands, [47, 128, 173, 230], 3), 'Shadows +100 opens up the dark tones', show(shUp));
+check(Math.abs(shUp.bands[3] - 230) <= 2, 'and leaves the bright tones alone', `230 -> ${shUp.bands[3]}`);
+check(shUp.bands[0] - 30 < bpDown.bands[0] - 30, 'gentler than Black point lifting black', `30 -> ${shUp.bands[0]}, Black point ${bpDown.bands[0]}`);
+// The red counts as a mid-tone, halfway between its luma and its red channel,
+// so it is lifted by about a tenth: to around 223,45,45. Measured by luma alone
+// it was a shadow and went to 255,51,51, which is the neon this guards against.
+check(keepsHue(shUp) && shUp.red[0] > 210 && shUp.red[0] < 240, 'red is lifted as a mid-tone, not as a shadow, and keeps its hue', `red ${shUp.red.join(',')}`);
+
+await slide(-100);
+const shDown = await read();
+check(near(shDown.bands, [13, 72, 167, 230], 3), 'Shadows -100 deepens the dark tones', show(shDown));
+check(Math.abs(shDown.bands[3] - 230) <= 2, 'and leaves the bright tones alone', `230 -> ${shDown.bands[3]}`);
+check(100 - shDown.bands[1] < 100 - bpUp.bands[1], 'gentler than Black point crushing', `100 -> ${shDown.bands[1]}, Black point ${bpUp.bands[1]}`);
+check(keepsHue(shDown), 'red keeps its hue', `red ${shDown.red.join(',')}`);
+
+await slide(0);
+check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'Shadows back at nought is the photo again, with nothing to reset');
+
 /* ------------------------------------------------------------ clips opt out */
 
 await p.keyboard.press('Escape');
