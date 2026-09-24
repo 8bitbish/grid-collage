@@ -1,21 +1,22 @@
 /* Effects: the panel, and Pop out.
  *
- * Measured on the canvas, as the Adjust test is. The photo is built to make
- * that easy: a red disc — the subject — on flat grey, 4:5 so that a square
- * tile crops some of it off the top and bottom. Pop out's frame is measured by
- * sampling either side of where it should be: the page's own white outside it,
- * the grey inside it, and the red of the disc carrying on past it.
+ * Measured on the canvas, as the Adjust test is. Two tiles stacked, the 1x2
+ * layout on a square page: flat blue in the top one, and in the bottom one the
+ * subject — a red disc on flat grey. The disc photo is 4:5 in a tile twice as
+ * wide as it is tall, so the tile shows a band across its middle and the disc
+ * runs past the tile's top and bottom edges. Popping it out of the top should
+ * put the red over the blue tile above, and nowhere else.
  *
  * The subject is found by the real model, not a stand-in, so this also checks
  * the vendored MediaPipe files load and answer from a plain static server — and
  * counts the requests for them, because a reopened deck must never run the
  * model again.
  *
- * Where things should land, in fractions of the square tile. The photo is
- * 1200x1500, so in a tile it is 1.25 tiles tall. With a pop out of the top at
- * depth 20 its frame starts 0.2 down and the photo is centred in the 0.8 below,
- * so it spans -0.025 to 1.225; the disc, centred 0.3 down the photo with a
- * radius of a quarter of its width, sits at 0.35 with its top at 0.10.
+ * Where things land, in fractions of the page. The bottom tile runs from 0.5 to
+ * 1. The photo is a page wide and 1.25 pages tall, centred on the tile, so it
+ * spans 0.125 to 1.375; the disc, centred in it with a radius of 0.3 of its
+ * width, runs from 0.45 to 1.05 — a twentieth of the page past the top edge,
+ * over the blue, and off the page at the bottom.
  */
 import { chromium } from 'playwright';
 import { CHROME, ROOT } from './paths.mjs';
@@ -38,15 +39,14 @@ const PORT = srv.address().port;
 
 const GREY = [128, 128, 128];
 const RED = [210, 50, 50];
-const WHITE = [255, 255, 255];
+const BLUE = [40, 90, 200];
 
-function png(w, h) {
+function png(w, h, draw) {
   const raw = Buffer.alloc((w * 3 + 1) * h);
-  const cx = w / 2; const cy = h * 0.3; const r = w / 4;
   for (let y = 0; y < h; y++) {
     const o = y * (w * 3 + 1);
     for (let x = 0; x < w; x++) {
-      const c = (x - cx) ** 2 + (y - cy) ** 2 < r * r ? RED : GREY;
+      const c = draw(x, y);
       raw[o + 1 + x * 3] = c[0]; raw[o + 2 + x * 3] = c[1]; raw[o + 3 + x * 3] = c[2];
     }
   }
@@ -56,6 +56,8 @@ function png(w, h) {
   const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ch('IHDR', ih), ch('IDAT', zlib.deflateSync(raw)), ch('IEND', Buffer.alloc(0))]);
 }
+const disc = png(1200, 1500, (x, y) => ((x - 600) ** 2 + (y - 750) ** 2 < 360 ** 2 ? RED : GREY));
+const blue = png(1200, 600, () => BLUE);
 
 // The Adjust test's reason applies here too: WebGL only through SwiftShader
 // on a machine with no GPU, and the look pipeline is on the path an effect
@@ -81,25 +83,33 @@ const check = (ok, what, detail = '') => {
   console.log(`${ok ? '✓' : '✗'} ${what}${detail ? `  (${detail})` : ''}`);
 };
 
-await p.setInputFiles('#file-input', [{ name: 'disc.png', mimeType: 'image/png', buffer: png(1200, 1500) }]);
+// Blue first, alone; then the two-tile layout; then the disc, which goes
+// into the empty tile.
+await p.setInputFiles('#file-input', [{ name: 'blue.png', mimeType: 'image/png', buffer: blue }]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
+await p.keyboard.press('Escape');
+await p.waitForTimeout(300);
+await p.click('.dock-item[data-drawer="layout"]');
+await p.click('.layout-btn[data-id="1x2"]');
+await p.click('#dock-back');
+await p.setInputFiles('#file-input', [{ name: 'disc.png', mimeType: 'image/png', buffer: disc }]);
+await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 
-// The canvas is the single square tile, so fractions of it are fractions of
-// the tile. Each point is off any edge by more than the mask's soft border.
 const at = (points) => p.evaluate((pts) => {
   const c = document.getElementById('canvas');
   const g = c.getContext('2d');
   return pts.map(([fx, fy]) => [...g.getImageData(Math.round(c.width * fx), Math.round(c.height * fy), 1, 1).data].slice(0, 3));
 }, points);
 const near = (a, want, tol = 12) => a.every((v, i) => Math.abs(v - want[i]) <= tol);
+// Each point is off any edge by more than the cut's soft border.
 const POINTS = {
-  bandOff: [0.1, 0.1],     // above the frame, beside the disc
-  bandOn: [0.5, 0.15],     // above the frame, on the disc
-  frame: [0.1, 0.5],       // inside the frame, on the grey
-  disc: [0.5, 0.4],        // inside the frame, on the disc
-  right: [0.95, 0.6],      // near the right edge, on the grey
+  over: [0.5, 0.475],      // in the blue tile, just above the disc's tile
+  clear: [0.5, 0.43],      // in the blue tile, above where the disc reaches
+  beside: [0.1, 0.475],    // in the blue tile, level with the disc but off it
+  grey: [0.1, 0.75],       // the disc's own tile, beside the disc
+  disc: [0.5, 0.75],       // the disc's own tile, on the disc
 };
 const read = async () => {
   const keys = Object.keys(POINTS);
@@ -107,15 +117,16 @@ const read = async () => {
   return Object.fromEntries(keys.map((k, i) => [k, got[i]]));
 };
 const show = (r) => Object.entries(r).map(([k, v]) => `${k} ${v.join(',')}`).join('; ');
+const asBefore = (r) => near(r.over, BLUE) && near(r.clear, BLUE) && near(r.beside, BLUE) && near(r.grey, GREY) && near(r.disc, RED);
+const poppedOut = (r) => near(r.over, RED) && near(r.clear, BLUE, 2) && near(r.beside, BLUE, 2) && near(r.grey, GREY) && near(r.disc, RED);
 
 const before = await read();
-check(near(before.bandOff, GREY) && near(before.frame, GREY) && near(before.bandOn, RED),
-  'without an effect the tile is the photo, edge to edge', show(before));
+check(asBefore(before), 'without an effect each tile shows only its own photo', show(before));
 
 /* ------------------------------------------------------------------ panel */
 
 const box = await p.locator('#canvas').boundingBox();
-const tapTile = async () => { await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2); await p.waitForTimeout(200); };
+const tapTile = async () => { await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8); await p.waitForTimeout(200); };
 await tapTile();
 check(await p.locator('#tile-effects-btn').isVisible(), 'a photo tile offers Effects');
 await p.click('.dock-item[data-tile="effects"]');
@@ -130,7 +141,7 @@ check(!modelFetches.length, 'nothing of the model is fetched until an effect ask
 
 const t0 = Date.now();
 await p.click('.effect-item[data-effect="popOut"]');
-const found = await p.waitForFunction(() => document.getElementById('pop-depth-name').textContent === 'Depth'
+const found = await p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent)
   && document.querySelector('.pop-side[aria-pressed="true"]'), null, { timeout: 60000 }).then(() => true).catch(() => false);
 await p.waitForTimeout(300);
 check(found, 'turning Pop out on finds the subject', `${Date.now() - t0}ms, fetched ${[...new Set(modelFetches)].join(', ')}`);
@@ -138,9 +149,9 @@ const sides = await p.$$eval('.pop-side[aria-pressed="true"]', (els) => els.map(
 check(sides.join() === 'top', 'it starts on the side the subject comes nearest', sides.join(', '));
 
 const popped = await read();
-check(near(popped.bandOff, WHITE, 2), 'the frame pulls in from the top, showing the page behind', show(popped));
-check(near(popped.bandOn, RED), 'and the subject carries on past it', `on the disc above the frame: ${popped.bandOn.join(',')}`);
-check(near(popped.frame, GREY) && near(popped.disc, RED), 'inside the frame the photo is as it was');
+check(poppedOut(popped), 'the subject carries on over the tile above, and nothing else does', show(popped));
+check(near(popped.over, RED, 3), 'drawn without a shadow or a fringe: the red over the blue is the red', popped.over.join(','));
+check(/over the photos/.test(await p.textContent('#pop-note')), 'the panel says what it is doing', await p.textContent('#pop-note'));
 
 // The filmstrip's thumbnail goes through the same drawPage.
 const thumb = await p.evaluate(() => {
@@ -148,52 +159,43 @@ const thumb = await p.evaluate(() => {
   if (!c) return null;
   const g = c.getContext('2d');
   const px = (fx, fy) => [...g.getImageData(Math.round(c.width * fx), Math.round(c.height * fy), 1, 1).data].slice(0, 3);
-  return { off: px(0.1, 0.08), on: px(0.5, 0.15) };
+  return { over: px(0.5, 0.475), clear: px(0.5, 0.4) };
 });
-check(thumb && near(thumb.off, WHITE, 6) && near(thumb.on, RED, 20), 'the page thumbnail shows it too', thumb ? `${thumb.off} / ${thumb.on}` : 'no thumbnail');
-
-/* ------------------------------------------------------------------ depth */
-
-await p.evaluate(() => {
-  const el = document.getElementById('pop-depth');
-  el.value = '40';
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-});
-await p.waitForTimeout(300);
-const deep = await at([[0.1, 0.35], [0.1, 0.45]]);
-check(near(deep[0], WHITE, 2) && near(deep[1], GREY), 'Depth moves the frame: at 40 it starts 0.4 down', `${deep[0]} above, ${deep[1]} below`);
+check(thumb && near(thumb.over, RED, 30) && near(thumb.clear, BLUE, 6), 'the page thumbnail shows it too',
+  thumb ? `${thumb.over} / ${thumb.clear}` : 'no thumbnail');
 
 /* ------------------------------------------------------------------ sides */
 
-await p.click('.pop-side[data-side="right"]');
-await p.waitForTimeout(300);
-const both = await at([POINTS.right, [0.1, 0.35]]);
-check(near(both[0], WHITE, 2) && near(both[1], WHITE, 2), 'a second side pulls that edge in as well', `right ${both[0]}, top ${both[1]}`);
-await p.click('.pop-side[data-side="right"]');
+// The bottom of the tile is the bottom of the page, so there is nothing to
+// show there, and the left has no subject past it: either alone does nothing,
+// and the panel has to say why.
+await p.click('.pop-side[data-side="left"]');
 await p.click('.pop-side[data-side="top"]');
 await p.waitForTimeout(300);
-const off = await read();
-check(near(off.bandOff, GREY) && await p.locator('#effect-hint').isVisible(), 'turning the last side off takes the effect off', show(off));
+const leftOnly = await read();
+check(asBefore(leftOnly), 'a side the subject does not cross shows nothing past it', show(leftOnly));
+check(/Move or zoom/.test(await p.textContent('#pop-note')), 'and the panel says to move or zoom the photo', await p.textContent('#pop-note'));
+await p.click('.pop-side[data-side="left"]');
+await p.waitForTimeout(300);
+check(await p.locator('#effect-hint').isVisible() && asBefore(await read()), 'turning the last side off takes the effect off');
 
 /* -------------------------------------------------------- undo and restore */
 
-// Back one step, to the top alone at depth 40. The frame then starts 0.4
-// down and the photo is centred in the 0.6 below it, spanning 0.075 to 1.325,
-// so the disc's top is at 0.2 and its middle at 0.45.
+// Back two steps: past the left going off, to left and top both on — which
+// shows the same as the top alone.
 await p.click('#btn-undo');
 await p.waitForTimeout(300);
-const undone = await at([[0.1, 0.35], POINTS.right]);
-check(near(undone[0], WHITE, 2) && near(undone[1], GREY), 'undo puts the effect back as it was', `top ${undone[0]}, right ${undone[1]}`);
-const DEEP = [[0.1, 0.35], [0.5, 0.3], [0.1, 0.45]];
+await p.click('#btn-undo');
+await p.waitForTimeout(300);
+const undone = await read();
+check(poppedOut(undone), 'undo puts the effect back as it was', show(undone));
 
 const fetchedBefore = modelFetches.length;
 await p.reload();
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1, null, { timeout: 15000 }).catch(() => {});
 await p.waitForTimeout(1200);
-const reopened = await at(DEEP);
-check(near(reopened[0], WHITE, 2) && near(reopened[1], RED) && near(reopened[2], GREY),
-  'the effect survives closing and reopening the app', reopened.map((c) => c.join(',')).join(' / '));
+const reopened = await read();
+check(poppedOut(reopened), 'the effect survives closing and reopening the app', show(reopened));
 check(modelFetches.length === fetchedBefore, 'and its subject comes back from storage, not from the model again',
   `${modelFetches.length - fetchedBefore} model requests after reopening`);
 
@@ -214,34 +216,37 @@ else {
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);
     return pts.map(([x, y]) => [...g.getImageData(Math.round(bmp.width * x), Math.round(bmp.height * y), 1, 1).data].slice(0, 3));
-  }, [bytes, DEEP]);
-  check(near(out[0], WHITE, 2) && near(out[1], RED) && near(out[2], GREY), 'the exported file has the pop out the preview had',
-    out.map((c) => c.join(',')).join(' / '));
+  }, [bytes, Object.values(POINTS)]);
+  const got = Object.fromEntries(Object.keys(POINTS).map((k, i) => [k, out[i]]));
+  check(poppedOut(got), 'the exported file has the pop out the preview had', show(got));
 }
 await p.click('#dock-back');
 
 /* ------------------------------------------------------------ clips opt out */
 
+// A third tile, empty, and the clip put into it, as test-adjust does it.
 await p.setInputFiles('#file-input', [path.join(ROOT, 'tests/fixtures/clip.webm')]);
-await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 15000 });
+await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 3, null, { timeout: 15000 });
 await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
+await p.locator('#filmstrip canvas').first().click();
+await p.waitForTimeout(400);
 if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="layout"]');
-await p.click('.layout-btn[data-id="2x1"]');
+await p.click('.layout-btn[data-id="1x3"]');
 await p.click('#dock-back');
 await p.click('#btn-photos');
 await p.locator('.pm-pick[aria-label*="clip.webm"]').first().click();
 await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
-await p.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
-await p.waitForTimeout(200);
-check(!(await p.locator('#tile-effects-btn').isVisible()), 'a clip does not offer Effects');
+await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.84);
+await p.waitForTimeout(300);
+check(await p.locator('#tile-trim-btn').isVisible() && !(await p.locator('#tile-effects-btn').isVisible()), 'a clip does not offer Effects');
 await p.click('#dock-back');
-await p.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
-await p.waitForTimeout(200);
-check(await p.locator('#tile-effects-btn').isVisible(), 'the photo beside it still does');
+await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.5);
+await p.waitForTimeout(300);
+check(await p.locator('#tile-effects-btn').isVisible(), 'the photo above it still does');
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 
