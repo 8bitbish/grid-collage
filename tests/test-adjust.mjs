@@ -67,7 +67,11 @@ const check = (ok, what, detail = '') => {
 
 console.log('WebGL:', await p.evaluate(() => !!document.createElement('canvas').getContext('webgl')));
 
-await p.setInputFiles('#file-input', [{ name: 'bands.png', mimeType: 'image/png', buffer: png(480, 480) }]);
+// Bigger than any tile it is drawn in, as a phone photo is, so its look is
+// made at the size of the tile and never scaled up after. At 480px it was
+// scaled up half as much again, whose smoothing rang by two levels on its own
+// and left Sharpen 100 only four levels past that.
+await p.setInputFiles('#file-input', [{ name: 'bands.png', mimeType: 'image/png', buffer: png(1440, 1440) }]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
@@ -287,6 +291,96 @@ check(keepsHue(shDown), 'red keeps its hue', `red ${shDown.red.join(',')}`);
 
 await slide(0);
 check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'Shadows back at nought is the photo again, with nothing to reset');
+
+/* ----------------------------------------------------------------- Sharpen */
+
+// Here rather than beside the other tools because every slider position is a
+// step in the history, and the undo, reload and export checks above count on
+// the black point being the last thing done. From the photo as it came, so
+// what sharpening does is measured against nothing else. Undo leaves the dock where it was, so the tile is chosen afresh.
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+await p.waitForTimeout(200);
+await p.click('.dock-item[data-tile="adjust"]');
+await p.waitForTimeout(200);
+// Only if there is something to reset: after the tone curves there is not, and
+// a disabled button is one Playwright waits on until it gives up.
+if (await p.locator('#adjust-reset').isEnabled()) await p.click('#adjust-reset');
+await p.waitForTimeout(300);
+await choose('sharpen');
+check(await p.$eval('#adjust', (e) => e.min) === '0', 'Sharpen only goes one way');
+
+// A run of pixels across the edge between the 100 and 170 bands. Found by
+// scanning, not assumed: the preview is sized to its container, so the edge
+// lands wherever half the canvas happens to fall, often between two pixels.
+const across = () => p.evaluate(() => {
+  const c = document.getElementById('canvas');
+  const row = c.getContext('2d').getImageData(0, Math.round(c.height * 0.25), c.width, 1).data;
+  const from = Math.round(c.width * 0.4);
+  let edge = from;
+  while (edge < c.width * 0.6 && row[edge * 4] < 135) edge += 1;
+  return [...Array(17)].map((_, i) => row[(edge - 8 + i) * 4]);
+});
+const plainRun = await across();
+await slide(100);
+const sharp = await read();
+const sharpRun = await across();
+await slide(50);
+const halfRun = await across();
+
+// Pulled out by how far the run goes past the two bands, in levels.
+const past = (run) => ({ under: 100 - Math.min(...run), over: Math.max(...run) - 170 });
+const runs = `before ${plainRun.join(' ')} | 100: ${sharpRun.join(' ')}`;
+check(near(sharp.bands, BANDS, 1) && near(sharp.red, RED, 1), 'Sharpen 100 leaves flat parts of the photo exactly as they were', show(sharp));
+check(past(plainRun).under <= 1 && past(plainRun).over <= 1, 'unsharpened, the edge goes from one band to the other and no further', plainRun.join(' '));
+check(past(sharpRun).under >= 8 && past(sharpRun).over >= 8, 'Sharpen 100 darkens the dark side of an edge and lightens the light side', `${past(sharpRun).under} under, ${past(sharpRun).over} over; ${runs}`);
+// The kernel reaches one pixel of a 1080px post and no further, so two pixels
+// either side of the step is as far as anything may move. A wider halo, or a
+// ripple beyond it, is the crunchy look this is meant not to have.
+check(sharpRun.slice(0, 6).every((v) => Math.abs(v - 100) <= 1) && sharpRun.slice(10).every((v) => Math.abs(v - 170) <= 1),
+  'the overshoot stays at the edge and the bands are flat again two pixels off', runs);
+const half = past(halfRun);
+check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && half.over < past(sharpRun).over,
+  'Sharpen 50 overshoots, and less than 100 does', `${half.under} under, ${half.over} over`);
+
+// The export carries it too: flat bands untouched, the edge overshooting.
+await slide(100);
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+await p.click('.dock-item[data-drawer="export"]');
+await p.selectOption('#format', 'image/png');
+const gotSharp = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
+await p.click('#btn-export');
+const sharpDownload = await gotSharp;
+if (!sharpDownload) check(false, 'the sharpened export arrives');
+else {
+  const bytes = fs.readFileSync(await sharpDownload.path()).toString('base64');
+  const out = await p.evaluate(async (b64) => {
+    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext('2d');
+    g.drawImage(bmp, 0, 0);
+    const row = g.getImageData(0, Math.round(bmp.height * 0.25), bmp.width, 1).data;
+    const run = [...Array(Math.round(bmp.width * 0.2))].map((_, i) => row[(Math.round(bmp.width * 0.4) + i) * 4]);
+    return { bands: [0.125, 0.375, 0.625, 0.875].map((x) => row[Math.round(bmp.width * x) * 4]), run };
+  }, bytes);
+  check(near(out.bands, BANDS, 1) && 100 - Math.min(...out.run) >= 8 && Math.max(...out.run) - 170 >= 8,
+    'the exported file is sharpened as the preview was', `bands ${out.bands.join('/')}, edge ${Math.min(...out.run)}..${Math.max(...out.run)}`);
+}
+await p.click('#dock-back');
+
+// And back to nought, which is the photo again and nothing left to reset.
+await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+await p.waitForTimeout(200);
+await p.click('.dock-item[data-tile="adjust"]');
+await p.waitForTimeout(200);
+await choose('sharpen');
+await slide(0);
+const unsharp = await across();
+check(unsharp.every((v, i) => Math.abs(v - plainRun[i]) <= 1) && await p.locator('#adjust-reset').isDisabled(),
+  'Sharpen back at nought is the photo as it came', unsharp.join(' '));
 
 /* ------------------------------------------------------------ clips opt out */
 
