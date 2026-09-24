@@ -13,19 +13,25 @@ on:
 
 jobs:
   browser:
-    name: browser ${{ matrix.shard }}/4
+    name: browser ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
-    # Split four ways, each machine running its share one at a time. One job
+    # Split across machines, each running its share one at a time. One job
     # running all of them took eleven minutes, nine and a half of it the tests
-    # end to end. Running four side by side on one machine is as fast but not
-    # as honest: swipe times its flicks against real frames, and four
-    # Chromiums slow each other's frames enough to fail it. Four machines give
-    # every test the machine to itself that it has always had. run.mjs does
-    # the split, by how long each test takes; see durations.json.
+    # end to end. Running several side by side on one machine is as fast but
+    # not as honest: swipe times its flicks against real frames, and four
+    # Chromiums slow each other's frames enough to fail it. Separate machines
+    # give every test the machine to itself that it has always had. run.mjs
+    # does the split, by how long each test takes; see durations.json.
+    #
+    # Eight, because the machines are free on a public repository and the
+    # split is even that far: about 66 seconds of tests each, with the longest
+    # single test at 51. Past that each machine is mostly its own setup. The
+    # count is the length of this list and nothing else; each job reads the
+    # total back off the matrix.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     timeout-minutes: 20
     steps:
       # The whole history, not the default single commit: test-update-path
@@ -121,7 +127,7 @@ jobs:
       - name: Run this shard of the suite
         working-directory: tests
         env:
-          SHARD: ${{ matrix.shard }}/4
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: node run.mjs
 
       # The screenshots several tests take, which are worth having when a run

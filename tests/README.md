@@ -13,7 +13,7 @@ npx playwright install chromium     # skip if a browser is already installed
 node run.mjs                        # the whole suite
 node run.mjs swipe tile             # just those
 JOBS=4 node run.mjs                 # four at a time
-SHARD=2/4 node run.mjs              # the quarter the second CI machine runs
+SHARD=2/8 node run.mjs              # the eighth the second CI machine runs
 RECORD=1 node run.mjs               # and write how long each took to durations.json
 ```
 
@@ -30,7 +30,7 @@ four Chromiums on one machine slow each other's frames enough to turn a flick
 into a drag. CI gets its speed by splitting the suite across
 machines instead, each running its share one at a time.
 
-CI splits the suite four ways, one machine each, balanced by the times in
+CI splits the suite eight ways, one machine each, balanced by the times in
 `durations.json`. Those only decide the balance: an out-of-date file makes one
 machine finish a little after the others, never a test go unrun, and a new test
 with no entry counts as the median. Refresh it now and then with a full
