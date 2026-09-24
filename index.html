@@ -398,7 +398,10 @@
              the photo looks. The row of effects is written in by app.js from
              its list; under it, the settings of whichever one is on. -->
         <div class="tile-sub tile-effects" id="tile-effects" hidden>
-          <div class="adjust-tools" id="effect-list" role="group" aria-label="Effects"></div>
+          <div class="effect-head">
+            <div class="adjust-tools" id="effect-list" role="group" aria-label="Effects"></div>
+            <p class="pop-note" id="pop-note" aria-live="polite"></p>
+          </div>
           <p class="effect-hint" id="effect-hint">Tap an effect to try it on this photo</p>
           <div class="adjust-row" id="popout-row" hidden>
             <div class="pop-sides" id="pop-sides" role="group" aria-label="Pop out of">
@@ -415,7 +418,12 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(270 12 12)"><rect x="5" y="9" width="14" height="11" rx="2"/><path d="M12 13V3M8.5 6.5L12 3l3.5 3.5"/></g></svg>
               </button>
             </div>
-            <p class="pop-note" id="pop-note" aria-live="polite"></p>
+            <!-- Tapping the photo chooses what counts as the subject while this
+                 is held on; the chosen ones are tinted on the tile. -->
+            <button class="btn btn-ghost btn-sm pop-pick" id="pop-pick" type="button" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.4-3.2 2.6-5.2 5.5-5.2 1.2 0 2.3.3 3.2 1"/><circle cx="17" cy="10" r="2.6"/><path d="M13.5 19c.3-2.4 1.7-3.9 3.5-3.9s3.2 1.5 3.5 3.9"/></svg>
+              <span>Subjects</span>
+            </button>
           </div>
         </div>
 

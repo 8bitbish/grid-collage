@@ -186,6 +186,10 @@
   // The compare button is held down: the preview shows the photos as they
   // came, without their edits, until it is let go.
   let comparing = false;
+  // Pop out's Subjects button is on: a tap on the selected tile chooses what
+  // counts as its subject, and the chosen ones are tinted.
+  let picking = false;
+  let pickPress = null;
   let importForChooser = false;
   // The picker is standing in for a share sheet that arrived empty, so what
   // comes back belongs wherever the shared photos would have gone rather than
@@ -355,6 +359,7 @@
         // the preview's compare button, held down.
         drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+        if (opts.picking === i && photo.subject) g.drawImage(tintOf(photo.subject), -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -394,7 +399,7 @@
     // decode the still stayed on screen: the clip in one slot flickered back
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing });
+    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing, picking: picking ? state.selected : -1 });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
@@ -506,6 +511,23 @@
     pose();
     g.drawImage(cut, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
     g.restore();
+  }
+
+  // What is chosen as the subject while choosing: the accent, at half
+  // strength, wherever the mask is. Made once per mask.
+  function tintOf(subject) {
+    if (subject.tint) return subject.tint;
+    const { mask } = subject;
+    const c = document.createElement('canvas');
+    c.width = mask.width;
+    c.height = mask.height;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgba(255, 77, 141, 0.5)';
+    g.fillRect(0, 0, c.width, c.height);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(mask, 0, 0);
+    subject.tint = c;
+    return c;
   }
 
   function plusSign(g, r, s) {
@@ -1713,13 +1735,17 @@
   // Which pixels are the subject is a guess only a trained model can make, so
   // this is the one part of the app that runs one. It is found once per photo
   // rather than per cell — the subject is the same wherever the photo is put —
-  // and kept as a mask in the photo's alpha, at the model's own resolution and
-  // stretched over the photo, so drawing it at any size is one drawImage.
+  // and kept as a mask in the photo's alpha, stretched over the photo, so
+  // drawing it at any size is one drawImage.
   //
-  // `photo.subject` is undefined until asked for, then { mask, box } once
-  // found, or null when the model found nothing it would call a subject. The
-  // mask is stored with the photo as a PNG, so a reopened deck never runs the
-  // model again.
+  // A subject is whatever is under a point, and a photo can have several:
+  // `photo.subjectPoints` lists them, as fractions of the photo, and the mask
+  // is all of them together. Left to itself the detector chooses the points;
+  // tapping in the panel adds and takes them away.
+  //
+  // `photo.subject` is undefined until asked for, then { mask, box, coarse }
+  // once found, or null when nothing was. The mask and its points are stored
+  // with the photo, so a reopened deck never runs the model again.
   const finding = new Map();
 
   // MediaPipe's MagicTouch, pointed at the subject by EfficientDet-Lite0.
@@ -1742,7 +1768,7 @@
   // Nothing is fetched until the first time an effect needs a subject, and
   // the service worker keeps it from then on, as it does libheif.
   const MEDIAPIPE = './vendor/mediapipe/';
-  const SEGMENT_EDGE = 1024;
+  const SEGMENT_EDGE = 1024;   // what the model is handed, on the long side
   let segmenter = null;
 
   function loadSegmenter() {
@@ -1758,7 +1784,7 @@
         }),
         ObjectDetector.createFromOptions(files, {
           baseOptions: { modelAssetPath: `${base}efficientdet_lite0.tflite`, delegate: 'CPU' },
-          scoreThreshold: 0.3, maxResults: 5, runningMode: 'IMAGE',
+          scoreThreshold: 0.3, maxResults: 8, runningMode: 'IMAGE',
         }),
       ]);
       return { segment, detect };
@@ -1766,62 +1792,129 @@
     return segmenter;
   }
 
-  // What the model makes of the photo, refined against the photo itself:
-  // { alpha, w, h }, one byte a pixel, at most CUT_EDGE on the long side.
-  async function segment(src) {
-    const { segment: segmenter, detect } = await loadSegmenter();
-    const k = Math.min(1, SEGMENT_EDGE / Math.max(src.width, src.height));
-    const w = Math.max(1, Math.round(src.width * k));
-    const h = Math.max(1, Math.round(src.height * k));
+  // The model on one part of the photo — all of it, or a crop round one
+  // subject — drawn at SEGMENT_EDGE on its long side, with the point it is to
+  // take the thing under. `region` and `point` are in the source's pixels.
+  function segmentRegion(segmenter, src, region, point) {
+    const k = SEGMENT_EDGE / Math.max(region.w, region.h);
+    const w = Math.max(1, Math.round(region.w * k));
+    const h = Math.max(1, Math.round(region.h * k));
     const g = scratch(w, h).getContext('2d');
     g.imageSmoothingQuality = 'high';
-    g.drawImage(src, 0, 0, w, h);
-    const image = g.getImageData(0, 0, w, h);
-
-    // The most prominent thing the detector knows a name for, by area times
-    // confidence, and the middle of the photo if it knows none.
-    let point = { x: 0.5, y: 0.5 };
-    let best = 0;
-    detect.detect(image).detections.forEach((d) => {
-      const b = d.boundingBox;
-      const score = b.width * b.height * d.categories[0].score;
-      if (score <= best) return;
-      best = score;
-      point = { x: (b.originX + b.width / 2) / w, y: (b.originY + b.height / 2) / h };
-    });
-
-    const result = segmenter.segment(image, { keypoint: point });
-    let rough;
+    g.drawImage(src, region.x, region.y, region.w, region.h, 0, 0, w, h);
+    const keypoint = { x: clamp((point.x - region.x) / region.w, 0, 1), y: clamp((point.y - region.y) / region.h, 0, 1) };
+    const result = segmenter.segment(g.getImageData(0, 0, w, h), { keypoint });
     try {
       const mask = result.confidenceMasks[0];
-      rough = { conf: mask.getAsFloat32Array().slice(), w: mask.width, h: mask.height };
+      return { conf: mask.getAsFloat32Array().slice(), w: mask.width, h: mask.height };
     } finally {
       result.close();
     }
-    return refineCut(src, rough);
+  }
+
+  // Every prominent thing the detector knows a name for, as points: the
+  // middle of each box. Prominent is area times confidence, within a third of
+  // the most prominent — so two people side by side both count, and the
+  // stranger walking past behind them does not. The middle of the photo if
+  // the detector knows nothing in it.
+  function detectPoints(detect, src) {
+    const k = SEGMENT_EDGE / Math.max(src.width, src.height);
+    const w = Math.max(1, Math.round(src.width * k));
+    const h = Math.max(1, Math.round(src.height * k));
+    const g = scratch(w, h).getContext('2d');
+    g.drawImage(src, 0, 0, w, h);
+    const found = detect.detect(g.getImageData(0, 0, w, h)).detections.map((d) => {
+      const b = d.boundingBox;
+      return { x: (b.originX + b.width / 2) / w, y: (b.originY + b.height / 2) / h, weight: b.width * b.height * d.categories[0].score };
+    }).sort((a, b) => b.weight - a.weight);
+    if (!found.length) return [{ x: 0.5, y: 0.5 }];
+    return found.filter((d) => d.weight >= found[0].weight / 3).slice(0, SUBJECTS_MAX).map(({ x, y }) => ({ x, y }));
+  }
+  const SUBJECTS_MAX = 6;
+
+  // Confidences from a region laid into the plane P, which covers the whole
+  // photo at `scale` of its pixels, bilinear.
+  function lay(P, pw, ph, scale, region, m) {
+    const x0 = Math.max(0, Math.floor(region.x * scale));
+    const y0 = Math.max(0, Math.floor(region.y * scale));
+    const x1 = Math.min(pw, Math.ceil((region.x + region.w) * scale));
+    const y1 = Math.min(ph, Math.ceil((region.y + region.h) * scale));
+    for (let y = y0; y < y1; y++) {
+      const v = clamp((((y + 0.5) / scale - region.y) / region.h) * m.h - 0.5, 0, m.h - 1);
+      const v0 = Math.floor(v); const v1 = Math.min(m.h - 1, v0 + 1); const tv = v - v0;
+      for (let x = x0; x < x1; x++) {
+        const u = clamp((((x + 0.5) / scale - region.x) / region.w) * m.w - 0.5, 0, m.w - 1);
+        const u0 = Math.floor(u); const u1 = Math.min(m.w - 1, u0 + 1); const tu = u - u0;
+        const top = m.conf[v0 * m.w + u0] * (1 - tu) + m.conf[v0 * m.w + u1] * tu;
+        const bottom = m.conf[v1 * m.w + u0] * (1 - tu) + m.conf[v1 * m.w + u1] * tu;
+        P[y * pw + x] = top * (1 - tv) + bottom * tv;
+      }
+    }
+  }
+
+  // One subject's rough mask, on the plane the cut is solved on. The model
+  // sees the whole photo first, to find the subject, and then again on a crop
+  // round what it found: MagicTouch answers at 512px whatever it is shown, so
+  // a dog a third of the way across the frame gets three times the detail the
+  // second time. Kept in memory per point, so tapping a second subject in
+  // does not run the first one again.
+  function roughFor(photo, segmenter, src, point, plane) {
+    const key = `${point.x.toFixed(4)},${point.y.toFixed(4)}@${plane.w}x${plane.h}`;
+    photo.roughs = photo.roughs || new Map();
+    if (photo.roughs.has(key)) return photo.roughs.get(key);
+    const at = { x: point.x * src.width, y: point.y * src.height };
+    const whole = { x: 0, y: 0, w: src.width, h: src.height };
+    const first = segmentRegion(segmenter, src, whole, at);
+    const P = new Float32Array(plane.w * plane.h);
+    lay(P, plane.w, plane.h, plane.scale, whole, first);
+    const box = maskBox(Uint8ClampedArray.from(first.conf, (v) => v * 255), first.w, first.h);
+    if (box) {
+      const pad = 0.12 * Math.max(box.w * src.width, box.h * src.height);
+      const x0 = Math.max(0, box.x * src.width - pad);
+      const y0 = Math.max(0, box.y * src.height - pad);
+      const crop = {
+        x: x0, y: y0,
+        w: Math.min(src.width, (box.x + box.w) * src.width + pad) - x0,
+        h: Math.min(src.height, (box.y + box.h) * src.height + pad) - y0,
+      };
+      // Only worth it when the crop is much smaller than the photo.
+      if (Math.max(crop.w / src.width, crop.h / src.height) < 0.8) lay(P, plane.w, plane.h, plane.scale, crop, segmentRegion(segmenter, src, crop, at));
+    }
+    photo.roughs.set(key, P);
+    return P;
   }
 
   /* ----------------------------------------------------- a clean cut */
   //
-  // MagicTouch answers at 512px, so its edge is soft wherever it is drawn
-  // bigger than that, and a subject that pops out of its tile shows that edge
-  // against a neighbouring photo, where nothing hides it. Four ways of
-  // sharpening it were compared at 100% on six photos, over flat green:
-  // - hardening the mask alone gives a staircase, the 512px grid showing
+  // MagicTouch's edge is soft wherever it is drawn bigger than it answered,
+  // and a subject that pops out of its tile shows that edge against a
+  // neighbouring photo, where nothing hides it. Four ways of sharpening it
+  // were compared at 100% on six photos, over flat green:
+  // - hardening the mask alone gives a staircase, the model's grid showing
   // - a guided filter on brightness is smooth but keeps a dark rim of
   //   background along hair
   // - the same filter guided by colour follows the photo's own edges — the
   //   dog's fur, the cat's ear, a shoulder against a dark room — and,
   //   hardened after, is the clean one
-  // Solved at a quarter size and applied at full (the "fast" guided filter),
-  // it came out the same to the eye in 200-260ms at 2048px on a desktop,
-  // against a second for the full-size solve.
-  const CUT_EDGE = 2048;
-  const CUT_RADIUS = 8;       // in pixels at CUT_EDGE; the window the filter fits over
-  const CUT_EPS = 1e-3;       // how far a window's colour must vary to count as an edge
-  const CUT_SCALE = 4;        // solved at a quarter size
+  // It is solved at half size and applied at full size against the photo
+  // itself (the "fast" guided filter). At a quarter size it was the same to
+  // the eye on a subject that fills the frame, but lost strands on the dog,
+  // which fills a third of it: 0.3s more on a desktop, for the small ones.
+  //
+  // Cut from the original file, never from what the tile happens to be
+  // drawing, which may be the 1440px proxy or a 384px thumbnail — and was, at
+  // first: a high-resolution photo came out with its edge as soft as the
+  // proxy's.
+  const CUT_EDGE = 3072;
+  const CUT_SCALE = 2;        // solved at half size
+  // The smallest window and tightest fit of four tried on the same crops of
+  // a portrait's hairline, a man's spiky hair and a dog's fur: the wider ones
+  // (radius 12, eps 0.004) smoothed hair into a soft blur, which is the
+  // blurriness this was meant to be rid of.
+  const CUT_RADIUS = 6;       // in pixels at CUT_EDGE; the window the filter fits over
+  const CUT_EPS = 0.0005;     // how far a window's colour must vary to count as an edge
   const CUT_LO = 0.35;        // hardened between these: under LO is gone, which is what
-  const CUT_HI = 0.9;         // loses the thin rim of background a soft edge keeps
+  const CUT_HI = 0.85;        // loses the thin rim of background a soft edge keeps
 
   // A box mean of radius r, as two running sums, dividing by what the window
   // really covers so the edges of the frame are not darkened.
@@ -1850,17 +1943,11 @@
     return out;
   }
 
-  // Plane by plane, 0..1: the photo's red, green and blue, and the rough mask
-  // stretched over it, both at w by h.
-  function planes(src, w, h) {
+  function pixelsOf(src, w, h) {
     const g = scratch(w, h).getContext('2d');
     g.imageSmoothingQuality = 'high';
     g.drawImage(src, 0, 0, w, h);
-    const px = g.getImageData(0, 0, w, h).data;
-    const n = w * h;
-    const out = [new Float32Array(n), new Float32Array(n), new Float32Array(n), new Float32Array(n)];
-    for (let i = 0; i < n; i++) for (let c = 0; c < 4; c++) out[c][i] = px[i * 4 + c] / 255;
-    return out;
+    return g.getImageData(0, 0, w, h).data;
   }
 
   // The guided filter (He, Sun and Tang), guided by colour: within each
@@ -1868,8 +1955,10 @@
   // so where the photo has an edge the mask takes it, and where it has none
   // the mask is only smoothed. Returns the fit's coefficients, averaged over
   // the windows each pixel sits in.
-  function guideCoefficients([R, G, B], P, w, h, r, eps) {
+  function guideCoefficients(px, P, w, h, r, eps) {
     const n = w * h;
+    const [R, G, B] = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+    for (let i = 0; i < n; i++) { R[i] = px[i * 4] / 255; G[i] = px[i * 4 + 1] / 255; B[i] = px[i * 4 + 2] / 255; }
     const m = (a) => boxMean(a, w, h, r);
     const times = (a, b) => { const o = new Float32Array(n); for (let i = 0; i < n; i++) o[i] = a[i] * b[i]; return o; };
     const [mR, mG, mB, mP] = [R, G, B, P].map(m);
@@ -1900,32 +1989,18 @@
     return coef.map(m);
   }
 
-  function upsample(src, sw, sh, w, h) {
-    const out = new Float32Array(w * h);
-    for (let y = 0; y < h; y++) {
-      const fy = clamp(((y + 0.5) * sh) / h - 0.5, 0, sh - 1);
-      const y0 = Math.floor(fy); const y1 = Math.min(sh - 1, y0 + 1); const ty = fy - y0;
-      for (let x = 0; x < w; x++) {
-        const fx = clamp(((x + 0.5) * sw) / w - 0.5, 0, sw - 1);
-        const x0 = Math.floor(fx); const x1 = Math.min(sw - 1, x0 + 1); const tx = fx - x0;
-        const top = src[y0 * sw + x0] * (1 - tx) + src[y0 * sw + x1] * tx;
-        const bottom = src[y1 * sw + x0] * (1 - tx) + src[y1 * sw + x1] * tx;
-        out[y * w + x] = top * (1 - ty) + bottom * ty;
-      }
-    }
-    return out;
-  }
-
-  // Pieces of the mask standing apart from the subject are the model's
-  // mistakes, not the subject: the cat came with two smudges of its own
-  // shadow floating off its tail. Anything under a twentieth the size of the
-  // largest piece goes, counted where the mask is at least a quarter sure.
-  function dropIslands(alpha, w, h) {
+  // Pieces of the mask standing apart from the subjects are the model's
+  // mistakes: the cat came with two smudges of its own shadow floating off
+  // its tail. A piece stays if a point is on it, or if it is at least a
+  // twentieth the size of the largest; counted where the mask is at least a
+  // quarter sure, and a fainter pixel stays only beside a piece that does.
+  function dropIslands(P, w, h, points) {
     const label = new Int32Array(w * h).fill(-1);
     const sizes = [];
     const stack = [];
-    for (let start = 0; start < alpha.length; start++) {
-      if (label[start] !== -1 || alpha[start] < 64) continue;
+    const near = (i) => { const x = i % w; return [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]; };
+    for (let start = 0; start < P.length; start++) {
+      if (label[start] !== -1 || P[start] < 0.25) continue;
       const id = sizes.length;
       let size = 0;
       label[start] = id;
@@ -1933,54 +2008,91 @@
       while (stack.length) {
         const i = stack.pop();
         size += 1;
-        const x = i % w;
-        const next = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w];
-        for (const j of next) {
-          if (j < 0 || j >= alpha.length || label[j] !== -1 || alpha[j] < 64) continue;
+        for (const j of near(i)) {
+          if (j < 0 || j >= P.length || label[j] !== -1 || P[j] < 0.25) continue;
           label[j] = id;
           stack.push(j);
         }
       }
       sizes.push(size);
     }
-    const keep = Math.max(0, ...sizes) / 20;
-    for (let i = 0; i < alpha.length; i++) {
-      // Faint pixels belong to no piece and go with the ones that go.
-      if (label[i] === -1 ? alpha[i] > 0 && !nearKept(label, sizes, keep, i, w) : sizes[label[i]] < keep) alpha[i] = 0;
+    const keep = sizes.map((n) => n >= Math.max(0, ...sizes) / 20);
+    points.forEach((pt) => {
+      const id = label[Math.min(h - 1, Math.floor(pt.y * h)) * w + Math.min(w - 1, Math.floor(pt.x * w))];
+      if (id >= 0) keep[id] = true;
+    });
+    for (let i = 0; i < P.length; i++) {
+      if (label[i] >= 0) { if (!keep[label[i]]) P[i] = 0; continue; }
+      if (P[i] > 0 && !near(i).some((j) => j >= 0 && j < P.length && label[j] >= 0 && keep[label[j]])) P[i] = 0;
     }
-    return alpha;
+    return P;
   }
 
-  // A faint pixel stays only beside a piece that stays: it is that piece's
-  // soft edge, not a smudge's.
-  function nearKept(label, sizes, keep, i, w) {
-    const x = i % w;
-    for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w, i - 2 * w, i + 2 * w]) {
-      if (j >= 0 && j < label.length && label[j] !== -1 && sizes[label[j]] >= keep) return true;
+  // The original, decoded, and kept for a little while after: choosing
+  // subjects is a run of taps, and a phone photo took 150ms of each of them to
+  // decode again on a desktop. Let go half a minute after the last one.
+  let cutSource = null;
+  async function sourceOf(photo) {
+    if (photo.full && photo.bitmap) return photo.bitmap;
+    if (cutSource && cutSource.photo === photo) {
+      clearTimeout(cutSource.timer);
+    } else {
+      if (cutSource) { clearTimeout(cutSource.timer); cutSource.bitmap.close(); }
+      cutSource = { photo, bitmap: await decodeImage(photo.blob) };
     }
-    return false;
+    const held = cutSource;
+    held.timer = setTimeout(() => { if (cutSource === held) { held.bitmap.close(); cutSource = null; } }, 30000);
+    return held.bitmap;
   }
 
-  function refineCut(src, rough) {
-    const k = Math.min(1, CUT_EDGE / Math.max(src.width, src.height));
-    const w = Math.max(1, Math.round(src.width * k));
-    const h = Math.max(1, Math.round(src.height * k));
-    const sw = Math.max(1, Math.ceil(w / CUT_SCALE));
-    const sh = Math.max(1, Math.ceil(h / CUT_SCALE));
-    // The rough mask as an image, so drawImage stretches it to either size.
-    const roughImage = maskCanvas(Uint8ClampedArray.from(rough.conf, (v) => v * 255), rough.w, rough.h);
-    const [R, G, B] = planes(src, w, h);
-    const small = planes(src, sw, sh);
-    const P = planes(roughImage, sw, sh)[3];
-    const radius = Math.max(1, Math.round((CUT_RADIUS * Math.max(w, h)) / CUT_EDGE / CUT_SCALE));
-    const [aR, aG, aB, b] = guideCoefficients(small, P, sw, sh, radius, CUT_EPS).map((c) => upsample(c, sw, sh, w, h));
-    const alpha = new Uint8ClampedArray(w * h);
-    for (let i = 0; i < alpha.length; i++) {
-      const q = aR[i] * R[i] + aG[i] * G[i] + aB[i] * B[i] + b[i];
-      const t = clamp((q - CUT_LO) / (CUT_HI - CUT_LO), 0, 1);
-      alpha[i] = t * t * (3 - 2 * t) * 255;
+  // The subjects under `points`, cut from the photo: { alpha, w, h }, one byte
+  // a pixel, at most CUT_EDGE on the long side.
+  async function cutSubjects(photo, points) {
+    const { segment: segmenter } = await loadSegmenter();
+    const src = await sourceOf(photo);
+    {
+      const k = Math.min(1, CUT_EDGE / Math.max(src.width, src.height));
+      const w = Math.max(1, Math.round(src.width * k));
+      const h = Math.max(1, Math.round(src.height * k));
+      const sw = Math.max(1, Math.ceil(w / CUT_SCALE));
+      const sh = Math.max(1, Math.ceil(h / CUT_SCALE));
+      const plane = { w: sw, h: sh, scale: sw / src.width };
+      const P = new Float32Array(sw * sh);
+      points.forEach((pt) => {
+        const rough = roughFor(photo, segmenter, src, pt, plane);
+        for (let i = 0; i < P.length; i++) if (rough[i] > P[i]) P[i] = rough[i];
+      });
+      dropIslands(P, sw, sh, points);
+
+      const radius = Math.max(1, Math.round((CUT_RADIUS * Math.max(w, h)) / CUT_EDGE / CUT_SCALE));
+      const [aR, aG, aB, b] = guideCoefficients(pixelsOf(src, sw, sh), P, sw, sh, radius, CUT_EPS);
+      // Applied at full size a row at a time, the coefficients sampled
+      // between their half-size pixels as it goes, so nothing the size of the
+      // photo is held but its pixels and the answer.
+      const px = pixelsOf(src, w, h);
+      const hard = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) {
+        const fy = clamp(((y + 0.5) * sh) / h - 0.5, 0, sh - 1);
+        const y0 = Math.floor(fy); const y1 = Math.min(sh - 1, y0 + 1); const ty = fy - y0;
+        for (let x = 0; x < w; x++) {
+          const fx = clamp(((x + 0.5) * sw) / w - 0.5, 0, sw - 1);
+          const x0 = Math.floor(fx); const x1 = Math.min(sw - 1, x0 + 1); const tx = fx - x0;
+          const i00 = y0 * sw + x0; const i01 = y0 * sw + x1; const i10 = y1 * sw + x0; const i11 = y1 * sw + x1;
+          const at = (c) => (c[i00] * (1 - tx) + c[i01] * tx) * (1 - ty) + (c[i10] * (1 - tx) + c[i11] * tx) * ty;
+          const i = y * w + x;
+          const q = (at(aR) * px[i * 4] + at(aG) * px[i * 4 + 1] + at(aB) * px[i * 4 + 2]) / 255 + at(b);
+          const t = clamp((q - CUT_LO) / (CUT_HI - CUT_LO), 0, 1);
+          hard[i] = t * t * (3 - 2 * t);
+        }
+      }
+      // A pixel's worth of softening after the hardening. Without it the edge
+      // is decided pixel by pixel, and where the photo is grainy — asphalt
+      // under the dog — that decision flickers into a speckled, stepped line.
+      const soft = boxMean(hard, w, h, 1);
+      const alpha = new Uint8ClampedArray(w * h);
+      for (let i = 0; i < alpha.length; i++) alpha[i] = soft[i] * 255;
+      return { alpha, w, h };
     }
-    return { alpha: dropIslands(alpha, w, h), w, h };
   }
 
   // The part of the mask that is confidently subject, as fractions of the
@@ -2026,32 +2138,83 @@
     return c;
   }
 
+  async function storedAlpha(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const c = scratch(bitmap.width, bitmap.height);
+    c.getContext('2d').drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const alpha = new Uint8ClampedArray(c.width * c.height);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
+    return { alpha, w: c.width, h: c.height };
+  }
+
+  // Takes a cut and makes it the photo's subject, storing it with the photo.
+  async function keepSubject(photo, { alpha, w, h }, fromStore) {
+    const box = maskBox(alpha, w, h);
+    const mask = box ? maskCanvas(alpha, w, h) : null;
+    photo.subject = box ? { mask, box, coarse: coarseMask(alpha, w, h) } : null;
+    // Stored after it is drawn, not before: a 3072px PNG takes a noticeable
+    // while to encode, and the tile has no need to wait for it.
+    if (!fromStore) {
+      const kept = photo.subject;
+      photo.subjectBlob = null;
+      if (mask) {
+        mask.toBlob((blob) => {
+          if (photo.subject !== kept) return;
+          photo.subjectBlob = blob;
+          if (persisted.has(photo.id)) savePhoto(photo);
+        }, 'image/png');
+      } else if (persisted.has(photo.id)) savePhoto(photo);
+    }
+    return photo.subject;
+  }
+
+  // A stored subject is only good for the points it was cut for, and an
+  // earlier build stored one without saying which: that one is cut again.
   function findSubject(photo) {
     if (!photo || photo.kind === 'video') return Promise.resolve(null);
     if (photo.subject !== undefined) return Promise.resolve(photo.subject);
     if (finding.has(photo)) return finding.get(photo);
     const job = (async () => {
-      let alpha; let w; let h;
-      if (photo.subjectBlob) {
-        const bitmap = await createImageBitmap(photo.subjectBlob);
-        const c = scratch(bitmap.width, bitmap.height);
-        c.getContext('2d').drawImage(bitmap, 0, 0);
-        bitmap.close();
-        const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-        ({ width: w, height: h } = c);
-        alpha = new Uint8ClampedArray(w * h);
-        for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
-      } else {
-        ({ alpha, w, h } = await segment(photo.bitmap));
+      if (photo.subjectBlob && photo.subjectPoints) return keepSubject(photo, await storedAlpha(photo.subjectBlob), true);
+      if (!photo.subjectPoints) {
+        const { detect } = await loadSegmenter();
+        photo.subjectPoints = detectPoints(detect, await sourceOf(photo));
       }
-      const box = maskBox(alpha, w, h);
-      const mask = box ? maskCanvas(alpha, w, h) : null;
-      photo.subject = box ? { mask, box, coarse: coarseMask(alpha, w, h) } : null;
-      if (mask && !photo.subjectBlob) {
-        photo.subjectBlob = await new Promise((res) => mask.toBlob(res, 'image/png'));
+      return keepSubject(photo, await cutSubjects(photo, photo.subjectPoints), false);
+    })().finally(() => finding.delete(photo));
+    finding.set(photo, job);
+    return job;
+  }
+
+  // Chosen by hand: a tap on a subject takes it away, a tap anywhere else
+  // adds whatever is there. Which subject a tap is on is read off each one's
+  // own rough mask, not the cut, so two touching subjects can still be told
+  // apart. The old subject stays drawn until the new one is ready.
+  function pickSubject(photo, u, v) {
+    if (finding.has(photo)) return finding.get(photo);
+    const job = (async () => {
+      const points = (photo.subjectPoints || []).slice();
+      const { segment: segmenter } = await loadSegmenter();
+      const src = await sourceOf(photo);
+      const k = Math.min(1, CUT_EDGE / Math.max(src.width, src.height));
+      const sw = Math.max(1, Math.ceil(Math.round(src.width * k) / CUT_SCALE));
+      const sh = Math.max(1, Math.ceil(Math.round(src.height * k) / CUT_SCALE));
+      const plane = { w: sw, h: sh, scale: sw / src.width };
+      const at = Math.min(sh - 1, Math.floor(v * sh)) * sw + Math.min(sw - 1, Math.floor(u * sw));
+      const hit = points.findIndex((pt) => roughFor(photo, segmenter, src, pt, plane)[at] > 0.5);
+      if (hit >= 0) points.splice(hit, 1);
+      else if (points.length < SUBJECTS_MAX) points.push({ x: u, y: v });
+      else return photo.subject;
+      photo.subjectPoints = points;
+      if (!points.length) {
+        photo.subject = null;
+        photo.subjectBlob = null;
         if (persisted.has(photo.id)) savePhoto(photo);
+        return null;
       }
-      return photo.subject;
+      return keepSubject(photo, await cutSubjects(photo, points), false);
     })().finally(() => finding.delete(photo));
     finding.set(photo, job);
     return job;
@@ -4654,6 +4817,7 @@
   }
 
   function select(i) {
+    if (picking && i !== state.selected) { picking = false; pickPress = null; }
     state.selected = i;
     render();
     syncPanel();
@@ -4905,12 +5069,18 @@
     }
 
     if (pointers.size === 0) { endRun(); snapshot(); }
+    // Choosing subjects: a tap chooses, and a drag still moves the photo, so
+    // which it was is only known on letting go.
+    if (picking && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
   });
 
   stageInput.addEventListener('pointermove', (e) => {
+    if (pickPress && e.pointerId === pickPress.id) {
+      pickPress.moved = Math.max(pickPress.moved, Math.hypot(e.clientX - pickPress.x, e.clientY - pickPress.y));
+    }
     if (crossPress && e.pointerId === crossPress.id) {
       crossPress.moved = Math.max(crossPress.moved,
         Math.hypot(e.clientX - crossPress.x, e.clientY - crossPress.y));
@@ -5033,6 +5203,12 @@
     }
 
     if (!pointers.has(e.pointerId)) return;
+    // Only a single finger that barely moved; a second finger down makes it a
+    // pinch, which is not a tap however little the first one moved.
+    const picked = pickPress && pickPress.id === e.pointerId && pickPress.moved < 8
+      && e.type === 'pointerup' && pointers.size === 1 ? pickPress : null;
+    if (pickPress && pickPress.id === e.pointerId) pickPress = null;
+    if (picked) pickAt(picked.i, picked.at);
     pointers.delete(e.pointerId);
     if (gesture) settle(gesture.i);
     if (pointers.size) {
@@ -5705,6 +5881,7 @@
     ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust', 'effects'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
     if (name === 'trim') syncTrim();
     if (name === 'effects') syncEffects();
+    else if (picking) setPicking(false);
     if (name === 'adjust') syncAdjust();
     // Letting go of the panel lets go of the compare button with it: a hold
     // that ends somewhere the pointerup never reaches must not leave the
@@ -6125,7 +6302,8 @@
     const pop = effectOf(cell, 'popOut');
     $('effect-hint').hidden = !plainEffects(cell.effects);
     $('popout-row').hidden = !pop;
-    if (!pop) return;
+    $('pop-note').hidden = !pop;
+    if (!pop) { setPicking(false); return; }
     [...$('pop-sides').children].forEach((btn) => {
       btn.setAttribute('aria-pressed', String(pop.sides.includes(btn.dataset.side)));
     });
@@ -6136,8 +6314,11 @@
     const showing = spill && pop.sides.some((side) => spill[side] > 0.002);
     let note = 'Pops out over the photos around it';
     if (photo && finding.has(photo)) note = 'Finding the subject…';
+    else if (picking) note = photo && photo.subject ? 'Tap a subject to take it away, or something else to add it' : 'Tap what should pop out';
+    else if (photo && photo.subject === null) note = 'No subject chosen — tap Subjects to choose one';
     else if (spill && !showing) note = 'Move or zoom the photo so the subject crosses that edge';
     $('pop-note').textContent = note;
+    $('pop-pick').setAttribute('aria-pressed', String(picking));
   }
 
   function toggleEffect(id) {
@@ -6161,13 +6342,15 @@
   // Finding the subject is the one slow part, and the only part that can
   // fail. Either way it is said, and an effect with no subject to work on is
   // taken off again rather than left looking broken.
+  //
+  // Nothing found is not a failure now that subjects can be chosen by hand:
+  // the effect stays on and the panel goes straight to choosing.
   function ensureSubject(cell, photo, id, fresh, i) {
     if (photo.subject) return;
     photo.subjectFailed = false;
     findSubject(photo).then((subject) => {
       if (!subject) {
-        toast("Couldn't find a subject in this photo");
-        setEffect(cell, id, null);
+        if (page().cells[state.selected] === cell && tileSub === 'effects') setPicking(true);
       } else if (id === 'popOut' && effectOf(cell, id) === fresh && page().cells[i] === cell) {
         // Still as it was turned on, so nobody has chosen a side yet.
         setEffect(cell, id, { ...fresh, sides: [bestSide(cell, photo, cellRects()[i], canvas.width, canvas.height)] });
@@ -6196,6 +6379,42 @@
     refresh();
   }
 
+  function setPicking(on) {
+    if (picking === on) return;
+    picking = on;
+    pickPress = null;
+    render();
+    syncEffects();
+  }
+
+  // Where a point on the canvas lands in a tile's photo, as fractions of it:
+  // drawPage's placement run backwards — its translate, turn and flip.
+  function photoPointAt(i, pt) {
+    const cell = page().cells[i];
+    const photo = photoFor(cell);
+    const rect = cellRects()[i];
+    const p = place(cell, photo, rect, canvas.width / BASE_WIDTH);
+    const dx = pt.x - (rect.x + rect.w / 2 + p.ox);
+    const dy = pt.y - (rect.y + rect.h / 2 + p.oy);
+    const cos = Math.cos(cell.rot);
+    const sin = Math.sin(cell.rot);
+    const lx = (dx * cos + dy * sin) * (cell.flipX ? -1 : 1);
+    const ly = (-dx * sin + dy * cos) * (cell.flipY ? -1 : 1);
+    return { u: lx / p.dw + 0.5, v: ly / p.dh + 0.5 };
+  }
+
+  function pickAt(i, pt) {
+    const photo = photoFor(page().cells[i]);
+    if (!photo) return;
+    const { u, v } = photoPointAt(i, pt);
+    if (u < 0 || u > 1 || v < 0 || v > 1) return;
+    buzz('tap');
+    pickSubject(photo, u, v)
+      .catch((err) => { console.warn('Choosing the subject failed', err); toast("Couldn't find the subject there"); })
+      .then(() => { render(); redrawFilms(); syncEffects(); });
+    syncEffects();
+  }
+
   function openDrawer(name) {
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
@@ -6210,6 +6429,7 @@
     drawer = null;
     tileSub = null;
     $('dock').classList.remove('is-adjusting', 'is-effecting');
+    if (picking) setPicking(false);
     if (comparing) { comparing = false; render(); }
     document.querySelector('.app').classList.remove('is-choosing');
     $('dock').classList.remove('is-choosing');
@@ -6408,6 +6628,7 @@
       // Its subject, once an effect has asked for it: the model's answer as a
       // PNG, so it is never asked the same question twice.
       subject: photo.subjectBlob || null,
+      subjectPoints: photo.subjectPoints || null,
     });
   }
 
@@ -6813,7 +7034,7 @@
           // moves them.
           takenUtc: row.takenUtc ?? null, takenZone: row.takenZone ?? null,
           sourceSize: row.sourceSize ?? null,
-          blob: row.blob, proxyBlob: row.proxy, subjectBlob: row.subject || null,
+          blob: row.blob, proxyBlob: row.proxy, subjectBlob: row.subject || null, subjectPoints: row.subjectPoints || null,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
         state.photos.push(photo);
@@ -7897,6 +8118,7 @@
   compare.addEventListener('blur', () => holdCompare(false));
 
   buildEffects();
+  $('pop-pick').addEventListener('click', () => setPicking(!picking));
   [...$('pop-sides').children].forEach((btn) => {
     btn.addEventListener('click', () => toggleSide(btn.dataset.side));
   });
