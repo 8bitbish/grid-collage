@@ -347,7 +347,7 @@
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
         // the preview's compare button, held down.
-        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, still, p.dw, p.dh, s);
+        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh, s);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
@@ -515,6 +515,10 @@
   //          any other position is interpolated between the two measured
   //          either side of it, nought being the straight line, and the glsl
   //          reads it as curve_<id>(y), which takes and gives 0..1.
+  //   adapt  optional, with curves: a second set, for photos whose median
+  //          brightness is low, and the median where the two change over.
+  //          Google's Shadows lifts a dark photo much further than a bright
+  //          one; this is how a tool says so.
   //
   // Listed in the order Google Photos lists them, which is also the order the
   // tone tools run in.
@@ -529,13 +533,17 @@
       // was seven to thirteen levels out. Up is a straight gain — x1.13 at
       // +50, x1.33 at +100 — so whatever was above 192 is white. Down bends
       // over at the top, so white comes out at 197 and the shadows barely
-      // move.
-      //
-      // -50 has not been measured yet: the copy meant for it came back the
-      // same as -100. Until it has, -50 is halfway to the -100 curve.
+      // move. Between those it is not a straight line, which is why all eight
+      // positions are here: interpolated from ±50 and ±100 alone, ±25 and ±75
+      // came out up to seven levels from Google's.
       curves: {
         '-100': [0, 8, 15.6, 23, 30.6, 38, 45.6, 52.8, 59.6, 67, 73.6, 81, 87.6, 94, 100.6, 107, 113.6, 119.6, 125.6, 131.6, 137.6, 143, 148.6, 154, 159.6, 164.6, 169.6, 174.6, 179.6, 184.6, 189.6, 193.8, 197],
+        '-75': [0, 8, 15.6, 22.7, 30.6, 37.9, 45.5, 52.9, 60.6, 67.6, 74.6, 81.6, 88.6, 94.8, 101.5, 108, 114.6, 121, 127.4, 133.6, 139.4, 145.6, 151.6, 157.4, 162.6, 168.4, 173.5, 178.9, 184.6, 189.6, 194.7, 199.4, 203.3],
+        '-50': [0, 6.3, 14.6, 22.7, 30.6, 37.9, 46.1, 53.4, 60.6, 68, 75.5, 82.6, 89.5, 96.6, 103.6, 110.4, 117.6, 124, 130.4, 137, 143.6, 150, 156.6, 162.2, 168.5, 174.5, 180.6, 186.3, 192.6, 197.6, 203.7, 208.6, 213.5],
+        '-25': [0.3, 8, 15.3, 21.7, 30.7, 38.9, 46.6, 53.9, 61.6, 69, 77, 84.6, 91.6, 98.9, 106.6, 113.9, 121.6, 128.6, 135.6, 142.6, 149.6, 156.5, 163.6, 170.6, 177.5, 183.9, 190.5, 197.6, 204.6, 210.3, 217.5, 223.2, 228.5],
+        25: [0, 8, 16.6, 25, 33.5, 41.8, 50.6, 58.9, 67.6, 76, 84.6, 92.9, 101.4, 109.9, 118.5, 127.6, 136.5, 145, 153.4, 161.9, 170.4, 179, 187.5, 196, 204.6, 212.9, 221.4, 230, 238.6, 247, 254.4, 255, 255],
         50: [0, 8.6, 17.6, 27, 36.6, 45.6, 54.6, 63.6, 72.6, 81.6, 90.6, 100, 109.6, 118.6, 127.6, 136.6, 145.6, 155, 164.6, 173.6, 182.6, 191.6, 200.6, 209.6, 218.6, 228, 237.6, 246, 254, 255, 255, 255, 255],
+        75: [0, 9.4, 19.6, 28.8, 38.6, 48.5, 58.6, 68.4, 78.6, 88, 97.3, 107.5, 117.6, 127.6, 137.5, 147.4, 157.5, 166.7, 176.6, 186.5, 196.3, 206.6, 216.7, 226, 235.4, 245, 253.8, 255, 255, 255, 255, 255, 255],
         100: [0, 10, 20.6, 31.6, 42.6, 53, 63.6, 74, 84.6, 95.6, 106.6, 117, 127.6, 138, 148.6, 159.6, 170.6, 181, 191.6, 202, 212.6, 223.6, 234.6, 244.6, 254, 255, 255, 255, 255, 255, 255, 255, 255],
       },
       glsl: `
@@ -546,8 +554,8 @@
       id: 'highlights', label: 'Highlights', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="3.6"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/>',
       // Google's own, measured rather than imitated. A chart went through
-      // Google Photos at -100, -50, +50 and +100 and came back as the curves
-      // below, read off a ramp of all 256 levels. The same chart settled the
+      // Google Photos at every quarter of the slider and came back as the
+      // curves below, read off a ramp of all 256 levels. The same chart settled the
       // rest. The curve is global: a grey patch on black and the same patch
       // on white came out identical, so nothing here looks at the pixels
       // around it. And it moves all three channels by the same amount,
@@ -562,8 +570,12 @@
       // white, which is how hard the Photos one really goes.
       curves: {
         '-100': [0, 8, 16, 24, 32, 40, 47.6, 55, 62.6, 70, 77.6, 85, 92.6, 99, 105.6, 112.2, 118.6, 124.2, 129.6, 135, 140.6, 146, 151.6, 157, 162.6, 169.8, 177, 186, 195.6, 207.6, 221, 237, 252],
+        '-75': [0, 8, 16, 23.9, 32, 39.9, 48, 55.9, 63.6, 71, 78.6, 86, 93.6, 100, 107.5, 114, 120.6, 126.8, 133.6, 139.3, 145.4, 151.4, 157.6, 163.8, 170.6, 176.9, 184.8, 193, 202.6, 213.6, 225.4, 239.4, 253],
         '-50': [0, 8, 16, 24, 32, 40, 48, 56, 63.6, 71, 78.6, 86, 93.6, 101, 108.6, 116, 122.6, 129.8, 136.6, 143.4, 150.6, 156.8, 163.6, 170.2, 177.6, 185, 193, 201, 209.6, 219.6, 230.6, 242.2, 253],
+        '-25': [0.3, 8, 16, 23.9, 32, 39.9, 48, 55.9, 64, 72, 79.5, 86.9, 95, 103, 110.5, 118, 125.6, 133, 140.5, 147.1, 154.4, 161.9, 169.6, 176.9, 184.6, 191.9, 199.8, 208, 216.5, 225.2, 234.5, 244.5, 253],
+        25: [0, 8, 16, 23.9, 32, 39.9, 48, 55.9, 64, 72, 79.9, 88, 96.6, 104.9, 112.9, 121, 129.6, 138, 146.6, 155.5, 164.4, 173, 181.5, 190, 198.6, 206.9, 214.9, 223, 230.6, 237.6, 244.5, 249, 255],
         50: [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80.6, 89, 97.6, 106, 114.6, 123, 132.6, 141.2, 150.6, 159.6, 168.6, 178.2, 187.6, 196.8, 205.6, 214, 222.2, 230, 237.6, 243.4, 248.4, 250.6, 255],
+        75: [0, 8, 16, 23.9, 32, 39.9, 48, 55.9, 64, 72, 80.3, 89, 97.6, 106.9, 115.5, 125, 134.6, 144.1, 153.4, 163.5, 173.4, 183.5, 193.5, 203.1, 212.6, 221.8, 229.9, 237.8, 244.6, 249, 253.4, 254, 255],
         100: [0, 8, 16, 24, 32, 40, 48, 56, 64.6, 73, 81.6, 90, 98.6, 108, 117.6, 126.8, 136.6, 146.8, 157.6, 168, 178.6, 189, 199.6, 210, 220.6, 229.2, 238.2, 245, 251.4, 252.6, 254.6, 255, 255],
       },
       glsl: `
@@ -587,11 +599,38 @@
       // file). That is the 0.3 below, and with it the colour patches came
       // within a level or two of Google's; an equal shift alone was twelve
       // to fourteen levels out.
+      //
+      // Lifting is the one thing in this list that looks at the photo. The
+      // same chart on a mostly dark surround came back lifted far higher —
+      // at +100, level 96 to 160 rather than 128 — and on a mostly bright one
+      // a little lower. Measured across surrounds from 12 to 240, it is two
+      // curves and a quick change between them: every chart with a median of
+      // 120 or below got exactly the same dark curve, every one of 130 or
+      // above exactly the same bright one, and the weight on the dark one
+      // went 0.98, 0.94, 0.74, 0.23 at medians of 122, 124, 126 and 128. The
+      // logistic in darkness() fits those. Mean brightness does not
+      // explain them and median does. Lowering Shadows does not adapt at all.
       curves: {
         '-100': [0, 0, 0, 0, 0.2, 3.8, 8.2, 16.4, 24.6, 34.4, 44.6, 55.8, 67.6, 79.2, 90.6, 102, 113.6, 124, 134.6, 144.6, 154.6, 164, 173.6, 182, 190.6, 199, 207.6, 216, 224, 232, 239.6, 247, 255],
+        '-75': [0, 0, 0, 2.2, 4.8, 9.9, 16.6, 23.9, 32.6, 42.6, 52.2, 63.5, 74.4, 84.9, 95.5, 106.2, 116.6, 126.7, 136.5, 146.3, 155.4, 164.9, 173.5, 182, 190.4, 198.9, 207.6, 216, 224, 232, 239.6, 246.9, 255],
         '-50': [0, 1.8, 2.8, 7, 11.6, 18.6, 26, 34, 42.6, 51.8, 61.6, 71.6, 81.6, 91, 100.6, 110.6, 120.6, 130.2, 139.6, 148, 157.6, 166, 174.6, 183, 191.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
-        50: [0, 17, 33.6, 46.2, 57.6, 66.2, 74.6, 82, 88.6, 94.8, 100.6, 106.6, 112.6, 118, 123.6, 129.6, 135.6, 142.2, 148.6, 156.2, 162.6, 170, 177.6, 185, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
-        100: [0, 31.4, 59, 76.2, 91.4, 101, 109.6, 114.6, 119.4, 122.6, 125.6, 128, 131.6, 134.4, 137.6, 141.2, 145.6, 149.8, 154.6, 160, 165.6, 172, 178.6, 185.8, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+        '-25': [0, 4.2, 8.6, 14.6, 20.6, 27.9, 36, 43.9, 52.6, 61.2, 70.3, 79, 88.6, 97.1, 106.5, 115, 123.6, 132.8, 141.4, 149.9, 158.4, 167, 175, 182.9, 191.6, 200, 208, 216, 224, 232, 239.6, 246.9, 255],
+        25: [0, 12.2, 24.4, 33.9, 43.5, 52, 60.2, 67.9, 75.6, 82.3, 89.6, 95.4, 103.6, 110, 116.5, 124, 131.6, 138.6, 145.5, 152.9, 161, 168.9, 176.6, 184, 192, 200, 207.9, 216, 224, 232, 239.6, 247, 255],
+        50: [0, 17.6, 34, 46.2, 57.6, 66.2, 74.6, 81.4, 87.6, 93.2, 99.6, 105.4, 110.6, 116.6, 122.5, 128.6, 134.6, 141.2, 147.6, 155, 161.6, 169, 176.6, 184, 192, 200, 208, 216, 224, 232, 239.6, 247, 255],
+        75: [0, 23.9, 46, 60.6, 73.4, 82, 90.2, 96.2, 101.6, 106, 110.6, 114.8, 119.6, 123.8, 128.5, 133.3, 138.6, 144.6, 150.6, 156.6, 163.6, 170.2, 177.6, 185, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+        100: [0, 32, 59.9, 77, 91.4, 100, 107.6, 112, 116.4, 119, 121.6, 124.6, 127.6, 130.8, 134.5, 138.2, 142.6, 147.4, 152.6, 158.6, 164.6, 171, 177.6, 185, 192.6, 200, 208, 216, 224, 232, 239.6, 247, 255],
+      },
+      adapt: {
+        curves: {
+          25: [0, 10.9, 22.6, 31.9, 41.5, 50, 58.6, 66.9, 74.6, 82, 89.6, 96.8, 103.6, 110.9, 118.6, 125, 132.6, 139.6, 146.6, 153.9, 161.6, 168.9, 177, 185, 192.6, 200, 207.9, 216, 224, 232, 239.6, 247, 255],
+          50: [0, 15, 30.6, 43, 55.4, 65.4, 75.6, 83.8, 92.6, 100, 107.6, 114.6, 121.6, 127.4, 133.6, 139.6, 145.6, 151.4, 157.6, 163.4, 169.6, 175.6, 181.6, 188.4, 195.6, 202.2, 209.6, 217, 224.6, 232, 239.6, 247, 255],
+          75: [0, 21.3, 42, 58, 73.6, 85.8, 97.6, 106.4, 115.2, 122, 128.6, 134.4, 139.6, 144.4, 149.3, 153.6, 157.8, 162.2, 166.6, 171.4, 176.6, 181.2, 186.6, 192, 197.4, 204, 210.6, 216.7, 224.6, 232, 239.6, 247, 255],
+          100: [0, 28.4, 55.2, 75.8, 94.2, 108.6, 121.4, 130.8, 139.2, 145.6, 151.4, 155.2, 159.4, 162.4, 165.6, 168.4, 170.6, 173.6, 176.6, 179.6, 182.8, 186.7, 190.8, 195.4, 200.6, 205.6, 211.6, 218, 224.6, 232, 239.6, 247, 255],
+        },
+        // The median at which the two curves are weighted equally, and how
+        // quickly one gives way to the other either side of it.
+        median: 127.2,
+        width: 0.9,
       },
       glsl: `
         c = clamp(c, 0.0, 1.0);
@@ -607,11 +646,17 @@
       // direction was the open question before anything was measured, and
       // it is as this app had guessed: up is deeper blacks. +100 sends
       // everything below 64 to black; -100 lifts black to 41, the faded
-      // look. White stays put either way, give or take a level.
+      // look. White stays put either way, give or take a level. All eight
+      // positions, for the same reason as White point: +25 and +75 were eight
+      // levels off Google's when interpolated.
       curves: {
         '-100': [41, 46.8, 51.6, 57, 62.6, 68.6, 74.6, 80.6, 86.6, 92.6, 98.6, 105, 111.6, 118, 124.6, 131, 137.6, 144.2, 151.6, 158.2, 165.6, 172.2, 179.6, 186.6, 194, 201.2, 209, 216.6, 224.2, 232, 239.6, 247, 255],
+        '-75': [29.5, 39.6, 45.6, 51.4, 57.6, 63.6, 69.6, 75.9, 82.6, 89, 95.6, 101.9, 108.6, 115.6, 122.5, 129, 135.6, 142.7, 149.5, 156.9, 164.6, 171.5, 178.6, 185.9, 193.6, 200.9, 208.5, 216, 224.1, 232, 239.6, 246.9, 255],
         '-50': [25, 31, 37.6, 44, 50.6, 57.6, 64.6, 71, 77.6, 84.6, 91.6, 98.6, 105.6, 112.6, 119.6, 126.6, 133.6, 141, 148.6, 155.6, 163, 170.2, 177.6, 185, 193.2, 201, 208.6, 216, 224, 232, 239.6, 247, 255],
+        '-25': [12.5, 20.6, 27.6, 34.7, 42.6, 49.5, 56.6, 64, 71.4, 79, 86.6, 93.6, 100.6, 107.9, 115.6, 122.9, 131.2, 139, 146.5, 153.9, 161.6, 168.9, 177, 185, 192.5, 200, 208, 216, 224, 232, 239.6, 246.9, 255],
+        25: [0, 0, 0.2, 7, 15.4, 24.5, 33.5, 42.4, 51.6, 60.6, 69.6, 77.9, 86.4, 95.6, 104.5, 113, 121.5, 130, 138.4, 146.9, 155.4, 164, 172.5, 181, 189, 197, 205.5, 214, 222.5, 231, 238.7, 246.9, 255],
         50: [0, 0, 0, 0, 0.2, 6.6, 14, 24.6, 35.6, 45.6, 55.6, 65.6, 75.6, 85, 94.6, 104, 113.6, 122.2, 131.6, 141, 149.6, 159, 168.6, 177, 185.6, 194.6, 203.6, 212.6, 221.2, 229.8, 238.2, 246, 253],
+        75: [0, 0, 0, 0, 0, 0, 0.2, 5.2, 11.9, 23.6, 36.4, 47.8, 59.4, 70.7, 81.3, 91.8, 102.6, 112.8, 123.4, 133.2, 143.4, 152.9, 162.7, 172.3, 181.4, 191.3, 200.4, 209.9, 219.5, 228.6, 237.5, 246, 252.8],
         100: [0, 0, 0, 0, 0, 0, 0, 0, 0, 2.8, 8.2, 22, 36.6, 49.6, 63.6, 75.8, 87.8, 99.8, 111.6, 123, 134.6, 145, 155.6, 166.4, 176.6, 187.8, 197.6, 207.6, 217.6, 227.2, 236.6, 245.2, 253],
       },
       glsl: `
@@ -700,8 +745,8 @@
   // as can honestly be said without measuring more of them: the measured ones
   // do not scale evenly — Shadows +100 lifts level 24 more than twice as far
   // as +50 does — so no single curve times the slider would fit.
-  function curveTable(tool, value) {
-    const measured = [[0, CURVE_KNOTS], ...Object.entries(tool.curves).map(([at, ys]) => [Number(at), ys])]
+  function knotsAt(curves, value) {
+    const measured = [[0, CURVE_KNOTS], ...Object.entries(curves).map(([at, ys]) => [Number(at), ys])]
       .sort((a, b) => a[0] - b[0]);
     const v = clamp(value, measured[0][0], measured[measured.length - 1][0]);
     let i = 0;
@@ -709,8 +754,43 @@
     const [a0, lo] = measured[i];
     const [a1, hi] = measured[i + 1];
     const t = (v - a0) / (a1 - a0);
-    const f = monotone(CURVE_KNOTS, lo.map((y, k) => y + t * (hi[k] - y)));
+    return lo.map((y, k) => y + t * (hi[k] - y));
+  }
+
+  // `dark` is how far the photo counts as a dark one, 0 to 1, for a tool
+  // that adapts; the two sets' knots are mixed by it before the curve is
+  // drawn through them.
+  function curveTable(tool, value, dark = 0) {
+    let knots = knotsAt(tool.curves, value);
+    if (tool.adapt && value > 0 && dark > 0) {
+      const other = knotsAt(tool.adapt.curves, value);
+      knots = knots.map((y, k) => y + dark * (other[k] - y));
+    }
+    const f = monotone(CURVE_KNOTS, knots);
     return Float32Array.from({ length: 256 }, (_, x) => clamp(f(x), 0, 255));
+  }
+
+  // How dark a photo is, as Google's Shadows judges it: the median Rec.709
+  // luma, read off a 64px copy, put through the change-over the measurements
+  // showed. Once per photo — the proxy and the full decode give the same
+  // answer to within a level, and it is a thousand-odd pixels either way.
+  const medians = new WeakMap();
+  const ADAPTS = ADJUSTMENTS.find((a) => a.adapt);
+  function darkness(photo, src) {
+    if (!ADAPTS) return 0;
+    let median = medians.get(photo);
+    if (median === undefined) {
+      const c = scratch(64, 64);
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(src, 0, 0, 64, 64);
+      const d = g.getImageData(0, 0, 64, 64).data;
+      const counts = new Array(256).fill(0);
+      for (let i = 0; i < d.length; i += 4) counts[Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2])] += 1;
+      let seen = 0;
+      median = counts.findIndex((n) => (seen += n) >= 64 * 64 / 2);
+      medians.set(photo, median);
+    }
+    return 1 / (1 + Math.exp((median - ADAPTS.adapt.median) / ADAPTS.adapt.width));
   }
 
   // Whether a cell's edits add up to nothing. A plain cell never goes near the
@@ -865,7 +945,7 @@
   // One cell's edits drawn over one source at one size, into a canvas of its
   // own so the context is free for the next tile. Null if there is no WebGL,
   // in which case the tile is drawn as it came.
-  function renderLook(src, adjust, w, h, scale) {
+  function renderLook(src, adjust, w, h, scale, dark) {
     const look = lookContext();
     if (!look) return null;
     const { gl } = look;
@@ -911,11 +991,11 @@
     // The curves for this cell's slider positions, two bytes a level so a
     // lift of a fraction of a level is not rounded away. A few kilobytes, and
     // only sent when the positions have changed.
-    const curvesFor = CURVED.map((a) => adjust[a.id] || 0).join(',');
+    const curvesFor = CURVED.map((a) => adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`;
     if (CURVED.length && curvesFor !== look.curvesFor) {
       const bytes = new Uint8Array(256 * CURVED.length * 4);
       CURVED.forEach((tool, row) => {
-        curveTable(tool, adjust[tool.id] || 0).forEach((v, x) => {
+        curveTable(tool, adjust[tool.id] || 0, dark).forEach((v, x) => {
           const fixed = Math.min(65535, Math.round(v * 256));
           const at = (row * 256 + x) * 4;
           bytes[at] = fixed >> 8;
@@ -958,7 +1038,7 @@
   // What a cell draws as: the source itself when it has no edits, otherwise
   // the source with its edits applied at about the size it will be drawn.
   // `scale` is drawPage's own, output pixels per pixel of a 1080px post.
-  function lookOf(cell, src, dw, dh, scale) {
+  function lookOf(cell, photo, src, dw, dh, scale) {
     if (plainLook(cell.adjust)) return src;
     const sw = src.width;
     const sh = src.height;
@@ -981,7 +1061,8 @@
     fit = Math.min(fit, max / sw, max / sh);
     const w = Math.max(1, Math.round(sw * fit));
     const h = Math.max(1, Math.round(sh * fit));
-    const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',');
+    const dark = darkness(photo, src);
+    const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`;
 
     const kept = looks.get(cell) || [];
     const hit = kept.find((l) => l.src === src && l.sig === sig && l.w === w && l.h === h);
@@ -991,7 +1072,7 @@
       return hit.canvas;
     }
 
-    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw));
+    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw), dark);
     if (!canvas) return src;
     const entry = { cell, src, sig, w, h, canvas };
     // Two a cell: the preview's size and one other, which is usually the
