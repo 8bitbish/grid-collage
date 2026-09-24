@@ -81,7 +81,14 @@ for (const n of [1,2,3]) {
     const el=strip.children[i];
     strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth)/2;
   }, n);
-  await p.waitForTimeout(200);
+  // Until the reel has taken this photo as the centred one, rather than a
+  // fixed 200ms. The fixed wait failed once in thirty CI runs — one photo
+  // missed, two ticks instead of three — and never here, even under 6x CPU
+  // throttling, so the cause is not pinned down. Waiting on the reel's own
+  // marker removes the timing from the question; a scroll the app really
+  // does not register still fails, on the assertions below.
+  await p.waitForFunction((i)=>document.querySelectorAll('.choose-item')[i]?.classList.contains('is-current'),
+    n, {timeout:5000}).catch(()=>{});
   seen.push(await shot());
 }
 console.log('  preview after scrolling to 2,3,4:', seen.join(' -> '));

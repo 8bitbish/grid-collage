@@ -223,7 +223,12 @@ if (process.env.RECORD) {
 
 console.log(`\n${passed.length}/${results.length} tests passed, ${assertions} assertions`);
 
+// A failing test's whole output goes into the screenshots CI uploads, because
+// the summary below keeps only the lines with a cross on them, and the line
+// that explains a cross is usually the one printed just before it.
+if (broke.length) fs.mkdirSync(path.join(HERE, 'shots'), { recursive: true });
 for (const r of broke) {
+  fs.writeFileSync(path.join(HERE, 'shots', `${r.name}.log`), r.out);
   console.log(`\n--- ${r.name} failed ---`);
   console.log(r.out.split('\n').filter((l) => /✗|Error|error:/.test(l)).slice(0, 6).join('\n')
     || r.out.trim().split('\n').slice(-6).join('\n'));
