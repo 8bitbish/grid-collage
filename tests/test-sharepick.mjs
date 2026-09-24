@@ -36,7 +36,22 @@ const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.ty
 
 await p.goto(`http://localhost:${PORT}/`);
 await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
-await p.waitForTimeout(600);
+
+// What the fixed sleeps here stood in for. The tray is waited on until it has
+// stopped changing rather than until it reaches the number an assertion wants,
+// because an import that overshoots passes through the right number on its way
+// to the wrong one, and would be caught by a sleep but not by that. Bounded;
+// the assertions after each wait do the failing.
+const count=()=>p.evaluate(()=>document.getElementById('photos-count').textContent);
+const trayStill=async()=>{
+  let last=null, since=Date.now(); const end=Date.now()+10000;
+  while(Date.now()<end){
+    const n=await count();
+    if(n!==last){ last=n; since=Date.now(); } else if(n!=='0' && Date.now()-since>=400) return;
+    await p.waitForTimeout(50);
+  }
+};
+const home=()=>p.waitForFunction(()=>document.body.classList.contains('on-home'),null,{timeout:8000}).catch(()=>{});
 ok('the worker is in charge, so the share target works',
    await p.evaluate(()=>!!navigator.serviceWorker.controller));
 
@@ -67,7 +82,11 @@ const goShare = async (names, rgbs) => {
       form.submit();
     }, [names, rgbs]),
   ]);
-  await p.waitForTimeout(1600);
+  // Until the app has answered the share: asking on the grid, or in the editor
+  // with the photos in and the tray settled.
+  await p.waitForFunction(()=>!document.getElementById('sharebar').hidden
+    || !document.body.classList.contains('on-home'), null, {timeout:10000}).catch(()=>{});
+  if (!(await p.evaluate(()=>document.body.classList.contains('on-home')))) await trayStill();
 };
 
 console.log('\n== nothing to choose between: it just makes one ==');
@@ -89,7 +108,7 @@ ok('it asks even with one carousel — "join it" or "start another" is the quest
    await p.evaluate(()=>!document.getElementById('sharebar').hidden));
 await p.click('#home-grid .tile');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:12000});
-await p.waitForTimeout(1400);
+await trayStill();
 ok('tapping the one carousel put them in it',
    await p.evaluate(()=>document.getElementById('photos-count').textContent==='2'),
    await p.evaluate(()=>document.getElementById('photos-count').textContent));
@@ -98,14 +117,14 @@ ok('and made no second project', await p.evaluate(()=>
 
 console.log('\n== a second carousel, then a share from the grid ==');
 await p.click('#btn-home');
-await p.waitForTimeout(400);
+await home();
 await p.click('#btn-new');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
 await p.setInputFiles('#file-input',[file('own.png',[50,90,230])]);
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:15000});
-await p.waitForTimeout(500);
+await trayStill();
 await p.click('#btn-home');
-await p.waitForTimeout(500);
+await home();
 ok('two carousels now', await p.evaluate(()=>document.querySelectorAll('#home-grid .tile').length===2));
 
 const wasBefore = await p.evaluate(()=>JSON.parse(localStorage.getItem('grid-collage:projects'))
@@ -129,7 +148,8 @@ console.log('\n== the hold is off while it is asking ==');
   await p.waitForTimeout(700);
   const opened = await p.evaluate(()=>!document.getElementById('detail').hidden);
   await p.mouse.up();
-  await p.waitForTimeout(1600);
+  await p.waitForFunction(()=>!document.body.classList.contains('on-home'),null,{timeout:8000}).catch(()=>{});
+  if (!(await p.evaluate(()=>document.body.classList.contains('on-home')))) await trayStill();
   ok('no details sheet came up', !opened);
   // ...and that same press counted as the tap that places them.
   ok('the press placed them instead', await p.evaluate(()=>!document.body.classList.contains('on-home')));
@@ -147,7 +167,7 @@ ok('the tapped carousel got both', where.photos === target.photos + 2,
 
 console.log('\n== the other carousel is untouched ==');
 await p.click('#btn-home');
-await p.waitForTimeout(600);
+await home();
 const counts = await p.evaluate(()=>JSON.parse(localStorage.getItem('grid-collage:projects'))
   .map(x=>({name:x.name, photos:x.photos})));
 console.log(' ', j(counts));
@@ -163,7 +183,7 @@ await goShare(['n1.png'], [[120, 20, 200]]);
 ok('asked again', await p.evaluate(()=>!document.getElementById('sharebar').hidden));
 await p.click('#share-new');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:10000});
-await p.waitForTimeout(1200);
+await trayStill();
 ok('a third carousel, holding just that photo',
    await p.evaluate(()=>document.getElementById('photos-count').textContent==='1'),
    await p.evaluate(()=>document.getElementById('photos-count').textContent));
@@ -172,7 +192,7 @@ ok('three projects now', await p.evaluate(()=>
 
 console.log('\n== Discard ==');
 await p.click('#btn-home');
-await p.waitForTimeout(400);
+await home();
 await goShare(['d1.png','d2.png'], [[0,120,120],[200,200,0]]);
 ok('asked', await p.evaluate(()=>!document.getElementById('sharebar').hidden));
 const before = await p.evaluate(()=>JSON.parse(localStorage.getItem('grid-collage:projects')).map(x=>x.photos));
@@ -184,7 +204,8 @@ ok('and it says so', /discarded/.test(await p.evaluate(()=>document.getElementBy
 ok('still on the grid', await p.evaluate(()=>document.body.classList.contains('on-home')));
 const after = await p.evaluate(()=>JSON.parse(localStorage.getItem('grid-collage:projects')).map(x=>x.photos));
 ok('nothing was added anywhere', j(before)===j(after), `${j(before)} -> ${j(after)}`);
-await p.waitForTimeout(2800);
+await p.waitForFunction(()=>/project/.test(document.getElementById('home-sub').textContent),
+  null, {timeout:6000}).catch(()=>{});
 ok('the header puts itself back',
    /project/.test(await p.evaluate(()=>document.getElementById('home-sub').textContent)),
    await p.evaluate(()=>document.getElementById('home-sub').textContent));
@@ -195,7 +216,8 @@ ok('the header puts itself back',
   await p.mouse.move(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.mouse.down(); await p.waitForTimeout(700);
   const lifted = await p.evaluate(()=>!!document.querySelector('.tile.is-lifted'));
-  await p.mouse.up(); await p.waitForTimeout(400);
+  await p.mouse.up();
+  await p.waitForFunction(()=>!document.getElementById('detail').hidden,null,{timeout:3000}).catch(()=>{});
   const open = await p.evaluate(()=>!document.getElementById('detail').hidden);
   ok('the tile lifts again after discarding', lifted);
   ok('and releasing still opens the details', open);
