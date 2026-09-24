@@ -1,0 +1,103 @@
+{
+ "fox": {
+  "source": "a red fox on gravel, US Fish and Wildlife Service, from Wikimedia Commons",
+  "licence": "public domain",
+  "photo": [3872, 2592],
+  "crop": [4, 0, 3868, 2592],
+  "measured": [3864, 2592],
+  "frame": 2160,
+  "regions": {
+   "face fur": [930, 560, 240, 200],
+   "muzzle, whiskers": [640, 1180, 260, 200],
+   "body fur": [100, 560, 280, 240],
+   "gravel": [1700, 1720, 300, 260],
+   "soft background": [1620, 60, 400, 260],
+   "eye and ear edges": [770, 860, 240, 180]
+  },
+  "periods": [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48],
+  "original": {
+   "face fur": { "fine": 7.292, "mid": 7.89, "coarse": 6.336 },
+   "muzzle, whiskers": { "fine": 6.586, "mid": 9.091, "coarse": 8.185 },
+   "body fur": { "fine": 2.045, "mid": 2.779, "coarse": 4.885 },
+   "gravel": { "fine": 1.802, "mid": 1.44, "coarse": 2.368 },
+   "soft background": { "fine": 1.471, "mid": 1.228, "coarse": 1.004 },
+   "eye and ear edges": { "fine": 7.59, "mid": 8.869, "coarse": 8.104 }
+  },
+  "settings": {
+   "25": {
+    "transfer": [1.086, 1.07, 1.049, 1.083, 1.117, 1.146, 1.199, 1.241, 1.255, 1.21, 1.104, 1.052, 1.017],
+    "regions": {
+     "face fur": { "fine": 1.086, "mid": 1.148, "coarse": 1.185 },
+     "muzzle, whiskers": { "fine": 1.105, "mid": 1.182, "coarse": 1.189 },
+     "body fur": { "fine": 1.173, "mid": 1.232, "coarse": 1.211 },
+     "gravel": { "fine": 1.091, "mid": 1.1, "coarse": 1.09 },
+     "soft background": { "fine": 1.12, "mid": 1.138, "coarse": 1.169 },
+     "eye and ear edges": { "fine": 1.092, "mid": 1.155, "coarse": 1.16 }
+    }
+   },
+   "52": {
+    "transfer": [1.031, 1.076, 1.104, 1.196, 1.262, 1.319, 1.429, 1.516, 1.547, 1.451, 1.224, 1.112, 1.037],
+    "regions": {
+     "face fur": { "fine": 1.16, "mid": 1.333, "coarse": 1.401 },
+     "muzzle, whiskers": { "fine": 1.198, "mid": 1.391, "coarse": 1.408 },
+     "body fur": { "fine": 1.284, "mid": 1.497, "coarse": 1.453 },
+     "gravel": { "fine": 1.101, "mid": 1.231, "coarse": 1.212 },
+     "soft background": { "fine": 1.188, "mid": 1.335, "coarse": 1.409 },
+     "eye and ear edges": { "fine": 1.173, "mid": 1.34, "coarse": 1.349 }
+    }
+   },
+   "100": {
+    "transfer": [0.947, 1.086, 1.195, 1.379, 1.499, 1.606, 1.809, 1.971, 2.026, 1.844, 1.417, 1.206, 1.067],
+    "regions": {
+     "face fur": { "fine": 1.304, "mid": 1.648, "coarse": 1.77 },
+     "muzzle, whiskers": { "fine": 1.38, "mid": 1.746, "coarse": 1.777 },
+     "body fur": { "fine": 1.495, "mid": 1.946, "coarse": 1.864 },
+     "gravel": { "fine": 1.112, "mid": 1.415, "coarse": 1.383 },
+     "soft background": { "fine": 1.285, "mid": 1.581, "coarse": 1.702 },
+     "eye and ear edges": { "fine": 1.328, "mid": 1.656, "coarse": 1.673 }
+    }
+   }
+  }
+ },
+ "portrait": {
+  "source": "Wikimedia Commons, File:USFWS Director Martha Williams portrait, August 2023.jpg",
+  "licence": "public domain",
+  "photo": [3325, 4987],
+  "crop": [42, 0, 3282, 4986],
+  "measured": [3240, 4986],
+  "frame": 2160,
+  "regions": {
+   "cheek skin": [950, 250, 130, 130],
+   "other cheek": [1275, 215, 130, 130],
+   "hair": [1450, 80, 150, 200],
+   "eyes, brows": [1000, 70, 320, 110],
+   "shirt fabric": [1400, 900, 300, 200],
+   "badge": [1140, 1130, 180, 190],
+   "soft background": [120, 200, 480, 400]
+  },
+  "periods": [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48],
+  "original": {
+   "cheek skin": { "fine": 2.462, "mid": 3.048, "coarse": 4.543 },
+   "other cheek": { "fine": 1.984, "mid": 2.484, "coarse": 2.388 },
+   "hair": { "fine": 4.855, "mid": 6.288, "coarse": 6.095 },
+   "eyes, brows": { "fine": 3.099, "mid": 5.03, "coarse": 7.689 },
+   "shirt fabric": { "fine": 1.492, "mid": 2.111, "coarse": 3.348 },
+   "badge": { "fine": 6.48, "mid": 12.91, "coarse": 15.529 },
+   "soft background": { "fine": 1.403, "mid": 0.822, "coarse": 0.443 }
+  },
+  "settings": {
+   "25": {
+    "transfer": [0.887, 0.957, 0.999, 1.057, 1.093, 1.115, 1.142, 1.151, 1.149, 1.104, 1.049, 1.026, 1.009],
+    "regions": {
+     "cheek skin": { "fine": 1.06, "mid": 1.135, "coarse": 1.102 },
+     "other cheek": { "fine": 1.096, "mid": 1.185, "coarse": 1.199 },
+     "hair": { "fine": 1.106, "mid": 1.205, "coarse": 1.183 },
+     "eyes, brows": { "fine": 1.09, "mid": 1.157, "coarse": 1.142 },
+     "shirt fabric": { "fine": 1.023, "mid": 1.119, "coarse": 1.094 },
+     "badge": { "fine": 1.098, "mid": 1.126, "coarse": 1.102 },
+     "soft background": { "fine": 1.008, "mid": 1.083, "coarse": 1.117 }
+    }
+   }
+  }
+ }
+}
