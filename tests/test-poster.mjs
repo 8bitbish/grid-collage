@@ -114,8 +114,16 @@ console.log('\n== trim it, and every still moves to the first frame of the trim 
   ok('the filmstrip follows the cut', name(await film(p))==='blue', name(await film(p)));
 
   await p.click('#btn-home');
-  await until(()=>p.evaluate(()=>document.body.classList.contains('on-home')
-    && !!document.querySelector('.tile img') && document.querySelector('.tile img').naturalWidth>0));
+  // The homepage shows first and the new cover lands on it a moment later —
+  // encoding it is not worth holding the tap up for — so this waits for the
+  // tile's picture to become the cut, not merely for there to be one.
+  const coverNow=()=>p.evaluate(()=>{
+    const img=document.querySelector('.tile img'); if(!img||!img.complete||!img.naturalWidth) return null;
+    const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+    const g=c.getContext('2d'); g.drawImage(img,0,0);
+    const d=g.getImageData(Math.floor(c.width/2),Math.floor(c.height/2),1,1).data;
+    return [d[0],d[1],d[2]];});
+  await until(async()=>name(await coverNow())==='blue');
   const cover=await p.evaluate(()=>{
     const img=document.querySelector('.tile img'); if(!img||!img.naturalWidth) return null;
     const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
