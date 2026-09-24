@@ -716,11 +716,19 @@
     const sw = src.width;
     const sh = src.height;
     if (!sw || !sh) return src;
-    // Never more pixels than the source has or the tile shows. Rounded up to
-    // quarter-octave steps, so a pinch redraws a look every few frames rather
-    // than on every one, and the few percent more is lost to smoothing.
+    // Never more pixels than the source has or the tile shows, and at rest
+    // exactly as many as the tile shows. A look any bigger is scaled down
+    // again on its way into the tile, and that second pass is not the few
+    // percent lost to smoothing it was taken to be: a look an eighth over
+    // size came out with a sixth less fine detail than the same photo
+    // unedited, and a sharpened edge lost five sixths of its overshoot,
+    // because scaling down has to discard the finest detail and the finest
+    // detail is what a detail tool adds. Only while fingers are on a tile
+    // is it rounded up to quarter-octave steps, so a pinch redraws a look
+    // every few frames rather than on every one; letting go redraws it at
+    // its true size.
     const want = Math.min(1, Math.max(dw / sw, dh / sh));
-    let fit = Math.min(1, 2 ** (Math.ceil(Math.log2(want) * 4) / 4));
+    let fit = gesture ? Math.min(1, 2 ** (Math.ceil(Math.log2(want) * 4) / 4)) : want;
     const max = lookContext() ? lookGL.max : 0;
     if (!max) return src;
     fit = Math.min(fit, max / sw, max / sh);
