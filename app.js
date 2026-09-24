@@ -732,11 +732,15 @@
     gl.enableVertexAttribArray(pos);
     gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
 
-    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const newTexture = () => {
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      return texture;
+    };
 
     const uniform = (name) => gl.getUniformLocation(program, name);
     const dims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
@@ -752,6 +756,9 @@
       amounts: ADJUSTMENTS.map((a) => [a.id, uniform(`u_${a.id}`)]),
       // Where a big source is brought down to size before upload.
       stage: document.createElement('canvas'),
+      // What is uploaded already, most recently used first. See renderLook.
+      textures: [],
+      newTexture,
     };
     return lookGL;
   }
@@ -764,32 +771,51 @@
     if (!look) return null;
     const { gl } = look;
 
-    // Resampled to size by the 2D canvas first, with the same high-quality
-    // smoothing drawPage uses, rather than left to the GPU's bilinear filter —
-    // which, taking a 12MP photo down to a 1080px tile, aliases badly.
-    let input = src;
-    if (w !== src.width || h !== src.height) {
-      look.stage.width = w;
-      look.stage.height = h;
-      const sg = look.stage.getContext('2d');
-      sg.imageSmoothingEnabled = true;
-      sg.imageSmoothingQuality = 'high';
-      sg.drawImage(src, 0, 0, w, h);
-      input = look.stage;
+    // Dragging a slider redraws the same photo at the same size over and
+    // over with only the numbers changed, so the photo stays uploaded between
+    // draws. Uploading it again was most of the cost of a slider move:
+    // measured on a 12MP photo, 250-800ms a step in headless Chromium,
+    // against a few ms for the shader itself. Two are kept, not one, because
+    // letting go of the slider redraws the page thumbnail, and with one the
+    // thumbnail's upload evicted the preview's and the next drag paid again.
+    let kept = look.textures.find((t) => t.src === src && t.w === w && t.h === h);
+    if (kept) {
+      gl.bindTexture(gl.TEXTURE_2D, kept.texture);
+      look.textures = [kept, ...look.textures.filter((t) => t !== kept)];
+    } else {
+      const texture = look.textures.length < 2 ? look.newTexture() : look.textures.pop().texture;
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      kept = { src, w, h, texture };
+      look.textures.unshift(kept);
+      // Resampled to size by the 2D canvas first, with the same high-quality
+      // smoothing drawPage uses, rather than left to the GPU's bilinear
+      // filter — which, taking a 12MP photo down to a 1080px tile, aliases
+      // badly.
+      let input = src;
+      if (w !== src.width || h !== src.height) {
+        look.stage.width = w;
+        look.stage.height = h;
+        const sg = look.stage.getContext('2d');
+        sg.imageSmoothingEnabled = true;
+        sg.imageSmoothingQuality = 'high';
+        sg.drawImage(src, 0, 0, w, h);
+        input = look.stage;
+      }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
+      // The staging copy can be the size of an export, and iOS counts every
+      // canvas's backing store against a budget of its own. The texture has
+      // the pixels now.
+      look.stage.width = 0;
+      look.stage.height = 0;
     }
 
     look.el.width = w;
     look.el.height = h;
     gl.viewport(0, 0, w, h);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, input);
     gl.uniform2f(look.texel, 1 / w, 1 / h);
     gl.uniform1f(look.scale, scale);
     look.amounts.forEach(([id, at]) => gl.uniform1f(at, (adjust[id] || 0) / 100));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    // The staging copy can be the size of an export, and iOS counts every
-    // canvas's backing store against a budget of its own.
-    look.stage.width = 0;
-    look.stage.height = 0;
 
     const out = document.createElement('canvas');
     out.width = w;
@@ -4881,7 +4907,7 @@
     // put, and the export settings beside an Export button that does. The
     // panel around each of them no longer moves, so it is the rail that has to
     // carry the fade or nothing would say there was more.
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings'].map($),
+    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings', 'adjust-tools'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
