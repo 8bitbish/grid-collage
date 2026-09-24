@@ -32,7 +32,8 @@ const sh = (cmd) => adb('shell', cmd);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The screen's size, so the one place that has to tap by position scales
 // with it: an emulator is 1080x2400, a Galaxy S23 Ultra 1440x3088.
-const [SCREEN_W, SCREEN_H] = (/(\d+)x(\d+)/.exec(sh('wm size')) || [0, 1080, 2400]).slice(1).map(Number);
+let SCREEN_W = 1080;
+let SCREEN_H = 2400;
 
 // Every node on screen with a label, as { text, desc, cls, x, y } at its centre.
 function screen() {
@@ -195,7 +196,12 @@ if (cmd !== 'edit' || !dir || !image || !settings.length) {
   process.exit(2);
 }
 fs.mkdirSync(dir, { recursive: true });
+// Nothing touches the device until the arguments have been checked.
+[SCREEN_W, SCREEN_H] = (/(\d+)x(\d+)/.exec(sh('wm size')) || [0, 1080, 2400]).slice(1).map(Number);
+// Awake for the run, and back to the phone's own setting after it, however
+// the run ends: it was left on for good once, on someone's own phone.
 sh('svc power stayon true');
+process.on('exit', () => { try { sh('svc power stayon false'); } catch { /* device gone */ } });
 for (const setting of settings) {
   const [, tool, value] = /^([a-zA-Z]+)([+-]\d+)$/.exec(setting) || [];
   if (!tool) throw new Error(`not a setting: ${setting}`);
