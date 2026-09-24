@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      fresh-fixtures:
+        description: Regenerate the fixtures instead of restoring them, to check make.sh still works
+        type: boolean
+        default: false
 
 jobs:
   browser:
@@ -54,14 +59,41 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # ffmpeg with lavfi, libvpx, libvorbis and libx264, for make.sh and for
-      # test-rotated, which reads its export back. Installed only if the
-      # runner image does not already carry one.
+      # test-rotated, which reads its export back. The runner image has none.
+      #
+      # Not from apt first, because apt is where the time went: 14 to 65
+      # seconds on most machines, and 244 on one, which made a four-minute
+      # check take seven and a half. A static build from GitHub's own release
+      # storage is the same download every time from the same place. It is
+      # BtbN's rolling latest rather than a pinned build, because the pinned
+      # ones are deleted after a while; so it is checked for exactly what the
+      # suite uses before it is trusted, and apt is still there if the
+      # download or that check fails.
       - name: Install ffmpeg
-        run: command -v ffmpeg || { sudo apt-get update && sudo apt-get install -y ffmpeg; }
+        run: |
+          build=ffmpeg-master-latest-linux64-gpl
+          if curl -fsSL --retry 3 -o /tmp/ffmpeg.tar.xz \
+               "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$build.tar.xz" \
+             && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp \
+             && bin=/tmp/$build/bin \
+             && "$bin/ffmpeg" -hide_banner -encoders | grep -q libx264 \
+             && "$bin/ffmpeg" -hide_banner -encoders | grep -q 'libvpx ' \
+             && "$bin/ffmpeg" -hide_banner -encoders | grep -q libvorbis \
+             && "$bin/ffmpeg" -hide_banner -filters | grep -q ' color ' \
+             && [ -x "$bin/ffprobe" ]; then
+            echo "$bin" >> "$GITHUB_PATH"
+            echo "static ffmpeg: $("$bin/ffmpeg" -version | head -1)"
+          else
+            echo "static ffmpeg unavailable or incomplete; falling back to apt"
+            sudo apt-get update && sudo apt-get install -y ffmpeg
+          fi
 
       # The fixtures only change when make.sh does, and make.sh skips any file
-      # that is already there, so on a cache hit this step costs nothing.
+      # that is already there, so on a cache hit this step costs nothing. That
+      # also means a warm cache never runs make.sh at all, so a manual run can
+      # ask for them fresh, which is the only thing that checks it still works.
       - uses: actions/cache@v4
+        if: ${{ !inputs.fresh-fixtures }}
         with:
           path: |
             tests/fixtures/photo*.jpg
