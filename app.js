@@ -1340,20 +1340,33 @@
   // reading.
   const TRIP_GAP = 48 * 60 * 60000;
 
+  // Each offset is scored by its typical clip — the median distance to the
+  // nearest photo — rather than the mean. A trip nearly always holds a clip or
+  // two with no photo anywhere near it, and those cost every offset about the
+  // same, which pulls the means together until the right answer looks like a
+  // tie. Measured on a real trip at +09:00 looked at from +03:00: five clips,
+  // two of them filmed hours before the first photo. By mean, +9 scored 51.0
+  // minutes and +10.75 scored 51.8, so the guess was refused and every clip
+  // stayed six hours out. By median the same data gives +9 at four minutes.
+  const typical = (costs) => {
+    const sorted = [...costs].sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+
   function guessCaptureZone(clipUtcs, photoWalls) {
     if (!clipUtcs.length || !photoWalls.length) return null;
     const scored = [];
     for (let zone = ZONE_MIN; zone <= ZONE_MAX; zone += ZONE_STEP) {
-      let cost = 0;
-      for (const utc of clipUtcs) {
+      const costs = clipUtcs.map((utc) => {
         let nearest = Infinity;
         for (const wall of photoWalls) {
           const d = Math.abs(wall - (utc + zone));
           if (d < nearest) nearest = d;
         }
-        cost += Math.min(nearest, ZONE_REACH);
-      }
-      scored.push({ zone, cost: cost / clipUtcs.length });
+        return Math.min(nearest, ZONE_REACH);
+      });
+      scored.push({ zone, cost: typical(costs) });
     }
     scored.sort((a, b) => a.cost - b.cost);
     const best = scored[0];
