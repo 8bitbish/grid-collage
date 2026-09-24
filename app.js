@@ -249,6 +249,15 @@
 
   const cellRects = () => cellRectsFor(page().layout, canvas.width, canvas.height);
 
+  // Where each tile's photo is placed, which is the whole tile but for a pop
+  // out: that places it in its smaller frame, so panning and zooming are
+  // clamped to what the frame shows and the subject past it is real photo.
+  const photoRect = (cell, rect) => {
+    const pop = popping(cell);
+    return pop ? popFrame(rect, pop) : rect;
+  };
+  const photoRects = () => cellRects().map((rect, i) => photoRect(page().cells[i], rect));
+
   function cellAt(px, py) {
     return cellRects().findIndex(
       (r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h,
@@ -300,7 +309,7 @@
     const photo = photoFor(cell);
     if (!photo) return;
     const s = canvas.width / BASE_WIDTH;
-    const p = place(cell, photo, cellRects()[i], s);
+    const p = place(cell, photo, photoRects()[i], s);
     cell.ox = p.ox / s;
     cell.oy = p.oy / s;
     cell.zoom = p.zoom;
@@ -324,18 +333,25 @@
     rects.forEach((rect, i) => {
       const cell = pg.cells[i];
       const photo = photoFor(cell);
-
-      g.save();
-      roundedPath(g, rect, radius);
-      g.clip();
-
-      if (photo && photo.bitmap) {
-        const p = place(cell, photo, rect, s);
-        g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
+      const pop = photo && photo.bitmap ? popping(cell) : null;
+      const frame = photoRect(cell, rect);
+      let p = null;
+      let drawn = null;
+      const pose = () => {
+        g.translate(frame.x + frame.w / 2 + p.ox, frame.y + frame.h / 2 + p.oy);
         g.rotate(cell.rot);
         // About the photo's own centre, so the area covered is unchanged and
         // the cover clamp still holds.
         if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
+      };
+
+      g.save();
+      roundedPath(g, frame, radius);
+      g.clip();
+
+      if (photo && photo.bitmap) {
+        p = place(cell, photo, frame, s);
+        pose();
         // cell.frame is set while a video is playing in the preview, and
         // while an export walks its frames. Failing that a clip draws as its
         // poster — the first frame of its trim — and failing that as the
@@ -347,7 +363,7 @@
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
         // the preview's compare button, held down.
-        const drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh, s);
+        drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh, s);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
         g.fillStyle = 'rgba(125,125,145,0.16)';
@@ -355,6 +371,8 @@
         plusSign(g, rect, s);
       }
       g.restore();
+
+      if (pop && drawn) popSubject(g, cell, photo, rect, frame, radius, drawn, p, s, pose);
 
       if (opts.selected === i) {
         g.save();
@@ -467,6 +485,32 @@
     g.beginPath();
     if (g.roundRect) g.roundRect(r.x, r.y, r.w, r.h, rad);
     else g.rect(r.x, r.y, r.w, r.h);
+  }
+
+  // The part of a popped-out subject that is past its frame. Only that part is
+  // drawn: inside the frame the photo already has the subject in it, pixel for
+  // pixel, and drawing it again there would only put a shadow round it.
+  function popSubject(g, cell, photo, rect, frame, radius, drawn, p, s, pose) {
+    if (photo.subject === undefined) awaitSubject(photo);
+    if (!photo.subject) return;
+    const cut = cutoutOf(cell, photo.subject, drawn, p.dw, p.dh);
+    if (!cut) return;
+    g.save();
+    g.beginPath();
+    g.rect(rect.x, rect.y, rect.w, rect.h);
+    const rad = Math.min(radius, frame.w / 2, frame.h / 2);
+    if (g.roundRect) g.roundRect(frame.x, frame.y, frame.w, frame.h, rad);
+    else g.rect(frame.x, frame.y, frame.w, frame.h);
+    g.clip('evenodd');
+    // Lifted off the page by a shadow, which is most of what makes it read as
+    // in front of the frame rather than as a hole cut round it. In output
+    // pixels, since a shadow ignores the transform it is drawn under.
+    g.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    g.shadowBlur = 18 * s;
+    g.shadowOffsetY = 6 * s;
+    pose();
+    g.drawImage(cut, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+    g.restore();
   }
 
   function plusSign(g, r, s) {
@@ -1090,6 +1134,263 @@
       if (list) unlist(list, old);
     }
     return canvas;
+  }
+
+  /* -------------------------------------------------------------- effects */
+  //
+  // Where an adjustment changes how a photo looks, an effect changes what the
+  // tile does with it. They are kept on the cell for the same reasons edits
+  // are, as `cell.effects = { popOut: { sides: ['top'], depth: 20 } }`, and
+  // like edits nothing is written for a cell without one.
+  //
+  // Every effect is an entry here, and the panel is built from the list, so
+  // the next one is an entry, its drawing, and a test.
+  //
+  //   id       the key in cell.effects
+  //   subject  true if it needs the photo's subject told apart from its
+  //            background, which is found the first time it is asked for
+  //   fresh    what it starts as when it is turned on
+  const EFFECTS = [
+    {
+      id: 'popOut', label: 'Pop out', subject: true,
+      // A head and shoulders breaking through the top edge of a frame.
+      icon: '<path d="M8.2 8H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-3.2"/><circle cx="12" cy="7" r="3.4"/><path d="M6.5 21c.4-3 2.6-5 5.5-5s5.1 2 5.5 5"/>',
+      fresh: () => ({ sides: ['top'], depth: 20 }),
+    },
+  ];
+  const SIDES = ['top', 'right', 'bottom', 'left'];
+  const effectEntry = (id) => EFFECTS.find((e) => e.id === id);
+  const effectOf = (cell, id) => (cell && cell.effects && cell.effects[id]) || null;
+  // Effects are for photos, for the same reason edits are.
+  const popping = (cell) => {
+    const photo = photoFor(cell);
+    return photo && photo.kind !== 'video' ? effectOf(cell, 'popOut') : null;
+  };
+  const plainEffects = (effects) => !effects || !EFFECTS.some((e) => effects[e.id]);
+  const copyEffects = (effects) => (plainEffects(effects) ? undefined : JSON.parse(JSON.stringify(effects)));
+
+  function setEffect(cell, id, value) {
+    const next = { ...(cell.effects || {}) };
+    if (value) next[id] = value; else delete next[id];
+    cell.effects = plainEffects(next) ? undefined : next;
+  }
+
+  // Pop out places the photo in a smaller frame — pulled in from each chosen
+  // side by `depth` percent of the tile's shorter side — and lets the subject
+  // carry on past that frame as far as the tile's own edge. What shows past
+  // the frame is the photo that the frame crops off, so a head above the
+  // frame is the photo's own head. It was first drawn the other way, the
+  // photo placed against the whole tile with the frame cut out of it, and
+  // that flattened the subject against the tile's edge wherever it reached
+  // it, which in a portrait is nearly always the top of the head.
+  function popFrame(rect, pop) {
+    const d = (Math.min(rect.w, rect.h) * pop.depth) / 100;
+    const [t, r, b, l] = SIDES.map((side) => (pop.sides.includes(side) ? d : 0));
+    return { x: rect.x + l, y: rect.y + t, w: rect.w - l - r, h: rect.h - t - b };
+  }
+
+  /* ------------------------------------------------------ finding a subject */
+  //
+  // Which pixels are the subject is a guess only a trained model can make, so
+  // this is the one part of the app that runs one. It is found once per photo
+  // rather than per cell — the subject is the same wherever the photo is put —
+  // and kept as a mask in the photo's alpha, at the model's own resolution and
+  // stretched over the photo, so drawing it at any size is one drawImage.
+  //
+  // `photo.subject` is undefined until asked for, then { mask, box } once
+  // found, or null when the model found nothing it would call a subject. The
+  // mask is stored with the photo as a PNG, so a reopened deck never runs the
+  // model again.
+  const finding = new Map();
+
+  // MediaPipe's MagicTouch, pointed at the subject by EfficientDet-Lite0.
+  // Chosen by measuring six candidates on six photos — a portrait with loose
+  // hair, a dog off to one side, a cat, a teapot, someone full length in a
+  // crowd, someone on a busy background: it was the only one that took the
+  // whole subject in all six, and the only one whose weights are licensed
+  // for this in so many words. ISNet keeps finer strands of hair but dropped
+  // a body at one size and a face at another, and took eight seconds a photo
+  // on one core where this takes about two hundred milliseconds. U²-Netp lost
+  // a face. MagicTouch is interactive — it segments whatever is under a point
+  // — and pointed at the middle of the frame it segmented the house behind
+  // the dog, which is what the detector is for.
+  //
+  // CPU rather than GPU: the GPU delegate spent over four seconds compiling
+  // shaders before its first mask, and the detector found nothing at all on
+  // it. Handed its files directly, rather than through FilesetResolver, so
+  // the build for browsers without SIMD never has to be carried.
+  //
+  // Nothing is fetched until the first time an effect needs a subject, and
+  // the service worker keeps it from then on, as it does libheif.
+  const MEDIAPIPE = './vendor/mediapipe/';
+  const SEGMENT_EDGE = 1024;
+  let segmenter = null;
+
+  function loadSegmenter() {
+    if (segmenter) return segmenter;
+    segmenter = (async () => {
+      const base = new URL(MEDIAPIPE, location.href).href;
+      const { InteractiveSegmenter, ObjectDetector } = await import(`${base}vision_bundle.mjs`);
+      const files = { wasmLoaderPath: `${base}vision_wasm_internal.js`, wasmBinaryPath: `${base}vision_wasm_internal.wasm` };
+      const [segment, detect] = await Promise.all([
+        InteractiveSegmenter.createFromOptions(files, {
+          baseOptions: { modelAssetPath: `${base}magic_touch.tflite`, delegate: 'CPU' },
+          outputCategoryMask: false, outputConfidenceMasks: true,
+        }),
+        ObjectDetector.createFromOptions(files, {
+          baseOptions: { modelAssetPath: `${base}efficientdet_lite0.tflite`, delegate: 'CPU' },
+          scoreThreshold: 0.3, maxResults: 5, runningMode: 'IMAGE',
+        }),
+      ]);
+      return { segment, detect };
+    })().catch((err) => { segmenter = null; throw err; });
+    return segmenter;
+  }
+
+  // What the model makes of the photo: { alpha, w, h }, one byte a pixel, at
+  // most SEGMENT_EDGE on the long side — the size the model was measured at,
+  // and past it the mask is only the model's 512px answer scaled up again.
+  async function segment(src) {
+    const { segment: segmenter, detect } = await loadSegmenter();
+    const k = Math.min(1, SEGMENT_EDGE / Math.max(src.width, src.height));
+    const w = Math.max(1, Math.round(src.width * k));
+    const h = Math.max(1, Math.round(src.height * k));
+    const g = scratch(w, h).getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, w, h);
+    const image = g.getImageData(0, 0, w, h);
+
+    // The most prominent thing the detector knows a name for, by area times
+    // confidence, and the middle of the photo if it knows none.
+    let point = { x: 0.5, y: 0.5 };
+    let best = 0;
+    detect.detect(image).detections.forEach((d) => {
+      const b = d.boundingBox;
+      const score = b.width * b.height * d.categories[0].score;
+      if (score <= best) return;
+      best = score;
+      point = { x: (b.originX + b.width / 2) / w, y: (b.originY + b.height / 2) / h };
+    });
+
+    const result = segmenter.segment(image, { keypoint: point });
+    try {
+      const mask = result.confidenceMasks[0];
+      const conf = mask.getAsFloat32Array();
+      const alpha = new Uint8ClampedArray(conf.length);
+      for (let i = 0; i < conf.length; i++) alpha[i] = conf[i] * 255;
+      return { alpha, w: mask.width, h: mask.height };
+    } finally {
+      result.close();
+    }
+  }
+
+  // The part of the mask that is confidently subject, as fractions of the
+  // photo. Only used to tell an empty result from a real one for now.
+  function maskBox(alpha, w, h) {
+    let x0 = w; let y0 = h; let x1 = -1; let y1 = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (alpha[y * w + x] < 128) continue;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+    return x1 < 0 ? null : { x: x0 / w, y: y0 / h, w: (x1 - x0 + 1) / w, h: (y1 - y0 + 1) / h };
+  }
+
+  function maskCanvas(alpha, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const g = c.getContext('2d');
+    const img = g.createImageData(w, h);
+    for (let i = 0; i < alpha.length; i++) {
+      img.data[i * 4] = 255; img.data[i * 4 + 1] = 255; img.data[i * 4 + 2] = 255;
+      img.data[i * 4 + 3] = alpha[i];
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+
+  function findSubject(photo) {
+    if (!photo || photo.kind === 'video') return Promise.resolve(null);
+    if (photo.subject !== undefined) return Promise.resolve(photo.subject);
+    if (finding.has(photo)) return finding.get(photo);
+    const job = (async () => {
+      let alpha; let w; let h;
+      if (photo.subjectBlob) {
+        const bitmap = await createImageBitmap(photo.subjectBlob);
+        const c = scratch(bitmap.width, bitmap.height);
+        c.getContext('2d').drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        ({ width: w, height: h } = c);
+        alpha = new Uint8ClampedArray(w * h);
+        for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
+      } else {
+        ({ alpha, w, h } = await segment(photo.bitmap));
+      }
+      const box = maskBox(alpha, w, h);
+      const mask = box ? maskCanvas(alpha, w, h) : null;
+      photo.subject = box ? { mask, box } : null;
+      if (mask && !photo.subjectBlob) {
+        photo.subjectBlob = await new Promise((res) => mask.toBlob(res, 'image/png'));
+        if (persisted.has(photo.id)) savePhoto(photo);
+      }
+      return photo.subject;
+    })().finally(() => finding.delete(photo));
+    finding.set(photo, job);
+    return job;
+  }
+
+  const wantsSubject = (cell) => EFFECTS.some((e) => e.subject && effectOf(cell, e.id));
+
+  // Every subject a page needs before it can be drawn as it should be. An
+  // export waits for this; the preview draws without and catches up.
+  const subjectsFor = (pg) => Promise.all((pg ? pg.cells : [])
+    .filter(wantsSubject).map((c) => findSubject(photoFor(c)).catch(() => null)));
+
+  // The subject, cut out of whatever the tile is drawing — the photo with its
+  // edits on — at about the size it is drawn, by the same rule as a look.
+  const cutouts = new WeakMap();
+  function cutoutOf(cell, subject, drawn, dw, dh) {
+    const sw = drawn.width;
+    const sh = drawn.height;
+    if (!sw || !sh) return null;
+    const want = Math.min(1, Math.max(dw / sw, dh / sh));
+    const fit = gesture ? Math.min(1, 2 ** (Math.ceil(Math.log2(want) * 4) / 4)) : want;
+    const w = Math.max(1, Math.round(sw * fit));
+    const h = Math.max(1, Math.round(sh * fit));
+    const kept = cutouts.get(cell) || [];
+    const hit = kept.find((c) => c.drawn === drawn && c.mask === subject.mask && c.w === w && c.h === h);
+    if (hit) return hit.canvas;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const g = canvas.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(drawn, 0, 0, w, h);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(subject.mask, 0, 0, w, h);
+    kept.unshift({ drawn, mask: subject.mask, w, h, canvas });
+    kept.splice(2);
+    cutouts.set(cell, kept);
+    return canvas;
+  }
+
+  // Asked for by drawPage when a tile wants a subject it has not got, which
+  // is a reopened deck or a photo just swapped in. It paints when it lands.
+  //
+  // Once a session only, if it fails: drawPage runs on every frame of a
+  // gesture, and a model that could not be fetched would otherwise be fetched
+  // again on each of them. The panel asks again when it is opened.
+  function awaitSubject(photo) {
+    if (finding.has(photo) || photo.subject !== undefined || photo.subjectFailed) return;
+    findSubject(photo)
+      .catch(() => { photo.subjectFailed = true; })
+      .then(() => { render(); redrawFilms(); syncEffects(); });
   }
 
   /* ----------------------------------------------------------- deck edits */
@@ -3613,6 +3914,9 @@
     $('tile-adjust-btn').hidden = !photo || photo.kind === 'video';
     if (tileSub === 'adjust' && (!photo || photo.kind === 'video')) showTileSub(null);
     else if (tileSub === 'adjust') syncAdjust();
+    $('tile-effects-btn').hidden = !photo || photo.kind === 'video';
+    if (tileSub === 'effects' && (!photo || photo.kind === 'video')) showTileSub(null);
+    else if (tileSub === 'effects') syncEffects();
 
     if (!photo) {
       // The reel is how an empty tile gets filled, so don't shut it just
@@ -3622,7 +3926,7 @@
     }
     if (drawer !== 'tile') openDrawer('tile');
 
-    const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
+    const p = place(cell, photo, photoRects()[i], canvas.width / BASE_WIDTH);
     const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
 
     $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
@@ -3801,7 +4105,7 @@
     if (!photo || !pointers.size) { gesture = null; return; }
 
     const s = canvas.width / BASE_WIDTH;
-    const rect = cellRects()[i];
+    const rect = photoRects()[i];
     const p = place(cell, photo, rect, s);
     const pts = [...pointers.values()];
 
@@ -3964,7 +4268,7 @@
     const nx = mean(pts, 'x') + (dx * c - dy * sn) * scale;
     const ny = mean(pts, 'y') + (dx * sn + dy * c) * scale;
 
-    const rect = cellRects()[gesture.i];
+    const rect = photoRects()[gesture.i];
     cell.ox = (nx - (rect.x + rect.w / 2)) / gesture.s;
     cell.oy = (ny - (rect.y + rect.h / 2)) / gesture.s;
 
@@ -4039,7 +4343,7 @@
     e.preventDefault();
 
     const s = canvas.width / BASE_WIDTH;
-    const rect = cellRects()[i];
+    const rect = photoRects()[i];
     snapshot('wheel');
     const before = place(cell, photo, rect, s);
     const scale = e.deltaY < 0 ? 1.08 : 1 / 1.08;
@@ -4393,6 +4697,7 @@
       // Never export a proxy. Whatever is on screen, the file that comes out
       // is rendered from the photo as it arrived.
       await Promise.all(photosOn(page).map(ensureFull));
+      await subjectsFor(page);
       const blob = await renderToBlob(page, state.format);
       if (!blob) continue;
       // Instagram imports by filename, so the order has to be in the name.
@@ -4683,8 +4988,9 @@
   function showTileSub(name) {
     tileSub = name;
     $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust', 'effects'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
     if (name === 'trim') syncTrim();
+    if (name === 'effects') syncEffects();
     if (name === 'adjust') syncAdjust();
     // Letting go of the panel lets go of the compare button with it: a hold
     // that ends somewhere the pointerup never reaches must not leave the
@@ -4704,6 +5010,9 @@
     // Adjusting has two rows — the tools and the slider for the one chosen —
     // and wants the same room for the same reason.
     $('dock').classList.toggle('is-adjusting', name === 'adjust');
+    // Effects are two rows as well: the effects, and the settings of the one
+    // that is on.
+    $('dock').classList.toggle('is-effecting', name === 'effects');
     if (choosing) renderChooser();
     // Page thumbnails aren't visible while choosing, so they catch up on the
     // way out rather than being redrawn for every photo scrolled past.
@@ -5073,6 +5382,145 @@
     render();
   }
 
+  /* ------------------------------------------------------------ effects */
+
+  function buildEffects() {
+    const row = $('effect-list');
+    row.innerHTML = '';
+    EFFECTS.forEach((e) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dock-item adjust-tool effect-item';
+      btn.dataset.effect = e.id;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = `<span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true">${e.icon}</svg></span><span>${e.label}</span>`;
+      btn.addEventListener('click', () => toggleEffect(e.id));
+      row.appendChild(btn);
+    });
+  }
+
+  function syncEffects() {
+    const cell = page().cells[state.selected];
+    if (!cell || tileSub !== 'effects') return;
+    const photo = photoFor(cell);
+    [...$('effect-list').children].forEach((btn) => {
+      const on = !!effectOf(cell, btn.dataset.effect);
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+    const pop = effectOf(cell, 'popOut');
+    $('effect-hint').hidden = !plainEffects(cell.effects);
+    $('popout-row').hidden = !pop;
+    if (!pop) return;
+    [...$('pop-sides').children].forEach((btn) => {
+      btn.setAttribute('aria-pressed', String(pop.sides.includes(btn.dataset.side)));
+    });
+    const input = $('pop-depth');
+    input.value = String(pop.depth);
+    $('pop-depth-val').textContent = String(pop.depth);
+    paintSlider(input);
+    // Said where the slider's name goes, because it is the slider that seems
+    // to do nothing until the subject is in.
+    $('pop-depth-name').textContent = photo && finding.has(photo) ? 'Finding the subject…' : 'Depth';
+  }
+
+  // Which side a subject has most room to pop out of: the one it comes
+  // nearest in the tile, as the photo is placed there now. A side where the
+  // subject runs off the photo itself is passed over, however near it is —
+  // the shoulders at the bottom of a portrait are nearer the tile's edge than
+  // the top of the head, and popping them out would only show where the
+  // photo stops. Turned photos are left on the top, which is where heads are.
+  function nearestSide(cell, photo, rect) {
+    const box = photo.subject && photo.subject.box;
+    if (!box || cell.rot) return 'top';
+    const s = canvas.width / BASE_WIDTH;
+    const p = place(cell, photo, rect, s);
+    const left = rect.x + rect.w / 2 + p.ox - p.dw / 2;
+    const top = rect.y + rect.h / 2 + p.oy - p.dh / 2;
+    const bx = cell.flipX ? 1 - box.x - box.w : box.x;
+    const by = cell.flipY ? 1 - box.y - box.h : box.y;
+    const x0 = left + bx * p.dw;
+    const y0 = top + by * p.dh;
+    const x1 = x0 + box.w * p.dw;
+    const y1 = y0 + box.h * p.dh;
+    const EDGE = 0.01;
+    const room = {
+      top: by > EDGE ? (y0 - rect.y) / rect.h : Infinity,
+      right: bx + box.w < 1 - EDGE ? (rect.x + rect.w - x1) / rect.w : Infinity,
+      bottom: by + box.h < 1 - EDGE ? (rect.y + rect.h - y1) / rect.h : Infinity,
+      left: bx > EDGE ? (x0 - rect.x) / rect.w : Infinity,
+    };
+    return SIDES.reduce((a, b) => (room[b] < room[a] ? b : a), 'top');
+  }
+
+  function toggleEffect(id) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    const photo = photoFor(cell);
+    if (!cell || !photo) return;
+    const entry = effectEntry(id);
+    snapshot();
+    const fresh = effectOf(cell, id) ? null : entry.fresh();
+    // A pop out starts on the side that will show it, which means knowing
+    // where the subject is — now if it has been found before, otherwise as
+    // soon as it has.
+    if (fresh && id === 'popOut' && photo.subject) fresh.sides = [nearestSide(cell, photo, cellRects()[i])];
+    setEffect(cell, id, fresh);
+    if (fresh && entry.subject) ensureSubject(cell, photo, id, fresh, i);
+    syncEffects();
+    refresh();
+  }
+
+  // Finding the subject is the one slow part, and the only part that can
+  // fail. Either way it is said, and an effect with no subject to work on is
+  // taken off again rather than left looking broken.
+  function ensureSubject(cell, photo, id, fresh, i) {
+    if (photo.subject) return;
+    photo.subjectFailed = false;
+    findSubject(photo).then((subject) => {
+      if (!subject) {
+        toast("Couldn't find a subject in this photo");
+        setEffect(cell, id, null);
+      } else if (id === 'popOut' && effectOf(cell, id) === fresh && page().cells[i] === cell) {
+        // Still as it was turned on, so nobody has chosen a side yet.
+        setEffect(cell, id, { ...fresh, sides: [nearestSide(cell, photo, cellRects()[i])] });
+      }
+    }).catch((err) => {
+      console.warn('Finding the subject failed', err);
+      photo.subjectFailed = true;
+      toast(navigator.onLine === false
+        ? 'Finding the subject needs a connection the first time'
+        : "Couldn't find the subject");
+      setEffect(cell, id, null);
+    }).then(() => { syncEffects(); refresh(); });
+    syncEffects();
+  }
+
+  function toggleSide(side) {
+    const cell = page().cells[state.selected];
+    const pop = effectOf(cell, 'popOut');
+    if (!pop) return;
+    snapshot();
+    const sides = pop.sides.includes(side) ? pop.sides.filter((s) => s !== side) : SIDES.filter((s) => s === side || pop.sides.includes(s));
+    // A pop out of no side at all is no pop out, so the last side off takes
+    // the effect with it.
+    setEffect(cell, 'popOut', sides.length ? { ...pop, sides } : null);
+    syncEffects();
+    refresh();
+  }
+
+  function slidePopDepth() {
+    const cell = page().cells[state.selected];
+    const pop = effectOf(cell, 'popOut');
+    if (!pop) return;
+    const depth = Number($('pop-depth').value);
+    if (depth === pop.depth) return;
+    snapshot('pop-depth');
+    setEffect(cell, 'popOut', { ...pop, depth });
+    syncEffects();
+    render();
+  }
+
   function openDrawer(name) {
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
@@ -5086,7 +5534,7 @@
   function closeDrawer() {
     drawer = null;
     tileSub = null;
-    $('dock').classList.remove('is-adjusting');
+    $('dock').classList.remove('is-adjusting', 'is-effecting');
     if (comparing) { comparing = false; render(); }
     document.querySelector('.app').classList.remove('is-choosing');
     $('dock').classList.remove('is-choosing');
@@ -5108,7 +5556,7 @@
     // put, and the export settings beside an Export button that does. The
     // panel around each of them no longer moves, so it is the rail that has to
     // carry the fade or nothing would say there was more.
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings', 'adjust-tools'].map($),
+    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings', 'adjust-tools', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -5282,6 +5730,9 @@
       blob: photo.blob, thumb: photo.thumbBlob, thumbEdge: THUMB_EDGE,
       proxy: photo.proxyBlob, proxyEdge: photo.proxyBlob ? PROXY_EDGE : 0,
       w: photo.w, h: photo.h,
+      // Its subject, once an effect has asked for it: the model's answer as a
+      // PNG, so it is never asked the same question twice.
+      subject: photo.subjectBlob || null,
     });
   }
 
@@ -5354,6 +5805,7 @@
           // Only when there is something to keep, so an unedited deck's JSON
           // is the same as it was before edits existed.
           ...(plainLook(c.adjust) ? {} : { adjust: { ...c.adjust } }),
+          ...(plainEffects(c.effects) ? {} : { effects: copyEffects(c.effects) }),
         } : null)),
       })),
     };
@@ -5380,7 +5832,8 @@
           const c = p.cells[i];
           // Drop references to photos that are no longer in the tray. The
           // edits are copied too: this object is still the undo stack's.
-          return c && photoById(c.photo) ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined } : null;
+          return c && photoById(c.photo)
+            ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined, effects: copyEffects(c.effects) } : null;
         });
         return pg;
       });
@@ -5685,7 +6138,7 @@
           // moves them.
           takenUtc: row.takenUtc ?? null, takenZone: row.takenZone ?? null,
           sourceSize: row.sourceSize ?? null,
-          blob: row.blob, proxyBlob: row.proxy,
+          blob: row.blob, proxyBlob: row.proxy, subjectBlob: row.subject || null,
           thumbBlob: row.thumb, thumbUrl: URL.createObjectURL(row.thumb || row.blob),
         };
         state.photos.push(photo);
@@ -5724,7 +6177,8 @@
           const c = p.cells[i];
           // Drop references to photos that are no longer in the tray. The
           // edits are copied too: this object is still the undo stack's.
-          return c && photoById(c.photo) ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined } : null;
+          return c && photoById(c.photo)
+            ? { ...c, adjust: c.adjust ? { ...c.adjust } : undefined, effects: copyEffects(c.effects) } : null;
         });
         return pg;
       });
@@ -5769,6 +6223,7 @@
       // something else changes it.
       await Promise.all(photosOn(first).filter((p) => p.small).map(atSize));
       await postersFor(first);
+      await subjectsFor(first);
       const W = 400;
       const H = Math.round((W * state.ratio.h) / state.ratio.w);
       const c = document.createElement('canvas');
@@ -6765,6 +7220,15 @@
   compare.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); holdCompare(true); } });
   compare.addEventListener('keyup', () => holdCompare(false));
   compare.addEventListener('blur', () => holdCompare(false));
+
+  buildEffects();
+  feedback('pop-depth');
+  [...$('pop-sides').children].forEach((btn) => {
+    btn.addEventListener('click', () => toggleSide(btn.dataset.side));
+  });
+  $('pop-depth').addEventListener('pointerdown', () => { endRun(); });
+  $('pop-depth').addEventListener('input', slidePopDepth);
+  $('pop-depth').addEventListener('change', () => { endRun(); refresh(); });
 
   $('btn-export').addEventListener('click', exportDeck);
   // A press is settled by the pointer sequence in the stage handlers, and this

@@ -2440,6 +2440,61 @@ body.is-library .toast {
   .adjust-ring { width: 26px; height: 26px; }
 }
 
+/* ------------------------------------------------------------- effects */
+/* Built like the Adjust panel, and given the same room for the same reason:
+   the row of effects, then the settings of the one that is on. An effect is
+   on or off rather than an amount, so its ring is simply filled while on. */
+.dock.is-effecting { height: 152px; }
+.tile-effects {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.effect-item.is-active { color: var(--text); }
+.effect-item.is-active .adjust-ring { background: var(--accent); color: #fff; }
+.effect-hint {
+  margin: 0;
+  padding: 0 14px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pop-sides { display: flex; gap: 4px; flex: none; }
+.pop-side {
+  appearance: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.pop-side svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pop-side[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.pop-side:active { transform: scale(0.92); }
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .dock.is-effecting { height: 124px; }
+  .pop-side { width: 34px; height: 34px; }
+}
+
 /* Present for a screen reader, out of the way of everyone else. */
 .sr {
   position: absolute;
