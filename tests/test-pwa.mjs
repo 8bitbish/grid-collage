@@ -80,8 +80,15 @@ console.log('  entries:', cached.entries.join(' '));
 
 // 4. the real test — kill the network entirely and reload.
 // Let the service worker's background revalidation from the online load drain
-// first, otherwise those late fetches get blamed on the offline window.
-await page.waitForTimeout(4000);
+// first, otherwise those late fetches get blamed on the offline window. Drained
+// means the server has heard nothing for half a second, not four seconds gone.
+{
+  let last = requests; let quietSince = Date.now(); const until = Date.now() + 15000;
+  while (Date.now() - quietSince < 500 && Date.now() < until) {
+    await page.waitForTimeout(50);
+    if (requests !== last) { last = requests; quietSince = Date.now(); }
+  }
+}
 const before = requests;
 seen.length = 0;
 await context.setOffline(true);
@@ -111,7 +118,9 @@ await download.saveAs('/tmp/offline-export.jpg');
 console.log('✓ OFFLINE export:', download.suggestedFilename(), fs.statSync('/tmp/offline-export.jpg').size, 'bytes');
 await page.screenshot({ path: '/tmp/shot-offline.png' });
 
-console.log(`  (server saw ${requests - before} requests while offline — expect 0)`);
+// Asserted, not just printed: it is what the drain above exists to protect,
+// and a drain that ended too early would show up here and nowhere else.
+console.log(`  server saw ${requests - before} requests while offline:`, requests === before ? '✓' : '✗');
 if (requests - before) console.log('  offending:', seen.join(' '));
 console.log(errors.length ? '✗ ERRORS: ' + errors.join('\n') : '✓ no page errors');
 

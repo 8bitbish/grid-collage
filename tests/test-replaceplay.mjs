@@ -30,8 +30,25 @@ const ctx=await b.newContext({viewport:{width:390,height:844},hasTouch:true});
 const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,140)));
+// goto holds until the editor is open; see enter.mjs.
 await p.goto(`http://localhost:${PORT}/`);
-await p.waitForTimeout(1400);
+
+// The sleeps before each sample stood in for the thing being sampled getting
+// going. They wait for that now — a panel open, the reel on its entry, the
+// clip running — bounded, with any failure left to the assertion. The four
+// second windows below are the measurement and are unchanged.
+const settle=(fn, arg)=>p.waitForFunction(fn, arg, {timeout:8000}).catch(()=>{});
+const clipRunning=()=>{const v=document.querySelector('video'); return !!v && !v.paused && v.currentTime>0.05;};
+// A freshly opened reel scrolls itself to where it starts one frame later, so
+// a scroll made before that frame is simply undone. Wait for it to be centred
+// on its current entry, and two frames more.
+const reelSettled=async()=>{
+  await settle(()=>{const strip=document.getElementById('choose-strip');
+    const el=strip && strip.querySelector('.choose-item.is-current'); if(!el) return false;
+    const r=el.getBoundingClientRect(), mid=strip.getBoundingClientRect().left+strip.clientWidth/2;
+    return Math.abs(r.left+r.width/2-mid)<4;});
+  await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+};
 
 // Sample the tile for four seconds — longer than the clip — and report which
 // of its two colours turned up.
@@ -58,7 +75,7 @@ const clip=fs.readFileSync('fixtures/clip.webm');
 const still=fs.readFileSync('fixtures/photo0.jpg');
 await p.setInputFiles('#file-input',[{name:'clip.webm',mimeType:'video/webm',buffer:clip}]);
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:20000});
-await p.waitForTimeout(2000);
+await settle(clipRunning);
 
 console.log('== it plays without being switched away from and back to ==');
 {
@@ -69,8 +86,10 @@ console.log('== it plays without being switched away from and back to ==');
 
 console.log('\n== and after leaving the project and opening it again ==');
 {
-  await p.click('#btn-home'); await p.waitForTimeout(900);
-  await p.click('.tile'); await p.waitForTimeout(2200);
+  await p.click('#btn-home'); await settle(()=>document.body.classList.contains('on-home'));
+  await p.click('.tile');
+  await settle(()=>!document.body.classList.contains('on-home'));
+  await settle(clipRunning);
   const seen = await colours('back in the project');
   ok('still running with no app switch', playing(seen), JSON.stringify(seen));
 }
@@ -79,9 +98,9 @@ console.log('\n== it keeps playing while Replace is open ==');
 {
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
-  await p.waitForTimeout(700);
+  await settle(()=>!document.getElementById('dp-tile').hidden);
   await p.click('.dock-item[data-tile="replace"]');
-  await p.waitForTimeout(1400);
+  await settle(()=>!document.getElementById('tile-replace').hidden);
   ok('the Replace panel is open', await p.evaluate(()=>!document.getElementById('tile-replace').hidden));
   const seen = await colours('with the chooser up');
   ok('the preview is still running', playing(seen), JSON.stringify(seen));
@@ -92,32 +111,36 @@ console.log('\n== scrolling onto a photo stops it, scrolling back starts it agai
 {
   // Two things in the tray, so the reel has somewhere to go.
   await p.evaluate(()=>document.getElementById('dock-back').click());
-  await p.waitForTimeout(500);
+  await settle(()=>document.getElementById('tile-replace').hidden);
   await p.setInputFiles('#file-input',[{name:'still.jpg',mimeType:'image/jpeg',buffer:still}]);
   await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='2',{timeout:25000});
-  await p.waitForTimeout(1500);
 
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
-  await p.waitForTimeout(600);
+  await settle(()=>!document.getElementById('dp-tile').hidden || !document.getElementById('tile-replace').hidden);
   if (await p.evaluate(()=>document.getElementById('tile-replace').hidden)) {
     await p.click('.dock-item[data-tile="replace"]');
-    await p.waitForTimeout(1200);
+    await settle(()=>!document.getElementById('tile-replace').hidden
+      && document.getElementById('choose-strip').children.length>=2);
   }
+  await reelSettled();
   // Land the reel on each entry in turn and see what the tile does.
-  const pick = async (n) => {
+  const pick = async (n, then) => {
     await p.evaluate((k)=>{
       const strip=document.getElementById('choose-strip');
       const el=strip.children[k];
       if (el) strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.clientWidth)/2;
       strip.dispatchEvent(new Event('scroll',{bubbles:true}));
     }, n);
-    await p.waitForTimeout(1400);
+    await settle((k)=>document.getElementById('choose-strip').children[k]?.classList.contains('is-current'), n);
+    // The marker moves first and the player follows it, so wait for the
+    // player too — stopped for a photo, running for the clip.
+    await settle(then);
   };
-  await pick(1);
+  await pick(1, ()=>!document.querySelector('video'));
   const onPhoto = await colours('reel on the photo');
   ok('a photo in the tile is a still, as it should be', !playing(onPhoto), JSON.stringify(onPhoto));
-  await pick(0);
+  await pick(0, clipRunning);
   const onClip = await colours('reel back on the clip');
   ok('scrolling back to the clip has it playing again', playing(onClip), JSON.stringify(onClip));
 }
@@ -125,7 +148,7 @@ console.log('\n== scrolling onto a photo stops it, scrolling back starts it agai
 console.log('\n== the export is unaffected by any of this ==');
 {
   await p.evaluate(()=>document.getElementById('dock-back').click());
-  await p.waitForTimeout(600);
+  await settle(()=>document.getElementById('tile-replace').hidden);
   const cell = await p.evaluate(()=>{
     const c=document.querySelector('#canvas');
     return !!c;
