@@ -2661,9 +2661,10 @@
 
   // The same grid, cut into events instead of days.
   //
-  // Events run newest first to match the day view, but the photos inside one
-  // run in the order they were taken: an event reads as it happened, and a
-  // block of the deck will be built from it in that order.
+  // Everything here runs in the order it happened — events from the start of
+  // the trip, and photos inside each one as they were taken — because that is
+  // the order a deck gets built in. The day view runs newest first like a
+  // camera roll; matching it here meant reading a trip bottom to top.
   function renderByEvent(grid) {
     const { events, threshold } = clusterEvents(state.photos, grouping);
     const solid = events.filter((e) => e.photos.length >= 3).length;
@@ -2676,7 +2677,7 @@
         + (grouping.rule === 'gap' && threshold ? ` · cut at ${spanLabel(threshold)}` : '')
       : '';
 
-    [...events].reverse().forEach((event, i) => {
+    events.forEach((event, i) => {
       const photos = event.photos;
       const from = photos[0].taken;
       const to = photos[photos.length - 1].taken;
@@ -2696,7 +2697,7 @@
       head.append(when, facts);
       // Numbered from the start of the trip, so an event keeps its name while
       // you scroll and while you talk about it.
-      head.dataset.event = String(events.length - i);
+      head.dataset.event = String(i + 1);
       grid.appendChild(head);
 
       const row = document.createElement('div');
