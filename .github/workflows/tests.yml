@@ -8,11 +8,20 @@ on:
 
 jobs:
   browser:
+    name: browser ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    # Several tests import twelve 12-megapixel photos on purpose to measure what
-    # a decode costs, and one waits out a service worker update. Sequential, so
-    # the whole suite is slower than the sum of its parts looks.
-    timeout-minutes: 30
+    # Split four ways, each machine running its share one at a time. One job
+    # running all of them took eleven minutes, nine and a half of it the tests
+    # end to end. Running four side by side on one machine is as fast but not
+    # as honest: swipe times its flicks against real frames, and four
+    # Chromiums slow each other's frames enough to fail it. Four machines give
+    # every test the machine to itself that it has always had. run.mjs does
+    # the split, by how long each test takes; see durations.json.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    timeout-minutes: 20
     steps:
       # The whole history, not the default single commit: test-update-path
       # installs three old builds out of it to upgrade from, and a shallow
@@ -26,28 +35,47 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install the suite
+        working-directory: tests
+        run: npm install
+
       # Playwright's own browser, matched to the version in tests/package.json.
       # Nothing is pinned to a build number: paths.mjs searches
       # PLAYWRIGHT_BROWSERS_PATH first and falls back to this, which is why the
       # suite runs both here and on a container with a browser preinstalled.
-      - name: Install the suite and a browser
+      # The download is cached against package.json; --with-deps still runs
+      # every time, because the system libraries live outside the cache.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/package.json') }}
+      - name: Install a browser
         working-directory: tests
-        run: |
-          npm install
-          npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
-      # ffmpeg with lavfi, libvpx, libvorbis and libx264. Without it six tests
-      # skip for want of fixtures, and the runner says which and why rather than
-      # failing obscurely.
+      # ffmpeg with lavfi, libvpx, libvorbis and libx264, for make.sh and for
+      # test-rotated, which reads its export back. Installed only if the
+      # runner image does not already carry one.
       - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: command -v ffmpeg || { sudo apt-get update && sudo apt-get install -y ffmpeg; }
 
+      # The fixtures only change when make.sh does, and make.sh skips any file
+      # that is already there, so on a cache hit this step costs nothing.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            tests/fixtures/photo*.jpg
+            tests/fixtures/clip.mp4
+            tests/fixtures/many
+          key: fixtures-${{ hashFiles('tests/fixtures/make.sh') }}
       - name: Generate the fixtures too big for git
         working-directory: tests
         run: ./fixtures/make.sh
 
-      - name: Run the suite
+      - name: Run this shard of the suite
         working-directory: tests
+        env:
+          SHARD: ${{ matrix.shard }}/4
         run: node run.mjs
 
       # The screenshots several tests take, which are worth having when a run
@@ -55,6 +83,6 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshots
+          name: screenshots-${{ matrix.shard }}
           path: tests/shots/
           if-no-files-found: ignore

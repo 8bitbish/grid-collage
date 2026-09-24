@@ -13,6 +13,8 @@ npx playwright install chromium     # skip if a browser is already installed
 node run.mjs                        # the whole suite
 node run.mjs swipe tile             # just those
 JOBS=4 node run.mjs                 # four at a time
+SHARD=2/4 node run.mjs              # the quarter the second CI machine runs
+RECORD=1 node run.mjs               # and write how long each took to durations.json
 ```
 
 Every test asks the system for a free port rather than naming one, so no two
@@ -22,11 +24,18 @@ port" had quietly stopped being true: three pairs shared one, each pair
 written in parallel by different branches.
 
 One at a time is still the default. Four at once runs the whole suite in about
-150s rather than ten minutes, and passed three runs out of three on the ports,
-but `swipe` failed one of them: its flicks are measured against real frame
-timing, and four Chromiums on one machine slow each other's frames enough to
-turn a flick into a drag. CI gets its speed by splitting the suite across
+150s rather than ten minutes, with no collisions in three runs, but `swipe`
+failed one of them: its flicks are measured against real frame timing, and
+four Chromiums on one machine slow each other's frames enough to turn a flick
+into a drag. CI gets its speed by splitting the suite across
 machines instead, each running its share one at a time.
+
+CI splits the suite four ways, one machine each, balanced by the times in
+`durations.json`. Those only decide the balance: an out-of-date file makes one
+machine finish a little after the others, never a test go unrun, and a new test
+with no entry counts as the median. Refresh it now and then with a full
+`RECORD=1` run, one at a time on a quiet machine — under `JOBS` the numbers
+measure the contention as much as the test.
 
 `run.mjs` exits non-zero if any test that was supposed to pass did not, and says
 plainly what it skipped and why. It replaced `runall.sh`, which listed 21 of the
