@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.24o">
+<link rel="stylesheet" href="styles.css?v=2026.09.24p">
 </head>
 <body class="on-home">
 
@@ -398,11 +398,21 @@
              the photo looks. The row of effects is written in by app.js from
              its list; under it, the settings of whichever one is on. -->
         <div class="tile-sub tile-effects" id="tile-effects" hidden>
+          <div class="effect-main" id="effect-main">
           <div class="effect-head">
             <div class="adjust-tools" id="effect-list" role="group" aria-label="Effects"></div>
-            <p class="pop-note" id="pop-note" aria-live="polite"></p>
+            <!-- Tapping the photo chooses what counts as the subject while this
+                 is held on; the chosen ones are tinted on the tile. -->
+            <button class="dock-item adjust-tool pop-tool" id="pop-pick" type="button" aria-pressed="false" hidden>
+              <span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.4-3.2 2.6-5.2 5.5-5.2 1.2 0 2.3.3 3.2 1"/><circle cx="17" cy="10" r="2.6"/><path d="M13.5 19c.3-2.4 1.7-3.9 3.5-3.9s3.2 1.5 3.5 3.9"/></svg></span>
+              <span>Subjects</span>
+            </button>
+            <button class="dock-item adjust-tool pop-tool" id="pop-edge" type="button" hidden>
+              <span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20c1-6 3-11 7-15"/><path d="M9 20c.5-4 2-8 5-11"/><path d="M13 20c.3-3 1.4-5.7 3.5-8"/></svg></span>
+              <span>Edge</span>
+            </button>
           </div>
-          <p class="effect-hint" id="effect-hint">Tap an effect to try it on this photo</p>
+          <p class="effect-hint" id="effect-hint">Tap an effect to try it on this photo, or hold on what should pop out</p>
           <div class="adjust-row" id="popout-row" hidden>
             <div class="pop-sides" id="pop-sides" role="group" aria-label="Pop out of">
               <button class="pop-side" type="button" data-side="top" aria-pressed="false" aria-label="Top" title="Top">
@@ -418,12 +428,26 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(270 12 12)"><rect x="5" y="9" width="14" height="11" rx="2"/><path d="M12 13V3M8.5 6.5L12 3l3.5 3.5"/></g></svg>
               </button>
             </div>
-            <!-- Tapping the photo chooses what counts as the subject while this
-                 is held on; the chosen ones are tinted on the tile. -->
-            <button class="btn btn-ghost btn-sm pop-pick" id="pop-pick" type="button" aria-pressed="false">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.4-3.2 2.6-5.2 5.5-5.2 1.2 0 2.3.3 3.2 1"/><circle cx="17" cy="10" r="2.6"/><path d="M13.5 19c.3-2.4 1.7-3.9 3.5-3.9s3.2 1.5 3.5 3.9"/></svg>
-              <span>Subjects</span>
-            </button>
+            <p class="pop-note" id="pop-note" aria-live="polite"></p>
+          </div>
+          </div>
+
+          <!-- The edge, set by hand: one row of tools and one slider for
+               whichever is chosen, as Adjust does it. The tools are written
+               in by app.js from its list. -->
+          <div class="effect-edge" id="effect-edge" hidden>
+            <div class="effect-head">
+              <button class="btn btn-ghost btn-sm" id="edge-done" type="button">&larr; Pop out</button>
+              <div class="adjust-tools" id="edge-tools" role="group" aria-label="Edge"></div>
+            </div>
+            <div class="adjust-row">
+              <div class="dock-slider" id="edge-slide">
+                <label class="dock-label" for="edge"><span id="edge-name">Hair</span> <span class="val" id="edge-val">50</span></label>
+                <input type="range" id="edge" min="0" max="100" step="1" value="50">
+                <span class="slider-read" aria-hidden="true">50</span>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="edge-reset" type="button">Reset</button>
+            </div>
           </div>
         </div>
 
@@ -537,6 +561,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.24o"></script>
+<script src="app.js?v=2026.09.24p"></script>
 </body>
 </html>
