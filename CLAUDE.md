@@ -43,7 +43,7 @@ cd tests && npm install && node run.mjs
 ```
 
 43 tests, no framework, Playwright the only dependency. It exits non-zero on any
-failure and says plainly what it skipped and why — six tests need fixtures too
+failure and says plainly what it skipped and why — seven tests need fixtures too
 big for git, which `tests/fixtures/make.sh` generates and which need ffmpeg. CI
 runs the lot on every push and pull request.
 

@@ -365,7 +365,15 @@
       canvas.width = W;
       canvas.height = H;
     }
+    // A clip that is playing draws as its current frame here too, not only in
+    // its own paint loop. Everything else that redraws the preview — each
+    // photo the reel lands on, one read up to size, a poster arriving — used
+    // to draw it as its still, and when the next frame was late behind a big
+    // decode the still stayed on screen: the clip in one slot flickered back
+    // to its first frame while another slot was being chosen for.
+    const lent = lendFrames(page());
     drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected });
+    lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
     page().rev = (page().rev || 0) + 1;
@@ -2149,7 +2157,6 @@
     if (!canPlay()) { stopPlayers(); return; }
 
     const pg = page();
-    let live = false;
     players.forEach((p, i) => {
       // Read the cell out of the page every frame rather than holding the
       // one it was made with. Anything that rebuilds a tile in place — the
@@ -2172,19 +2179,34 @@
         // to its own end plays once and sits there.
         if (el.paused) el.play().catch(() => { /* the poster stands in */ });
       }
-      // Mid-seek there is no frame to copy, so the poster holds the tile
-      // rather than the picture dropping out on every loop round.
-      if (p.ready && !el.seeking) { cell.frame = el; live = true; }
     });
 
-    if (live) {
+    const lent = lendFrames(pg);
+    if (lent.length) {
       const { w: W, h: H } = previewSize();
       if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
       drawPage(ctx, pg, W, H, { placeholders: true, selected: state.selected });
     }
-    players.forEach(({ cell }) => { cell.frame = null; });
+    lent.forEach((cell) => { cell.frame = null; });
 
     painting = requestAnimationFrame(paintPlaying);
+  }
+
+  // Each playing clip's current frame, lent to its cell for one draw and
+  // handed back after it. Mid-seek there is no frame to copy, so the poster
+  // holds the tile rather than the picture dropping out on every loop round.
+  // And only while the cell still holds that clip: the slot being chosen for
+  // can have been the clip a moment ago, and its player outlives the swap by
+  // as long as it takes syncPlayback to come round.
+  function lendFrames(pg) {
+    const lent = [];
+    players.forEach((p, i) => {
+      const cell = pg && pg.cells[i];
+      if (!cell || cell.photo !== p.photoId || !p.ready || p.el.seeking) return;
+      cell.frame = p.el;
+      lent.push(cell);
+    });
+    return lent;
   }
 
   document.addEventListener('visibilitychange', syncPlayback);
