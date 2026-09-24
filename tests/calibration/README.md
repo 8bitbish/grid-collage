@@ -9,9 +9,13 @@ the same way and the ones here can be checked again.
 
 ## The chart
 
-`node chart.mjs` writes `out/chart.png` (2160×2160) and `out/chart.json`, the
-layout the other scripts read. It is deterministic — the noise is seeded — so it
-is regenerated rather than kept in git. Every region answers one question:
+`node chart.mjs` writes `out/chart.png` (2160×2160), `out/chart-blurred.png`
+and `out/chart.json`, the layout the other scripts read. It is deterministic —
+the noise is seeded — so it is regenerated rather than kept in git. The blurred
+chart is the same through a canvas `blur(2px)`, byte for byte the copy Google's
+Sharpen was tried on (`@blurred`); made in a browser with SwiftShader instead it
+comes out a touch sharper, and Sharpen notices. Every region answers one
+question:
 
 | region | what it tells you |
 | --- | --- |
@@ -58,15 +62,21 @@ the phone.
 5. `node knots.mjs <folder>/results.json <setting>` gives the 33 knots an
    `ADJUSTMENTS` entry's `curves` takes.
 6. `node ours.mjs <dir> <setting> …` exports the chart through the app at the
-   same settings; measure that folder too, then
-   `node compare.mjs <dir>/results.json` sets the two side by side.
+   same settings, and `--chart=out/chart-blurred.png` for `@blurred`; measure
+   that folder too, then `node compare.mjs <dir>/results.json` sets the two
+   side by side. For a detail tool it adds a second table: each grating's
+   gain by its fundamental, both edges' dip and rise, the 1px line and the
+   noise.
 
 `google.json` is everything read off Google's copies — 46 of them: every tone
 tool at every quarter of the slider, Shadows lifting on a dark and on a bright
 photo (`@dark`, `@bright`), and Sharpen at 25 to 100 and on a blurred chart
-(`@blurred`, with `none@blurred` the blurred chart as it came). The ±50 and
-±100 tone settings and all of Sharpen are the Android app's, at full size; the
-rest are the web's. The JPEGs themselves are not kept.
+(`@blurred`, with `none@blurred` the blurred chart as it came, and `none` the
+chart itself). The ±50 and ±100 tone settings and all of Sharpen are the Android
+app's, at full size; the rest are the web's. The JPEGs themselves are not kept.
+Sharpen's entries were measured again when measure.mjs learned to read each
+grating's fundamental and the 1px lines, and every field already there came out
+identical.
 
 ## What was found
 
@@ -95,15 +105,30 @@ Measured in September 2026, Google Photos for Android and on the web.
   ±50 and ±100, White and Black point at ±25 and ±75 were up to eight levels
   off, so the app carries every quarter of the slider.
 - **Sharpen** is Polyblur (Delbracio et al., the algorithm Google Research
-  published for it): its response `p(k)`, `k` a Gaussian of σ ≈ 1.5px at the
-  chart's 2160px, fits the gratings to within 0.04 of gain — α 4.3 and b 1.58
-  at 50, α 12.8 and b 2.16 at 100. From 25 to 100 both run in straight lines,
-  α ≈ 17.1s − 4.3 and b ≈ 1 + 1.17s for s the slider over 100, with σ steady
-  near 1.5. Detail with a 6px period gains most (×2.8 at 100), and the noise
-  patch came out slightly quieter, not louder. It adapts: on the chart blurred
-  by σ 2px, Sharpen 100 fitted σ ≈ 2.6 — about √(1.5² + 2²) — so Google
-  estimates each photo's blur, as Polyblur does. The app's Sharpen is not built
-  that way yet.
+  published for it) — a Gaussian blur of σ undone by the polynomial `p(K)` —
+  but run on a smaller copy. The 2px and 3px gratings came back with beats in
+  them, periods of 14.2, 10.4 and 4.2px, which a filter working at the chart's
+  own size cannot make; all three put the copy at 0.5702 of 2160px, to four
+  figures, which is 1232px, a square of 1.5 megapixels with its side rounded up
+  to 16. Only plain bilinear sampling down and back up aliased the 3px grating
+  as strongly as Google's (5.8 levels against 5.5). Measured by fundamental
+  rather than by swing, the finest detail is not lifted at all — 2px ×1.01,
+  3px ×0.88 at 100 — and the lift is at 4 to 12px, most at 6px (×2.15). Fitted
+  at the copy's scale with one σ of 0.75, α runs 0, 6.75, 13.75 and 21 from 25
+  to 100 and b 0.98, 0.70, 0.38 and 0. It adapts: on the chart blurred by σ
+  2px, Sharpen 100 lifted 8px by ×2.76 and 12px by ×3.11 of the blurred
+  chart's own, which no σ reaches with the sharp chart's α and b; σ 1.1 in the
+  copy with the lift scaled by 1.95 does. The noise patch came back quieter,
+  not louder, and colour was untouched.
+
+  What was built: the paper's blur estimate read off a copy at the working
+  size (0.41 for the sharp chart, 1.57 for the blurred), mapped to σ and a
+  gain through those two points; grain split off with a 3x3 bilateral filter
+  and handed back unsharpened; the three bands and their weighting; and the
+  paper's halo guard, with the photo's slope taken through the blur and the
+  blend shared with each pixel's four neighbours, which is what took the
+  hard edge's ring from 27 and 21 levels to 8 and 11. `app.js` has the
+  measurements behind each piece.
 
 How close the app now is, from `compare.mjs`:
 
@@ -114,6 +139,22 @@ How close the app now is, from `compare.mjs`:
 | Shadows +25 to +100, dark and bright photos | 1 level | — |
 | White point, all eight | 1 level | 0.7–4.5 / 10.8 |
 | Black point, all eight | 1–4 levels | 1.4–5.7 / 12.5 |
+
+And Sharpen, exported through the app at 2160 and read the same way (gain by
+each grating's fundamental against the chart as it came; ours / Google's):
+
+| | 4px | 6px | 8px | 12px | 100\|170 edge, dip / rise | 1px line peak | noise (3.02 unedited) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 25 | 1.09 / 1.08 | 1.26 / 1.29 | 1.28 / 1.27 | 1.18 / 1.13 | 5, 6 / 4, 2 | +8 / +4 | 3.03 / 2.61 |
+| 50 | 1.17 / 1.17 | 1.56 / 1.58 | 1.54 / 1.53 | 1.29 / 1.25 | 6, 9 / 8, 2 | +14 / +7 | 3.11 / 2.69 |
+| 75 | 1.24 / 1.25 | 1.85 / 1.86 | 1.80 / 1.80 | 1.40 / 1.38 | 7, 10 / 11, 4 | +21 / +11 | 3.19 / 2.82 |
+| 100 | 1.31 / 1.33 | 2.14 / 2.15 | 2.06 / 2.07 | 1.51 / 1.51 | 8, 11 / 16, 6 | +27 / +14 | 3.26 / 2.93 |
+| 100, blurred chart | — | — | 2.82 / 2.76 | 3.18 / 3.11 | 3, 4 / 4, 3 | −49 / −47 | 0.80 / 0.87 |
+
+The gratings, which are what Sharpen was fitted to, are within 0.05 everywhere.
+The noise is not as far off as it looks: Google's copies are JPEGs, and the
+same q90 round trip took the app's 3.03 and 3.26 at 25 and 100 to 2.59 and
+2.86, against Google's 2.61 and 2.93. The rest is below.
 
 The grey is as close as the measurement can see. The colour at White and Black
 point ±100 is not: Google also takes about a tenth off a saturated colour at
@@ -127,6 +168,27 @@ do and nothing tried yet explains.
   out at slightly different points of the change, so a photo with a median
   near 128 is lifted up to six levels differently from Google at +100.
   Everything with a median below about 122 or above 130 matches to a level.
-- **Sharpen**, as above.
+- **How Sharpen's copy is sized for other photos.** One chart at one size
+  cannot tell 1.5 megapixels from a fixed fraction of the photo, or a longest
+  side of 1232; the app takes the first. They agree on the chart and differ
+  on a 12MP photo, where the first sharpens at a scale about two photo pixels
+  across and a fixed fraction at a little over one.
+- **Sharpen's hard edges and single lines.** The app lifts a 1px line by 27
+  levels at 100 to Google's 14, and shares an edge's ring evenly where
+  Google's dips further on the dark side than it rises on the light (8 and 11
+  against 16 and 6); its 3px grating gains ×1.10 where Google's loses a
+  little. A one-dimensional model of the same pipeline agreed with the app
+  on all three to a level or two, so it is something Google does that the
+  model lacks. In that model, keeping only 60% of the detail finer than the
+  copy brought the line's peak to Google's and softened the edge's middle as
+  Google's is, but took the 2px grating to ×0.61; capping the lift at a
+  multiple of the first band trimmed the ripple past the ring but not the
+  ring.
+- **What Sharpen's blur estimate keys on.** It reads a photo's steepest
+  slopes, so it depends on what is in the photo as well as how soft it is:
+  photos made of the chart's gratings and edges read 0.11 or 0.78 sharp and
+  1.14 or 2.02 blurred, against the chart's 0.41 and 1.57. The app is
+  calibrated on the chart, and nothing yet says whether Google's reads a real
+  photo the same way.
 - **Colour at White and Black point ±100**, where saturated patches are up to
   twelve levels from Google's.
