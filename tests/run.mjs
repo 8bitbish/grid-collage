@@ -30,6 +30,7 @@ const PER_TEST_MS = 400_000;
 // which is why a plain grep for "photo0.jpg" finds almost nothing.
 const NEEDS = {
   bulk: ['fixtures/photo0.jpg', 'fixtures/many/clip0.webm'],
+  otherslot: ['fixtures/photo0.jpg'],
   progress: ['fixtures/photo0.jpg'],
   progressive: ['fixtures/photo0.jpg'],
   replaceplay: ['fixtures/photo0.jpg'],

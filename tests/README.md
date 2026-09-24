@@ -44,13 +44,13 @@ session, so it could not run anywhere — including where it was written.
 
 ### Fixtures
 
-Six tests need files too big for git. Generate them first:
+Seven tests need files too big for git. Generate them first:
 
 ```sh
 ./fixtures/make.sh                  # needs ffmpeg with lavfi, libvpx, libvorbis, libx264
 ```
 
-Without them those six skip and the runner names them. The ffmpeg bundled with
+Without them those seven skip and the runner names them. The ffmpeg bundled with
 Playwright cannot do it — it is built `--disable-everything` and has libvpx but
 no lavfi, so it can neither read a synthetic source nor write H.264.
 
