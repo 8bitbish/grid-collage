@@ -507,9 +507,21 @@
   //          so nought is exactly the photo and costs nothing. It sees
   //          `amount` (the slider over 100) and rewrites `c`, the pixel as
   //          gamma-encoded RGB in 0..1. Helpers: luma(c), at(px) for the
-  //          source pixel px pixels away, u_texel, and u_scale — processed
+  //          source pixel px pixels away, u_texel, u_scale — processed
   //          pixels per pixel of a 1080px post, so a radius authored against
-  //          the preview means the same thing in a 2160px export.
+  //          the preview means the same thing in a 2160px export — and
+  //          result_<id>() for a tool with passes.
+  //   passes optional, for a tool that needs more than one look at the photo:
+  //          blurs, or anything else a single pass cannot reach. `prepare`
+  //          runs once per photo and size, `apply` on every slider move; each
+  //          pass names its output and what it reads, and may blur along an
+  //          axis. See passFragment and runPasses. What `apply` leaves is
+  //          read back in the tool's glsl through result_<id>().
+  //   grid   with passes: the most pixels they run over, taken from the
+  //          photo's own size. A look smaller than that runs them at its own.
+  //   forBlur with passes: what the passes need for a photo blurOf found to
+  //          be so soft — a σ for their Gaussian, in pixels of the grid, and
+  //          whatever else apply's uniforms(amount, blur) reads from it.
   //   curves optional: a tone curve measured off Google Photos at some of the
   //          slider's positions, as output levels at CURVE_KNOTS. The curve for
   //          any other position is interpolated between the two measured
@@ -793,6 +805,96 @@
     return 1 / (1 + Math.exp((median - ADAPTS.adapt.median) / ADAPTS.adapt.width));
   }
 
+  // The copy a detail tool works on, sized from the photo itself rather than
+  // whatever happens to be decoded: at most tool.grid pixels, each side
+  // rounded up to 16, which is the rule that reproduced Google's 1232px for
+  // the 2160px chart. A photo already that small is worked on as it is.
+  function detailGrid(tool, photo) {
+    const w = photo.w || 1;
+    const h = photo.h || 1;
+    const s = Math.sqrt(tool.grid / (w * h));
+    if (s >= 1) return { w, h };
+    return { w: Math.min(w, Math.ceil((w * s) / 16) * 16), h: Math.min(h, Math.ceil((h * s) / 16) * 16) };
+  }
+
+  // How soft a photo is, as Polyblur estimates it, in pixels of the working
+  // copy. The paper's estimator: stretch the brightness so its outermost
+  // hundredth of a percent sits at 0 and 255, find the steepest slope in each
+  // of six directions, and take the direction where even the steepest is
+  // gentlest. A sharp photo's steepest edge is about as steep as edges get,
+  // whatever it shows; blur it and that slope falls as one over the blur. The
+  // constants are the paper's own calibration, c 89.8 and σb 0.764, the
+  // second being the blur of the slope measurement itself.
+  //
+  // The paper fits a Gaussian stretched along that direction; the passes
+  // here blur the same both ways, so the two σ, gentlest and across, are
+  // averaged. On the blurred chart they were 1.61 and 1.54, on the sharp one
+  // 0.48 and 0.34. The answer depends on what a photo has in it as well as
+  // how soft it is, which is the paper's assumption and its weakness: a
+  // photo of the chart's gratings and one 100|170 edge, blurred by the same
+  // σ 2, read 1.14 against the chart's 1.57. forBlur is calibrated on the
+  // chart. A generated 12MP scene, softened by a pixel, read 0.15.
+  //
+  // Once per decode, from a copy at the working size — the proxy and the full
+  // photo each get their own, because a proxy smaller than the working copy
+  // has already lost some of the softness being measured.
+  const blurs = new WeakMap();
+  function blurOf(src, grid) {
+    let found = blurs.get(src);
+    if (found !== undefined) return found;
+    const w = Math.max(3, Math.min(grid.w, src.width));
+    const h = Math.max(3, Math.min(grid.h, src.height));
+    const g = scratch(w, h).getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, w, h);
+    const d = g.getImageData(0, 0, w, h).data;
+    const y = new Float32Array(w * h);
+    const counts = new Array(256).fill(0);
+    for (let i = 0; i < y.length; i += 1) {
+      y[i] = 0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2];
+      counts[Math.round(y[i])] += 1;
+    }
+    const tail = y.length * 1e-4;
+    let seen = 0;
+    const lo = counts.findIndex((n) => (seen += n) > tail);
+    seen = 0;
+    const hi = 255 - [...counts].reverse().findIndex((n) => (seen += n) > tail);
+    found = 0;
+    if (hi > lo) {
+      const perLevel = 255 / (hi - lo);
+      const angles = [0, 1, 2, 3, 4, 5].map((k) => [Math.cos((k * Math.PI) / 6), Math.sin((k * Math.PI) / 6)]);
+      const steepest = [0, 0, 0, 0, 0, 0];
+      for (let r = 1; r < h - 1; r += 1) {
+        for (let x = 1; x < w - 1; x += 1) {
+          const i = r * w + x;
+          const gx = ((y[i + 1] - y[i - 1]) / 2) * perLevel;
+          const gy = ((y[i + w] - y[i - w]) / 2) * perLevel;
+          for (let k = 0; k < 6; k += 1) {
+            const slope = Math.abs(gx * angles[k][0] + gy * angles[k][1]);
+            if (slope > steepest[k]) steepest[k] = slope;
+          }
+        }
+      }
+      // The gentlest direction read between the six measured through a
+      // parabola, as the paper does, and the one square to it.
+      const k = steepest.indexOf(Math.min(...steepest));
+      const at = (j) => steepest[(j + 6) % 6];
+      const curve = (j) => {
+        const a = at(j - 1), b = at(j), c = at(j + 1);
+        const bend = a - 2 * b + c;
+        const off = bend > 0 ? clamp((a - c) / (2 * bend), -0.5, 0.5) : 0;
+        return b - ((a - c) * off) / 4;
+      };
+      const gentlest = curve(k);
+      const across = at(k + 3);
+      const sigma = (f) => (f > 0 ? Math.sqrt(Math.max(0, (89.8 / f) ** 2 - 0.764 ** 2)) : 0);
+      found = ((sigma(gentlest) + sigma(across)) / 2) * (grid.w / w);
+    }
+    blurs.set(src, found);
+    return found;
+  }
+
   // Whether a cell's edits add up to nothing. A plain cell never goes near the
   // GPU, so an unedited tile is drawn exactly as it was before there were edits.
   const plainLook = (adjust) => !adjust || ADJUSTMENTS.every((a) => !adjust[a.id]);
@@ -823,21 +925,59 @@
       gl_Position = vec4(a_pos, 0.0, 1.0);
     }`;
 
-  function lookFragment() {
-    const order = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
-    return `
+  // A pass draws into a texture, not a canvas, and keeps the texture's own
+  // way up: row nought the top, the same as the photo it reads. Flipped as
+  // the look's final draw is, every pass would turn the picture over, and a
+  // pass reading two buffers would be adding the top of one to the bottom
+  // of the other.
+  const PASS_VERTEX = `
+    attribute vec2 a_pos;
+    varying vec2 v_uv;
+    void main() {
+      v_uv = (a_pos + 1.0) * 0.5;
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }`;
+
+  const PASSED = ADJUSTMENTS.filter((a) => a.passes);
+  // The furthest a blur in a pass reaches, in pixels either side. Four σ,
+  // so σ up to 3 of the working copy, which is a photo well past soft.
+  const KERNEL_REACH = 12;
+
+  // How passes keep their numbers between them: two a pixel. Half floats hold
+  // them as they are. Bytes need each one split across two, sixteen bits over
+  // -8..8, which is a sixteenth of a level — a lift near a hard edge can be
+  // several times the whole range of the photo before the halo guard and the
+  // final clamp take it back, so the range is wider than 0..1 by a lot.
+  const glslStore = (packed) => (packed ? `
+      vec2 unpack(vec4 t) {
+        return vec2(t.r * 65280.0 + t.g * 255.0, t.b * 65280.0 + t.a * 255.0) / 65535.0 * 16.0 - 8.0;
+      }
+      vec4 pack(vec2 v) {
+        vec2 n = floor(clamp((v + 8.0) / 16.0, 0.0, 1.0) * 65535.0 + 0.5);
+        vec2 high = floor(n / 256.0);
+        return vec4(high.x, n.x - high.x * 256.0, high.y, n.y - high.y * 256.0) / 255.0;
+      }` : `
+      vec2 unpack(vec4 t) { return t.rg; }
+      vec4 pack(vec2 v) { return vec4(v, 0.0, 1.0); }`);
+
+  const GLSL_HEAD = `
       #ifdef GL_FRAGMENT_PRECISION_HIGH
       precision highp float;
       #else
       precision mediump float;
       #endif
+      varying vec2 v_uv;
+      float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }`;
+
+  function lookFragment(packed) {
+    const order = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
+    return `${GLSL_HEAD}
+      ${glslStore(packed)}
       uniform sampler2D u_image;
       uniform vec2 u_texel;
       uniform float u_scale;
       uniform sampler2D u_curves;
       ${ADJUSTMENTS.map((a) => `uniform float u_${a.id};`).join('\n')}
-      varying vec2 v_uv;
-      float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
       vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
       // A level from a curve's row, read as two bytes and interpolated here
       // rather than by the texture: linear filtering would blend the high and
@@ -852,12 +992,74 @@
         return mix(level(i, row), level(i + 1.0, row), x - i) / 255.0;
       }
       ${CURVED.map((a, row) => `float curve_${a.id}(float y) { return curve(${row}.0, y); }`).join('\n')}
+      // A pass's result, brought up from the working copy to the pixel being
+      // drawn. Bilinear, as Google brings its own back up, and by hand,
+      // because bytes holding half a number each cannot be filtered and half
+      // floats can only where another extension says so.
+      vec2 gridAt(sampler2D s, vec2 size) {
+        vec2 p = v_uv * size - 0.5;
+        vec2 i = floor(p);
+        vec2 f = p - i;
+        vec2 a = (i + 0.5) / size;
+        vec2 t = 1.0 / size;
+        return mix(mix(unpack(texture2D(s, a)), unpack(texture2D(s, a + vec2(t.x, 0.0))), f.x),
+          mix(unpack(texture2D(s, a + vec2(0.0, t.y))), unpack(texture2D(s, a + t)), f.x), f.y);
+      }
+      ${PASSED.map((a) => `uniform sampler2D u_result_${a.id};
+      uniform vec2 u_grid_${a.id};
+      vec2 result_${a.id}() { return gridAt(u_result_${a.id}, u_grid_${a.id}); }`).join('\n')}
       void main() {
         vec4 source = texture2D(u_image, v_uv);
         vec3 c = source.rgb;
         ${order.map((a) => `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`).join('\n')}
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), source.a);
       }`;
+  }
+
+  // One pass of a tool, drawn over its working copy. It sees source(), the
+  // photo at this pixel through the texture's own bilinear filter, which is
+  // how the copy is taken; read0..2(px), what the passes named in `from` left
+  // px pixels away; and blurred(), the first of those through the tool's
+  // Gaussian along the pass's axis. It returns two numbers.
+  function passFragment(pass, packed) {
+    const from = pass.from || [];
+    return `${GLSL_HEAD}
+      ${glslStore(packed)}
+      uniform sampler2D u_image;
+      uniform vec2 u_texel;
+      uniform vec2 u_axis;
+      uniform float u_kernel[${KERNEL_REACH + 1}];
+      uniform float u_reach;
+      ${from.map((_, i) => `uniform sampler2D u_in${i};`).join('\n')}
+      vec3 source() { return texture2D(u_image, v_uv).rgb; }
+      ${from.map((_, i) => `vec2 read${i}(vec2 px) { return unpack(texture2D(u_in${i}, v_uv + px * u_texel)); }`).join('\n')}
+      ${from.length ? `vec2 blurred() {
+        vec2 sum = u_kernel[0] * read0(vec2(0.0));
+        for (int i = 1; i <= ${KERNEL_REACH}; i++) {
+          if (float(i) > u_reach) break;
+          vec2 d = float(i) * u_axis;
+          sum += u_kernel[i] * (read0(d) + read0(-d));
+        }
+        return sum;
+      }` : ''}
+      ${pass.helpers || ''}
+      vec2 run() { ${pass.glsl} }
+      void main() { gl_FragColor = pack(run()); }`;
+  }
+
+  // A sampled Gaussian, normalised, as the fit to Google's gratings used.
+  // Below about σ 0.3 it is the pixel alone, and a pass built on it adds
+  // nothing: the right answer for a thumbnail, where Google's detail would
+  // be finer than a pixel.
+  function gaussian(sigma) {
+    const reach = clamp(Math.ceil(4 * sigma), 1, KERNEL_REACH);
+    const weights = new Float32Array(KERNEL_REACH + 1);
+    let total = 0;
+    for (let i = 0; i <= reach; i += 1) {
+      weights[i] = Math.exp(-(i * i) / (2 * Math.max(sigma, 1e-3) ** 2));
+      total += i ? 2 * weights[i] : weights[i];
+    }
+    return { weights: weights.map((v) => v / total), reach };
   }
 
   function lookContext() {
@@ -871,81 +1073,204 @@
       alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, depth: false,
     });
     if (!gl) return lookGL;
-    const shader = (type, source) => {
-      const s = gl.createShader(type);
-      gl.shaderSource(s, source);
-      gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error('adjust shader:', gl.getShaderInfoLog(s));
-        return null;
-      }
-      return s;
-    };
-    const vs = shader(gl.VERTEX_SHADER, LOOK_VERTEX);
-    const fs = shader(gl.FRAGMENT_SHADER, lookFragment());
-    if (!vs || !fs) return lookGL;
-    const program = gl.createProgram();
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return lookGL;
-    gl.useProgram(program);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const pos = gl.getAttribLocation(program, 'a_pos');
-    gl.enableVertexAttribArray(pos);
-    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
-
-    const newTexture = () => {
+    const newTexture = (filter = gl.LINEAR) => {
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       return texture;
     };
 
-    const uniform = (name) => gl.getUniformLocation(program, name);
+    // Where passes draw. Bytes, two to a number, wherever the shader has
+    // highp to split and join them exactly: every WebGL GPU draws into bytes,
+    // they take half the memory half floats do, and sixteen bits over -8..8
+    // is finer than a half float's eleven. Half floats where highp is missing
+    // and the GPU will draw into them, which WebGL 1 only promises with both
+    // extensions, and even then is checked by drawing into one. The chart
+    // came out the same through either: its gratings within 0.01 of gain,
+    // the blurred chart's within 0.06.
+    // With neither, a tool with passes sits out and the tone tools carry on.
+    const fbo = gl.createFramebuffer();
+    const drawsInto = (type) => {
+      gl.activeTexture(gl.TEXTURE2);
+      const t = newTexture(gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, 4, 0, gl.RGBA, type, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteTexture(t);
+      gl.activeTexture(gl.TEXTURE0);
+      return ok;
+    };
+    const half = gl.getExtension('OES_texture_half_float');
+    const halfDraw = half && gl.getExtension('EXT_color_buffer_half_float');
+    const highp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT).precision >= 23;
+    let store = null;
+    if (highp && drawsInto(gl.UNSIGNED_BYTE)) store = { type: gl.UNSIGNED_BYTE, packed: true };
+    else if (halfDraw && drawsInto(half.HALF_FLOAT_OES)) store = { type: half.HALF_FLOAT_OES, packed: false };
+
+    const compile = (fragment, vertex = LOOK_VERTEX) => {
+      const shader = (type, source) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, source);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          console.error('adjust shader:', gl.getShaderInfoLog(s));
+          return null;
+        }
+        return s;
+      };
+      const vs = shader(gl.VERTEX_SHADER, vertex);
+      const fs = shader(gl.FRAGMENT_SHADER, fragment);
+      if (!vs || !fs) return null;
+      const program = gl.createProgram();
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      // Every program reads the one quad from the same slot.
+      gl.bindAttribLocation(program, 0, 'a_pos');
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+      const places = new Map();
+      const at = (name) => {
+        if (!places.has(name)) places.set(name, gl.getUniformLocation(program, name));
+        return places.get(name);
+      };
+      return { program, at };
+    };
+
+    const main = compile(lookFragment(store ? store.packed : false));
+    if (!main) return lookGL;
+    gl.useProgram(main.program);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
     const dims = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
 
     // The photo on unit 0 and the curves on unit 1, one row per curved tool.
-    // Nearest, because the shader interpolates them itself.
-    gl.uniform1i(uniform('u_image'), 0);
-    gl.uniform1i(uniform('u_curves'), 1);
+    // Nearest, because the shader interpolates them itself. Units 2 to 4 are
+    // a pass's inputs, and from 5 on each tool's result for the final pass.
+    gl.uniform1i(main.at('u_image'), 0);
+    gl.uniform1i(main.at('u_curves'), 1);
+    PASSED.forEach((a, i) => gl.uniform1i(main.at(`u_result_${a.id}`), 5 + i));
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    newTexture(gl.NEAREST);
     gl.activeTexture(gl.TEXTURE0);
     // A phone can take its context back at any time. What has already been
     // drawn is safe, being plain 2D canvases; the next edit makes a new one.
     el.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lookGL = null; });
     lookGL = {
-      gl, el,
+      gl, el, main, fbo, store, compile, newTexture,
       // A 48MP original is past what some GPUs take in one texture.
       max: Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), dims[0], dims[1]),
-      texel: uniform('u_texel'),
-      scale: uniform('u_scale'),
-      amounts: ADJUSTMENTS.map((a) => [a.id, uniform(`u_${a.id}`)]),
       // Where a big source is brought down to size before upload.
       stage: document.createElement('canvas'),
       // What is uploaded already, most recently used first. See renderLook.
       textures: [],
-      newTexture,
+      uploads: 0,
       // The slider positions the curve texture was last filled for.
       curvesFor: null,
+      // Each pass's program, made the first time it runs.
+      programs: new Map(),
+      // What a tool's passes leave, most recently used first. See runPasses.
+      passSets: [],
     };
     return lookGL;
   }
 
+  // A pass's output, allocated or resized the first time it is wanted at a
+  // size. Kept between draws: a slider move reuses every one of them.
+  function passBuffer(look, set, name, w, h) {
+    const { gl } = look;
+    let buffer = set.buffers.get(name);
+    if (buffer && buffer.w === w && buffer.h === h) return buffer;
+    gl.activeTexture(gl.TEXTURE2);
+    if (!buffer) {
+      buffer = { texture: look.newTexture(gl.NEAREST) };
+      set.buffers.set(name, buffer);
+    } else gl.bindTexture(gl.TEXTURE_2D, buffer.texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, look.store.type, null);
+    gl.activeTexture(gl.TEXTURE0);
+    buffer.w = w;
+    buffer.h = h;
+    return buffer;
+  }
+
+  // A tool's passes over the photo already bound on unit 0, at w x h, the
+  // working copy's size. Those in `prepare` depend only on the photo, the
+  // size and the photo's blur, so they run once for all three and a slider
+  // drag runs `apply` alone. Leaves the default framebuffer bound again.
+  //
+  // Two sets of buffers a tool, for the same reason as two uploaded photos:
+  // letting go of a slider redraws the page thumbnail, and with one set the
+  // next drag began by preparing the preview all over again. Measured on a
+  // 12MP photo in headless Chromium, that first step took 139ms against 80
+  // for the rest, and 73 with two. Four buffers at the most the grid allows
+  // are 24MB in bytes, so two sets stay under 50.
+  function runPasses(look, tool, source, w, h, sigma, uniforms) {
+    const { gl } = look;
+    const kernel = gaussian(sigma);
+    const key = `${look.textures.find((t) => t.texture === source)?.serial}|${w}x${h}|${sigma}`;
+    const mine = look.passSets.filter((s) => s.tool === tool.id);
+    let set = mine.find((s) => s.key === key);
+    const prepared = !!set;
+    if (!set) {
+      set = mine.length < 2 ? { tool: tool.id, buffers: new Map() } : mine[mine.length - 1];
+      set.key = null;
+    }
+    look.passSets = [set, ...look.passSets.filter((s) => s !== set)];
+    const draw = (pass, program, values = {}) => {
+      if (!look.programs.has(program)) look.programs.set(program, look.compile(passFragment(pass, look.store.packed), PASS_VERTEX));
+      const prog = look.programs.get(program);
+      if (!prog) return false;
+      gl.useProgram(prog.program);
+      // Before the inputs are bound: making or resizing a buffer binds it,
+      // and bound over an input it would be read and drawn into at once.
+      const target = passBuffer(look, set, pass.out, w, h);
+      (pass.from || []).forEach((name, i) => {
+        gl.activeTexture(gl.TEXTURE2 + i);
+        gl.bindTexture(gl.TEXTURE_2D, set.buffers.get(name).texture);
+        gl.uniform1i(prog.at(`u_in${i}`), 2 + i);
+      });
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, source);
+      gl.uniform1i(prog.at('u_image'), 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, look.fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target.texture, 0);
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(prog.at('u_texel'), 1 / w, 1 / h);
+      if (pass.blur) {
+        gl.uniform2f(prog.at('u_axis'), pass.blur === 'x' ? 1 : 0, pass.blur === 'y' ? 1 : 0);
+        gl.uniform1fv(prog.at('u_kernel'), kernel.weights);
+        gl.uniform1f(prog.at('u_reach'), kernel.reach);
+      }
+      Object.entries(values).forEach(([name, v]) => gl.uniform1f(prog.at(name), v));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return true;
+    };
+    let ok = true;
+    if (!prepared) {
+      ok = tool.passes.prepare.every((pass, i) => draw(pass, `${tool.id}:${i}`));
+      if (ok) set.key = key;
+    }
+    if (ok) ok = draw(tool.passes.apply, `${tool.id}:apply`, uniforms);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(look.main.program);
+    return ok ? set.buffers.get(tool.passes.apply.out) : null;
+  }
+
   // One cell's edits drawn over one source at one size, into a canvas of its
   // own so the context is free for the next tile. Null if there is no WebGL,
-  // in which case the tile is drawn as it came.
-  function renderLook(src, adjust, w, h, scale, dark) {
+  // in which case the tile is drawn as it came. `detail` has, for each tool
+  // with passes, its working copy's size and what it does for this photo's
+  // blur; see lookOf.
+  function renderLook(src, adjust, w, h, scale, dark, detail) {
     const look = lookContext();
     if (!look) return null;
     const { gl } = look;
@@ -957,6 +1282,7 @@
     // against a few ms for the shader itself. Two are kept, not one, because
     // letting go of the slider redraws the page thumbnail, and with one the
     // thumbnail's upload evicted the preview's and the next drag paid again.
+    gl.activeTexture(gl.TEXTURE0);
     let kept = look.textures.find((t) => t.src === src && t.w === w && t.h === h);
     if (kept) {
       gl.bindTexture(gl.TEXTURE_2D, kept.texture);
@@ -964,7 +1290,8 @@
     } else {
       const texture = look.textures.length < 2 ? look.newTexture() : look.textures.pop().texture;
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      kept = { src, w, h, texture };
+      look.uploads += 1;
+      kept = { src, w, h, texture, serial: look.uploads };
       look.textures.unshift(kept);
       // Resampled to size by the 2D canvas first, with the same high-quality
       // smoothing drawPage uses, rather than left to the GPU's bilinear
@@ -1009,12 +1336,33 @@
       look.curvesFor = curvesFor;
     }
 
+    // Each tool with passes, over the photo at its working copy's size or
+    // the look's, whichever is smaller: a look smaller than Google's copy
+    // already is the copy, only coarser. σ follows the copy down.
+    const amounts = Object.fromEntries(ADJUSTMENTS.map((a) => [a.id, (adjust[a.id] || 0) / 100]));
+    PASSED.forEach((tool, i) => {
+      if (!amounts[tool.id]) return;
+      const plan = look.store && detail[tool.id];
+      const gw = plan ? Math.min(w, plan.grid.w) : 1;
+      const gh = plan ? Math.min(h, plan.grid.h) : 1;
+      const result = plan && runPasses(look, tool, kept.texture, gw, gh, plan.blur.sigma * (gw / plan.grid.w),
+        tool.passes.apply.uniforms(amounts[tool.id], plan.blur));
+      // Nothing to add if the passes could not run: the tool sits out.
+      if (!result) amounts[tool.id] = 0;
+      else {
+        gl.activeTexture(gl.TEXTURE5 + i);
+        gl.bindTexture(gl.TEXTURE_2D, result.texture);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.uniform2f(look.main.at(`u_grid_${tool.id}`), gw, gh);
+      }
+    });
+
     look.el.width = w;
     look.el.height = h;
     gl.viewport(0, 0, w, h);
-    gl.uniform2f(look.texel, 1 / w, 1 / h);
-    gl.uniform1f(look.scale, scale);
-    look.amounts.forEach(([id, at]) => gl.uniform1f(at, (adjust[id] || 0) / 100));
+    gl.uniform2f(look.main.at('u_texel'), 1 / w, 1 / h);
+    gl.uniform1f(look.main.at('u_scale'), scale);
+    ADJUSTMENTS.forEach((a) => gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     const out = document.createElement('canvas');
@@ -1062,7 +1410,16 @@
     const w = Math.max(1, Math.round(sw * fit));
     const h = Math.max(1, Math.round(sh * fit));
     const dark = darkness(photo, src);
-    const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`;
+    // Measured only for a tool that is in use: the blur estimate reads a
+    // copy the size of Google's working one, once per decode.
+    const detail = {};
+    PASSED.forEach((tool) => {
+      if (!cell.adjust[tool.id]) return;
+      const grid = detailGrid(tool, photo);
+      detail[tool.id] = { grid, blur: tool.forBlur(blurOf(src, grid)) };
+    });
+    const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`
+      + Object.values(detail).map((d) => `/${d.blur.sigma.toFixed(4)}`).join('');
 
     const kept = looks.get(cell) || [];
     const hit = kept.find((l) => l.src === src && l.sig === sig && l.w === w && l.h === h);
@@ -1072,7 +1429,7 @@
       return hit.canvas;
     }
 
-    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw), dark);
+    const canvas = renderLook(src, cell.adjust, w, h, scale * (w / dw), dark, detail);
     if (!canvas) return src;
     const entry = { cell, src, sig, w, h, canvas };
     // Two a cell: the preview's size and one other, which is usually the
