@@ -1,5 +1,7 @@
-/* Pop out's controls: holding on what should pop out, the edge set by hand,
- * and a popped-out tile that turns without its cutout being made again.
+/* Pop out's controls: holding on what should pop out, the edge set by hand
+ * (Hair, Feather, Shift edge, and Remove colour, which takes a colour such as
+ * sky back out of the cut), and a popped-out tile that turns without its
+ * cutout being made again.
  *
  * Two tiles stacked, the 1x2 layout on a square page, as in test-effects: flat
  * blue above, and below a building — a beige block with rows of dark windows
@@ -191,7 +193,7 @@ await p.waitForTimeout(200);
 await p.click('#pop-edge');
 await p.waitForTimeout(200);
 const tools = await p.$$eval('#edge-tools .adjust-tool', (els) => els.map((e) => e.dataset.edge));
-check(await p.locator('#effect-edge').isVisible() && tools.join() === 'hair,feather,shift', 'Edge opens with Hair, Feather and Shift edge', tools.join(', '));
+check(await p.locator('#effect-edge').isVisible() && tools.join() === 'hair,feather,shift,remove', 'Edge opens with Hair, Feather, Shift edge and Remove colour', tools.join(', '));
 check(await p.locator('#edge-reset').isDisabled(), 'Reset has nothing to put back on an untouched edge');
 
 const slide = async (tool, value) => {
@@ -230,6 +232,47 @@ await p.waitForTimeout(1500);
 const reopened = await column();
 check(Math.abs(reopened.spread - soft.spread) <= 1 && near((await at([[0.35, 0.47]]))[0], WALL),
   'the chosen subject and its edge survive closing and reopening the app', `${reopened.spread}px`);
+
+/* ---------------------------------------------------------- remove colour */
+
+await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
+await p.waitForTimeout(300);
+await p.click('.dock-item[data-tile="effects"]');
+await p.waitForTimeout(200);
+await p.click('#pop-edge');
+await p.click('#edge-reset');
+await p.waitForTimeout(500);
+await p.click('#edge-tools .adjust-tool[data-edge="remove"]');
+await p.waitForTimeout(200);
+const auto = await p.$eval('#edge-key', (el) => getComputedStyle(el).getPropertyValue('--key').match(/\d+/g).map(Number));
+check(await p.locator('#edge-key').isVisible() && near(auto, SKY, 6), 'Remove colour starts on the colour most often just outside the subject: the sky',
+  `rgb(${auto.join(',')})`);
+
+// Pushed out, the edge brings the sky round the block with it; Remove colour
+// takes it off again, and leaves the wall.
+await slide('shift', 100);
+const withSky = await column();
+await slide('remove', 60);
+const skyGone = await column();
+const wall = (await at([[0.35, 0.47]]))[0];
+check(withSky.top < plain.top - 0.003 && skyGone.top >= plain.top - 0.002 && near(wall, WALL),
+  'it takes the sky back off a pushed-out edge, and leaves the wall', `blue stops at ${withSky.top.toFixed(3)} with the sky, ${skyGone.top.toFixed(3)} without; wall ${wall.join(',')}`);
+
+// A tap picks the colour instead: a window's glass, the top row of which is
+// over the blue at x = 0.29.
+const glassBefore = (await at([[0.29, 0.47]]))[0];
+await p.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.6);
+await p.waitForTimeout(900);
+const picked = await p.$eval('#edge-key', (el) => getComputedStyle(el).getPropertyValue('--key').match(/\d+/g).map(Number));
+const glassAfter = (await at([[0.29, 0.47]]))[0];
+check(near(picked, GLASS, 10) && near(glassBefore, GLASS) && near(glassAfter, BLUE),
+  'a tap on the photo picks the colour to remove, and the windows go', `picked rgb(${picked.join(',')}); over the blue ${glassBefore.join(',')} then ${glassAfter.join(',')}`);
+check(!/Finding/.test(await p.textContent('#pop-note')), 'and picking a colour chose no new subject');
+await p.click('#edge-reset');
+await p.waitForTimeout(600);
+await p.click('#edge-done');
+await p.click('#dock-back');
+await p.click('#dock-back');
 
 /* -------------------------------------------------------------- turning */
 
