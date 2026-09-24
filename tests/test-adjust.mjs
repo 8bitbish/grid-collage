@@ -36,12 +36,12 @@ const BANDS = [30, 100, 170, 230];
 // checked against directly.
 const RED = [220, 40, 40];
 
-function png(w, h) {
+function png(w, h, bottom = RED) {
   const raw = Buffer.alloc((w * 3 + 1) * h);
   for (let y = 0; y < h; y++) {
     const o = y * (w * 3 + 1);
     for (let x = 0; x < w; x++) {
-      const c = y < h / 2 ? Array(3).fill(BANDS[Math.floor((x / w) * 4)]) : RED;
+      const c = y < h / 2 ? Array(3).fill(BANDS[Math.floor((x / w) * 4)]) : bottom;
       raw[o + 1 + x * 3] = c[0]; raw[o + 2 + x * 3] = c[1]; raw[o + 3 + x * 3] = c[2];
     }
   }
@@ -150,13 +150,19 @@ const GOOGLE = {
   'blackPoint-100': { bands: [61, 115, 174, 230], red: [205, 69, 69], redTol: 16 },
   'highlights-100': { bands: [30, 96, 147, 204], red: [218, 38, 39], redTol: 3 },
   'highlights+100': { bands: [30, 103, 192, 252], red: [221, 41, 42], redTol: 3 },
-  'shadows+100': { bands: [88, 133, 174, 230], red: [254, 80, 79], redTol: 4 },
+  // Lifting Shadows adapts to the photo, and this one — half of it the red,
+  // luma 78 — is a dark photo by Google's reckoning. So these are Google's
+  // numbers off the same ramp on a mostly dark surround. That chart has no
+  // colour patches, so there is no red of Google's to hold this one to.
+  'shadows+100': { bands: [90, 161, 188, 230] },
+  // And off a mostly bright surround, for the bright photo at the end.
+  'shadows+100 bright': { bands: [88, 129, 173, 230] },
   'shadows-100': { bands: [0, 73, 166, 230], red: [167, 9, 8], redTol: 4 },
 };
 const likeGoogle = (got, key, what) => {
   const want = GOOGLE[key];
   check(near(got.bands, want.bands, 3), `${what}, as Google Photos does`, `${show(got)}; Google ${want.bands.join('/')}`);
-  check(near(got.red, want.red, want.redTol), `  and to the red as Google Photos does, within ${want.redTol}`, `red ${got.red.join(',')}; Google ${want.red.join(',')}`);
+  if (want.red) check(near(got.red, want.red, want.redTol), `  and to the red as Google Photos does, within ${want.redTol}`, `red ${got.red.join(',')}; Google ${want.red.join(',')}`);
 };
 
 /* ------------------------------------------------------------- White point */
@@ -294,10 +300,7 @@ check(near((await read()).bands, BANDS, 1), 'Highlights back at nought is the ph
 await choose('shadows');
 await slide(100);
 const shUp = await read();
-// The red is the check on the colour model: an equal lift alone would give
-// about 255,86,86, and Google's 30% of the way towards scaling by a ratio
-// is what puts the green and blue back at 80.
-likeGoogle(shUp, 'shadows+100', 'Shadows +100 opens the dark tones right up');
+likeGoogle(shUp, 'shadows+100', 'Shadows +100 on a dark photo lifts right up into the mid-tones');
 check(Math.abs(shUp.bands[3] - 230) <= 2, 'and leaves the bright tones alone', `230 -> ${shUp.bands[3]}`);
 
 await slide(-100);
@@ -421,6 +424,31 @@ await p.click('#dock-back');
 await p.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
 await p.waitForTimeout(200);
 check(await p.locator('#tile-adjust-btn').isVisible(), 'the photo beside it still does');
+
+/* ------------------------------------------- Shadows on a bright photo */
+
+// The same bands over near-white rather than red, so the median is about 235
+// rather than 78. Google lifts a bright photo's shadows much less far: at
+// +100 it takes 100 to 129 where the dark photo's went to 161.
+// A project of its own, through the homepage the way a person makes one —
+// clearing storage and reloading reopened this one, which the app had saved
+// again in between.
+await p.click('#btn-home');
+await p.waitForFunction(() => document.body.classList.contains('on-home'));
+await p.click('#btn-new');
+await p.waitForFunction(() => !document.body.classList.contains('on-home'));
+await p.setInputFiles('#file-input', [{ name: 'bright.png', mimeType: 'image/png', buffer: png(1440, 1440, [240, 240, 240]) }]);
+await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
+await p.keyboard.press('Escape');
+await p.waitForTimeout(400);
+await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+await p.waitForTimeout(200);
+await p.click('.dock-item[data-tile="adjust"]');
+await choose('shadows');
+await slide(100);
+const bright = await read();
+likeGoogle(bright, 'shadows+100 bright', 'Shadows +100 on a bright photo lifts far less');
+check(bright.bands[1] < shUp.bands[1] - 20, 'the same setting lifts the dark photo further', `100 -> ${bright.bands[1]} here, ${shUp.bands[1]} on the dark one`);
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 
