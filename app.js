@@ -5024,12 +5024,31 @@
       c.width = W;
       c.height = H;
       drawPage(c.getContext('2d'), first, W, H);
+      // Drawn, so the editor can go. The rest is making a file of it, and that
+      // is not worth anyone waiting for: the JPEG encode was nearly all of the
+      // time between tapping Home and the homepage appearing — 17ms of 30 on
+      // a fast machine, and 550 of 590 under 4x CPU throttling with a clip in
+      // the deck, where it queues behind the video's own decoding. The
+      // homepage shows now and the tile takes the new cover when it lands.
+      storeCover(rec, c);
+    } catch { /* the photo thumbnail saved alongside it stands in */ }
+  }
+
+  async function storeCover(rec, c) {
+    try {
       const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.82));
       if (!blob) return;
       await put(STORE_COVERS, { id: rec.id, blob });
       const old = coverUrls.get(rec.id);
+      const url = URL.createObjectURL(blob);
+      coverUrls.set(rec.id, url);
+      // The tile may already be showing the one before, so it is swapped in
+      // place, and only then is the old one let go.
+      const tile = [...$('home-grid').querySelectorAll('.tile')].find((el) => el.dataset.id === rec.id);
+      const shown = tile && tile.querySelector('img');
+      if (shown) shown.src = url;
+      else if (tile) paintCovers();
       if (old) URL.revokeObjectURL(old);
-      coverUrls.set(rec.id, URL.createObjectURL(blob));
     } catch { /* the photo thumbnail saved alongside it stands in */ }
   }
 
