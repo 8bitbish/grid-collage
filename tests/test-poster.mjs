@@ -31,6 +31,18 @@ const name=(c)=>{
   return `[${c}]`;
 };
 const clip=fs.readFileSync('fixtures/clip.webm');
+// What the fixed sleeps here stood in for: the still being redrawn, the cover
+// rebuilt, the clip starting. Each wait below is for the state the assertion
+// after it expects, bounded at about twice the sleep it replaces so a slow
+// machine has room, and a bound that runs out leaves the failing to that
+// assertion. The sampling loops that watch a tile for a second or two are
+// what the test is measuring, and stay as they were.
+async function until(check, ms=5000){
+  const end=Date.now()+ms;
+  while(Date.now()<end){ if(await check()) return true; await new Promise(r=>setTimeout(r,50)); }
+  return false;
+}
+const drawn=(c)=>['red','blue'].includes(name(c));
 
 const b=await chromium.launch({executablePath: CHROME});
 
@@ -53,11 +65,12 @@ async function open(blockFrames) {
     });
   }
   const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,140)));
+  // goto holds until the editor is open; see enter.mjs.
   await p.goto(`http://localhost:${PORT}/`);
-  await p.waitForTimeout(1400);
   await p.setInputFiles('#file-input',[{name:'clip.webm',mimeType:'video/webm',buffer:clip}]);
   await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:20000});
-  await p.waitForTimeout(2200);
+  await until(async()=>drawn(await film(p)) && drawn(await mid(p)) && await p.evaluate(()=>{
+    const i=document.querySelector('.pm-pick img'); return !!i && (i.getAttribute('src')||'').startsWith('blob:');}));
   return { ctx, p, errs };
 }
 const mid=(p)=>p.evaluate(()=>{const c=document.getElementById('canvas');
@@ -69,16 +82,17 @@ const film=(p)=>p.evaluate(()=>{const c=document.querySelector('.film canvas'); 
 async function trimTo(p, seconds) {
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
-  await p.waitForTimeout(500);
+  await p.waitForFunction(()=>!document.getElementById('dp-tile').hidden,null,{timeout:5000}).catch(()=>{});
   if (await p.evaluate(()=>document.getElementById('tile-trim').hidden)) {
     await p.click('#tile-trim-btn');
-    await p.waitForTimeout(400);
+    await p.waitForFunction(()=>!document.getElementById('tile-trim').hidden,null,{timeout:5000}).catch(()=>{});
   }
+  const before=name(await film(p));
   await p.evaluate((s)=>{const el=document.getElementById('trim-start');
     el.value=String(Math.round((s/3.07)*1000));
     el.dispatchEvent(new Event('input',{bubbles:true}));
     el.dispatchEvent(new Event('change',{bubbles:true}));}, seconds);
-  await p.waitForTimeout(2200);
+  await until(async()=>{ const now=name(await film(p)); return drawn(await film(p)) && now!==before; });
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +114,8 @@ console.log('\n== trim it, and every still moves to the first frame of the trim 
   ok('the filmstrip follows the cut', name(await film(p))==='blue', name(await film(p)));
 
   await p.click('#btn-home');
-  await p.waitForTimeout(2500);
+  await until(()=>p.evaluate(()=>document.body.classList.contains('on-home')
+    && !!document.querySelector('.tile img') && document.querySelector('.tile img').naturalWidth>0));
   const cover=await p.evaluate(()=>{
     const img=document.querySelector('.tile img'); if(!img||!img.naturalWidth) return null;
     const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
@@ -111,7 +126,8 @@ console.log('\n== trim it, and every still moves to the first frame of the trim 
 
   // Back in, and it is still the trimmed frame rather than a stale one.
   await p.click('.tile');
-  await p.waitForTimeout(2500);
+  await until(async()=>!(await p.evaluate(()=>document.body.classList.contains('on-home')))
+    && name(await film(p))==='blue');
   ok('and it survives closing and reopening the project', name(await film(p))==='blue', name(await film(p)));
   ok('nothing threw', errs.length===0, errs.slice(0,2).join(' | '));
   await ctx.close();
@@ -123,7 +139,7 @@ console.log('\n== put the cut back and the still goes back with it ==');
   await trimTo(p, 1.5);
   ok('moved to the trim', name(await film(p))==='blue', name(await film(p)));
   await p.click('#trim-reset');
-  await p.waitForTimeout(2200);
+  await until(async()=>name(await film(p))==='red');
   ok('Whole clip puts the first frame back', name(await film(p))==='red', name(await film(p)));
   await ctx.close();
 }
@@ -140,6 +156,7 @@ console.log('\n== a clip that has not managed a frame yet shows its still, not b
 
   // And with a trim, it holds the trim's frame — not the file's, not black.
   await trimTo(p, 1.5);
+  await until(async()=>name(await mid(p))==='blue');
   const after=[];
   for (let i=0;i<10;i++){ after.push(name(await mid(p))); await p.waitForTimeout(80); }
   console.log('  after trimming:', JSON.stringify([...new Set(after)]));
@@ -152,7 +169,7 @@ console.log('\n== a clip that has not managed a frame yet shows its still, not b
 console.log('\n== and when it can play, it does ==');
 {
   const { ctx, p } = await open(false);
-  await p.waitForTimeout(1200);
+  await until(()=>p.evaluate(()=>{const v=document.querySelector('video'); return !!v && !v.paused && v.currentTime>0.1;}));
   const seen=[];
   for (let i=0;i<24;i++){ seen.push(name(await mid(p))); await p.waitForTimeout(90); }
   const kinds=[...new Set(seen)];
