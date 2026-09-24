@@ -16,7 +16,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
   res.end(fs.readFileSync(file));
 });
-await new Promise((r) => server.listen(8131, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 900 } });
@@ -25,7 +26,7 @@ await autoEnter(page);
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 
-await page.goto('http://localhost:8131/');
+await page.goto(`http://localhost:${PORT}/`);
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 

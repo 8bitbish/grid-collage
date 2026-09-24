@@ -15,7 +15,8 @@ const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.joi
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   served.push(u);
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8205,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 const j=o=>JSON.stringify(o);
 let fails=0;
 const ok=(label,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${label}${extra?` — ${extra}`:''}`); };
@@ -39,7 +40,7 @@ const p=await ctx.newPage();
 // mp4 from a still instead of inferring it from the wording of a toast.
 const saved=[]; p.on('download',d=>saved.push(d.suggestedFilename()));
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
-await p.goto('http://localhost:8205/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.click('#home-first');
 await p.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
 
@@ -165,7 +166,7 @@ console.log('\n== exporting a deck with no video touches none of it ==');
 {
   const c2=await b.newContext({viewport:{width:390,height:844},acceptDownloads:true});
   const q=await c2.newPage();
-  await q.goto('http://localhost:8205/');
+  await q.goto(`http://localhost:${PORT}/`);
   await q.click('#home-first');
   await q.waitForFunction(()=>!document.body.classList.contains('on-home'),{timeout:8000});
   await q.setInputFiles('#file-input',[{name:'a.png',mimeType:'image/png',buffer:png(400,400,[200,60,60])}]);

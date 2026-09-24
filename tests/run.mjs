@@ -11,10 +11,10 @@
  *   SHARD=2/4 node tests/run.mjs    the second quarter, as one CI machine runs it
  *   RECORD=1 node tests/run.mjs     and write how long each took to durations.json
  *
- * Every test binds its own port, so running them together is safe. It is one at
- * a time by default anyway: several import twelve 12-megapixel photos on
- * purpose, and four Chromiums doing that at once is how a machine starts
- * swapping.
+ * Every test asks the system for a free port, so running them together cannot
+ * collide. It is one at a time by default anyway: several import twelve
+ * 12-megapixel photos on purpose, and swipe times its flicks against real
+ * frames, which four Chromiums on one machine slow down.
  */
 import fs from 'node:fs';
 import path from 'node:path';

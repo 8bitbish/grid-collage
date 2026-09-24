@@ -7,7 +7,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8164,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 function png(w,h,c){const raw=Buffer.alloc((w*3+1)*h);
   for(let y=0;y<h;y++){const o=y*(w*3+1);for(let x=0;x<w;x++){raw[o+1+x*3]=c[0];raw[o+2+x*3]=c[1];raw[o+3+x*3]=c[2];}}
   const TB=[...Array(256)].map((_,n)=>{let k=n;for(let j=0;j<8;j++)k=k&1?0xedb88320^(k>>>1):k>>>1;return k;});
@@ -24,7 +25,7 @@ const p=await ctx.newPage();
 await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e))); p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
 await p.addInitScript(()=>{ window.__buzz=[]; navigator.vibrate=(v)=>{window.__buzz.push(v);return true;}; });
-await p.goto('http://localhost:8164/'); await p.evaluate(()=>localStorage.clear()); await p.reload();
+await p.goto(`http://localhost:${PORT}/`); await p.evaluate(()=>localStorage.clear()); await p.reload();
 await p.waitForTimeout(400);
 
 const sample=(fx,fy)=>p.evaluate(([x,y])=>{const c=document.getElementById('canvas');

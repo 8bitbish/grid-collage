@@ -13,7 +13,8 @@ const srv=http.createServer((q,r)=>{
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});
   r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8233,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
@@ -30,7 +31,7 @@ async function open() {
   const p=await ctx.newPage();
   await autoEnter(p);
   const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,140)));
-  await p.goto('http://localhost:8233/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForTimeout(1300);
   return { ctx, p, errs };
 }

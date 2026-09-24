@@ -22,7 +22,8 @@ const srv = http.createServer((q, r) => {
   if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); r.end(); return; }
   r.writeHead(200, { 'Content-Type': T[path.extname(f)] || 'application/octet-stream' }); r.end(fs.readFileSync(f));
 });
-await new Promise((r) => srv.listen(8243, r));
+await new Promise((r) => srv.listen(0,r));
+const PORT=srv.address().port;
 let fails = 0;
 const ok = (label, pass, extra = '') => { if (!pass) fails += 1; console.log(`  ${pass ? '✓' : '✗'} ${label}${extra ? ` — ${extra}` : ''}`); };
 
@@ -38,7 +39,7 @@ const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceSc
 const p = await ctx.newPage();
 const errs = []; p.on('pageerror', (e) => errs.push(String(e)));
 
-await p.goto('http://localhost:8243/');
+await p.goto(`http://localhost:${PORT}/`);
 await p.waitForFunction(() => document.body.classList.contains('on-home'));
 // The app has opened its database by now, so the stores exist to write into.
 await p.evaluate(async (decks) => {

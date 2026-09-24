@@ -21,7 +21,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
   res.end(fs.readFileSync(file));
 });
-await new Promise((r) => server.listen(8127, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const context = await browser.newContext();
@@ -39,7 +40,7 @@ const ok = (label, pass, extra = '') => { if (!pass) fails += 1; console.log(`  
 const surface = () => page.evaluate(() =>
   getComputedStyle(document.documentElement).getPropertyValue('--surface').trim());
 
-await page.goto('http://localhost:8127/');
+await page.goto(`http://localhost:${PORT}/`);
 await page.evaluate(() => navigator.serviceWorker.ready);
 await page.reload();
 await page.waitForFunction(() => navigator.serviceWorker.controller !== null);

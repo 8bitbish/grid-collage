@@ -20,7 +20,8 @@ const srv=http.createServer((q,r)=>{
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream',
     'ETag':'"'+crypto.createHash('sha1').update(body).digest('hex').slice(0,16)+'"','Cache-Control':'no-cache'});
   r.end(body);});
-await new Promise(r=>srv.listen(8213,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 let fails=0;
 const ok=(l,pass,extra='')=>{ if(!pass) fails+=1; console.log(`  ${pass?'✓':'✗'} ${l}${extra?` — ${extra}`:''}`); };
@@ -49,7 +50,7 @@ for (const from of ['9a0254a','2d27f57','a480308']) {
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
   const errs=[]; p.on('pageerror',e=>errs.push(String(e).split('\n')[0].slice(0,140)));
-  await p.goto('http://localhost:8213/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1200);
 
@@ -67,7 +68,7 @@ console.log('\n== being quick has not cost offline ==');
   ROOT=NEW;
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
-  await p.goto('http://localhost:8213/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(2000);
   offline=true;
@@ -95,7 +96,7 @@ console.log('\n== the cache does not collect every build ever shipped ==');
   ROOT='/tmp/oldver/a480308';
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
-  await p.goto('http://localhost:8213/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1200);
   ROOT=NEW;
@@ -120,7 +121,7 @@ console.log('\n== an app left open picks it up without being told ==');
   ROOT=NEW;
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
-  await p.goto('http://localhost:8213/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1800);
 
@@ -152,7 +153,7 @@ console.log('\n== but never out from under someone mid-edit ==');
   ROOT=NEW;
   const ctx=await b.newContext({viewport:{width:390,height:844}});
   const p=await ctx.newPage();
-  await p.goto('http://localhost:8213/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.waitForFunction(()=>navigator.serviceWorker.controller!==null||performance.now()>8000,{timeout:12000});
   await p.waitForTimeout(1500);
   await p.click('#btn-new');

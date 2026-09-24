@@ -14,7 +14,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
   res.end(fs.readFileSync(file));
 });
-await new Promise((r) => server.listen(8132, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
@@ -53,7 +54,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
-await page.goto('http://localhost:8132/');
+await page.goto(`http://localhost:${PORT}/`);
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 

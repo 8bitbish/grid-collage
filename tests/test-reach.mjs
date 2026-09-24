@@ -27,7 +27,8 @@ const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.webmani
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
   if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}
   r.writeHead(200,{'Content-Type':T[path.extname(f)]||'application/octet-stream'});r.end(fs.readFileSync(f));});
-await new Promise(r=>srv.listen(8180,r));
+await new Promise(r=>srv.listen(0,r));
+const PORT=srv.address().port;
 
 function png(w,h,[r0,g0,b0]){const raw=Buffer.alloc((w*3+1)*h);
   for(let y=0;y<h;y++){const o=y*(w*3+1);for(let x=0;x<w;x++){raw[o+1+x*3]=r0;raw[o+2+x*3]=g0;raw[o+3+x*3]=b0;}}
@@ -67,7 +68,7 @@ for (const [label, vp, floor] of [
   const p=await ctx.newPage();
   await autoEnter(p);
   const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
-  await p.goto('http://localhost:8180/');
+  await p.goto(`http://localhost:${PORT}/`);
   await p.evaluate(()=>localStorage.clear()); await p.reload();
   await p.setInputFiles('#file-input', files);
   await p.waitForFunction(()=>document.querySelectorAll('.film').length===4);

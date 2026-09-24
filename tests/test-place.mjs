@@ -23,7 +23,8 @@ const server = http.createServer((q, r) => {
   r.writeHead(200, { 'Content-Type': T[path.extname(f)] || 'application/octet-stream' });
   r.end(fs.readFileSync(f));
 });
-await new Promise((r) => server.listen(8242, r));
+await new Promise((r) => server.listen(0,r));
+const PORT=server.address().port;
 
 let bad = 0;
 const ok = (label, pass, detail) => {
@@ -137,7 +138,7 @@ const files = [
 ];
 
 await autoEnter(page);
-await page.goto('http://localhost:8242/');
+await page.goto(`http://localhost:${PORT}/`);
 await page.waitForSelector('#canvas-wrap', { state: 'visible' });
 await page.setInputFiles('#file-input', files);
 await page.waitForFunction((k) => document.querySelectorAll('.pm-item').length >= k,
