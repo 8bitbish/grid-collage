@@ -1,14 +1,16 @@
 /* The chart through Grid Collage itself: one 2160px PNG export per setting,
  * named as measure.mjs expects, so ours and Google's measure side by side.
  *
- *   node ours.mjs <dir> highlights-100 shadows+50 ...
+ *   node ours.mjs <dir> [--chart=<file>] highlights-100 shadows+50 ...
  */
 import { chromium } from 'playwright';
 import { CHROME, ROOT } from '../paths.mjs';
 import { autoEnter } from '../enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 
-const [dir, ...settings] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const chartArg = args.find((a) => a.startsWith('--chart='));
+const [dir, ...settings] = args.filter((a) => a !== chartArg);
 if (!dir || !settings.length) { console.error('usage: node ours.mjs <dir> <tool±value> ...'); process.exit(2); }
 fs.mkdirSync(dir, { recursive: true });
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
@@ -26,7 +28,7 @@ await autoEnter(p);
 await p.goto(`http://localhost:${srv.address().port}/`);
 await p.evaluate(() => localStorage.clear());
 await p.reload();
-await p.setInputFiles('#file-input', [path.join(import.meta.dirname, 'out', 'chart.png')]);
+await p.setInputFiles('#file-input', [chartArg ? chartArg.slice(8) : path.join(import.meta.dirname, 'out', 'chart.png')]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(800);
