@@ -4457,8 +4457,20 @@
       // warming up or seeking gives you a black rectangle. Which is what a
       // clip opened with: black, until it got going. So it stays on its
       // poster until there is genuinely something better.
+      //
+      // And the callback is asked for again on every frame, for as long as
+      // the player lives, not just the once. These elements are never on
+      // screen, and with nothing waiting on their frames Chromium stopped
+      // handing new ones to drawImage about a second in: the tile held still
+      // for 250–270ms on every swipe, six swipes out of six, while the clock
+      // underneath ran on, which is the stutter a slide showed each time it
+      // came in. With a callback always pending the longest still was
+      // 17–51ms, which is a 30fps clip repeating itself on a 60Hz screen.
       const p = { el, url, cell, photoId: photo.id, ready: false };
-      const gotFrame = () => { p.ready = true; };
+      const gotFrame = () => {
+        p.ready = true;
+        if (el.requestVideoFrameCallback && players.get(i) === p) el.requestVideoFrameCallback(gotFrame);
+      };
       if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(gotFrame);
       else el.addEventListener('canplay', gotFrame, { once: true });
       players.set(i, p);
