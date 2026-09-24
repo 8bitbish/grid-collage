@@ -13,7 +13,7 @@ post. No server, no upload, no build step.
 | `styles.css` | all the styling |
 | `sw.js` | service worker: offline shell, share target |
 | `manifest.webmanifest` | PWA manifest, including the share target |
-| `vendor/` | libheif (HEIC decode), mediabunny (video) and MediaPipe (finding a photo's subject, for effects), all lazy-loaded |
+| `vendor/` | libheif (HEIC decode), mediabunny (video), MediaPipe (finding a photo's subject, for effects) and onnxruntime with ViTMatte (matting that subject's edge, WebGPU only), all lazy-loaded |
 
 There is no bundler, no package.json and no dependency to install. The folder
 you clone is the folder that gets deployed. Keep it that way — anything that
@@ -95,7 +95,7 @@ The code here is written to be read. Match it rather than your own habits.
   new needs drawing, it goes through there too — that shared path is why the
   export looks like the preview.
 - **Names say what a thing is for**, not what type it is.
-- **No new dependencies** without a clear reason. The three in `vendor/` are
+- **No new dependencies** without a clear reason. The four in `vendor/` are
   there because browsers genuinely cannot do those jobs.
 
 ## Git

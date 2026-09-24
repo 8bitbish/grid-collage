@@ -2064,6 +2064,9 @@
       });
       dropIslands(P, sw, sh, points);
 
+      const matted = await matteCut(src, P, sw, sh, w, h);
+      if (matted) return { alpha: matted, w, h };
+
       const radius = Math.max(1, Math.round((CUT_RADIUS * Math.max(w, h)) / CUT_EDGE / CUT_SCALE));
       const [aR, aG, aB, b] = guideCoefficients(pixelsOf(src, sw, sh), P, sw, sh, radius, CUT_EPS);
       // Applied at full size a row at a time, the coefficients sampled
@@ -2093,6 +2096,189 @@
       for (let i = 0; i < alpha.length; i++) alpha[i] = soft[i] * 255;
       return { alpha, w, h };
     }
+  }
+
+  /* ------------------------------------------------------- matting the edge */
+  //
+  // The guided filter can only move MagicTouch's edge to where the photo's
+  // colour changes, so where subject and background are near in colour it
+  // stays at the model's 512px answer: soft, and stepped when drawn large. A
+  // matting model is trained for exactly that edge. ViTMatte-S was the one
+  // clear winner of those measured at 100% on the same crops — real curls on
+  // a portrait's hairline, whole wisps of fur, and background MagicTouch had
+  // wrongly kept taken back out — where BiRefNet-lite drew whiskers as thick
+  // strokes and a closed-form matte left holes wherever colours matched.
+  //
+  // It is not a choosing model: it is shown the photo and a trimap — sure
+  // subject, sure background, and a band between — and decides only the band.
+  // The trimap comes from MagicTouch's mask, so which subjects are cut is
+  // still decided by the points, and ViTMatte can move the edge within 2% of
+  // the crop's size and nowhere else.
+  //
+  // WebGPU only. On one core of a desktop it took 10-15s a photo against
+  // 0.4-0.75s on the GPU, and without WebGPU the cut is the guided filter's,
+  // as it was. Its weights are stored at half precision and turned back to
+  // full precision as the session is made: the full-precision file is over
+  // GitHub's 100MB limit, and the half-precision one would not load on
+  // onnxruntime's WebGPU backend at all. Its training data is licensed for
+  // non-commercial use only, which vendor/vitmatte/README.md says.
+  const ONNX = './vendor/onnxruntime/';
+  const VITMATTE = './vendor/vitmatte/vitmatte-small.onnx';
+  const MATTE_EDGE = 1024;     // measured at 1024; 1536 was 3-5x slower and no better
+  const MATTE_BAND = 0.02;     // the unsure band, either side of the edge, of the crop's long side
+  const MATTE_PAD = 0.06;      // room round the subjects' box
+  let matter = null;
+
+  function loadMatte() {
+    if (matter) return matter;
+    matter = (async () => {
+      if (!navigator.gpu || !(await navigator.gpu.requestAdapter())) return null;
+      const base = new URL(ONNX, location.href).href;
+      const ort = await import(`${base}ort.webgpu.min.mjs`);
+      ort.env.wasm.wasmPaths = base;
+      // No SharedArrayBuffer on Pages, so no threads to have.
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+      // Its warnings arrive through console.error, one on every run about
+      // reusing a buffer of another shape, which is noise and not a fault.
+      ort.env.logLevel = 'error';
+      const session = await ort.InferenceSession.create(new URL(VITMATTE, location.href).href, { executionProviders: ['webgpu'], logSeverityLevel: 3 });
+      return { ort, session };
+    })().catch((err) => { console.warn('Matting is not available here', err); return null; });
+    return matter;
+  }
+
+  // The subjects' edge, matted: alpha at w×h, or null to fall back to the
+  // guided filter's cut. P is the rough mask on its half-size plane.
+  async function matteCut(src, P, sw, sh, w, h) {
+    let x0 = sw; let y0 = sh; let x1 = -1; let y1 = -1;
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        if (P[y * sw + x] <= 0.5) continue;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return null;
+    const matte = await loadMatte();
+    if (!matte) return null;
+    try {
+      // The crop, in the photo's pixels, and the size the model sees it at:
+      // never more than the cut itself is drawn at.
+      const toSrc = src.width / sw;
+      const pad = MATTE_PAD * Math.max(x1 - x0 + 1, y1 - y0 + 1) * toSrc;
+      const rx = Math.max(0, x0 * toSrc - pad);
+      const ry = Math.max(0, y0 * toSrc - pad);
+      const region = { x: rx, y: ry, w: Math.min(src.width, (x1 + 1) * toSrc + pad) - rx, h: Math.min(src.height, (y1 + 1) * toSrc + pad) - ry };
+      const toCut = w / src.width;
+      const km = Math.min(MATTE_EDGE / Math.max(region.w, region.h), toCut);
+      const mw = Math.max(1, Math.round(region.w * km));
+      const mh = Math.max(1, Math.round(region.h * km));
+      const g = scratch(mw, mh).getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(src, region.x, region.y, region.w, region.h, 0, 0, mw, mh);
+      const img = g.getImageData(0, 0, mw, mh).data;
+
+      // The rough mask at the crop's size, and the trimap from it: sure where
+      // a square of the band's radius sits wholly inside or outside the edge.
+      const rough = new Float32Array(mw * mh);
+      for (let y = 0; y < mh; y++) {
+        const v = clamp(((region.y + (y + 0.5) / km) / src.height) * sh - 0.5, 0, sh - 1);
+        const v0 = Math.floor(v); const v1 = Math.min(sh - 1, v0 + 1); const tv = v - v0;
+        for (let x = 0; x < mw; x++) {
+          const u = clamp(((region.x + (x + 0.5) / km) / src.width) * sw - 0.5, 0, sw - 1);
+          const u0 = Math.floor(u); const u1 = Math.min(sw - 1, u0 + 1); const tu = u - u0;
+          const top = P[v0 * sw + u0] * (1 - tu) + P[v0 * sw + u1] * tu;
+          const bottom = P[v1 * sw + u0] * (1 - tu) + P[v1 * sw + u1] * tu;
+          rough[y * mw + x] = top * (1 - tv) + bottom * tv > 0.5 ? 1 : 0;
+        }
+      }
+      const r = Math.max(4, Math.round(MATTE_BAND * Math.max(mw, mh)));
+      const near = boxMean(rough, mw, mh, r);
+      const tri = new Float32Array(mw * mh);
+      for (let i = 0; i < tri.length; i++) tri[i] = near[i] > 0.999 ? 1 : near[i] < 0.001 ? 0 : 0.5;
+
+      // Four channels, the photo at -1..1 and the trimap at 0..1, padded out
+      // to a multiple of 32 as the model's patches want.
+      const pw = Math.ceil(mw / 32) * 32;
+      const ph = Math.ceil(mh / 32) * 32;
+      const n = pw * ph;
+      const input = new Float32Array(4 * n);
+      for (let y = 0; y < mh; y++) {
+        for (let x = 0; x < mw; x++) {
+          const i = y * mw + x;
+          const o = y * pw + x;
+          input[o] = img[i * 4] / 127.5 - 1;
+          input[o + n] = img[i * 4 + 1] / 127.5 - 1;
+          input[o + 2 * n] = img[i * 4 + 2] / 127.5 - 1;
+          input[o + 3 * n] = tri[i];
+        }
+      }
+      const out = await matte.session.run({ pixel_values: new matte.ort.Tensor('float32', input, [1, 4, ph, pw]) });
+      const alphas = out.alphas.data;
+      // Only the band is the model's; the sure parts stay MagicTouch's.
+      const A = new Float32Array(mw * mh);
+      for (let y = 0; y < mh; y++) {
+        for (let x = 0; x < mw; x++) {
+          const i = y * mw + x;
+          A[i] = tri[i] === 0.5 ? clamp(alphas[y * pw + x], 0, 1) : tri[i];
+        }
+      }
+      if (out.alphas.dispose) out.alphas.dispose();
+
+      // Up to the cut's size, guided by the photo at that size so the edge
+      // sharpens rather than blurs on the way.
+      const px = pixelsOf(src, w, h);
+      const lifted = new Float32Array(w * h);
+      const coef = toCut / km > 1.05 ? guideCoefficients(img, A, mw, mh, 1, 1e-4) : null;
+      const ox0 = Math.floor(region.x * toCut);
+      const oy0 = Math.floor(region.y * toCut);
+      const ox1 = Math.min(w, Math.ceil((region.x + region.w) * toCut));
+      const oy1 = Math.min(h, Math.ceil((region.y + region.h) * toCut));
+      for (let y = oy0; y < oy1; y++) {
+        const v = clamp(((y + 0.5) / toCut - region.y) * km - 0.5, 0, mh - 1);
+        const v0 = Math.floor(v); const v1 = Math.min(mh - 1, v0 + 1); const tv = v - v0;
+        for (let x = ox0; x < ox1; x++) {
+          const u = clamp(((x + 0.5) / toCut - region.x) * km - 0.5, 0, mw - 1);
+          const u0 = Math.floor(u); const u1 = Math.min(mw - 1, u0 + 1); const tu = u - u0;
+          const i00 = v0 * mw + u0; const i01 = v0 * mw + u1; const i10 = v1 * mw + u0; const i11 = v1 * mw + u1;
+          const at = (c) => (c[i00] * (1 - tu) + c[i01] * tu) * (1 - tv) + (c[i10] * (1 - tu) + c[i11] * tu) * tv;
+          const i = y * w + x;
+          const a = coef
+            ? (at(coef[0]) * px[i * 4] + at(coef[1]) * px[i * 4 + 1] + at(coef[2]) * px[i * 4 + 2]) / 255 + at(coef[3])
+            : at(A);
+          lifted[i] = clamp(a, 0, 1);
+        }
+      }
+      return firmRamps(lifted, w, h);
+    } catch (err) {
+      console.warn('Matting failed; using the guided cut', err);
+      return null;
+    }
+  }
+
+  // A matte is honest about an edge that is out of focus: the back of a
+  // portrait's head, dark hair on a dark room, came out as a ramp 30-40px wide
+  // at 2160, and drawn over a pale neighbour that ramp is a haze of smoke.
+  // Strands are part-covered too, and must stay so. What tells them apart is
+  // their neighbourhood: a strand stands out from the mean round it, a ramp
+  // is the mean round it. So a pixel is hardened as far as it agrees with its
+  // neighbours, and left as it is as far as it stands out.
+  const RAMP_RADIUS = 4;      // in pixels at CUT_EDGE
+  const RAMP_STANDOUT = 0.12; // how far from the local mean counts as a strand
+  function firmRamps(A, w, h) {
+    const r = Math.max(1, Math.round((RAMP_RADIUS * Math.max(w, h)) / CUT_EDGE));
+    const mean = boxMean(A, w, h, r);
+    const alpha = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < A.length; i++) {
+      const a = A[i];
+      if (a <= 0 || a >= 1) { alpha[i] = a * 255; continue; }
+      const t = clamp((a - 0.25) / 0.5, 0, 1);
+      const firm = t * t * (3 - 2 * t);
+      const strand = clamp(Math.abs(a - mean[i]) / RAMP_STANDOUT, 0, 1);
+      alpha[i] = (strand * a + (1 - strand) * firm) * 255;
+    }
+    return alpha;
   }
 
   // The part of the mask that is confidently subject, as fractions of the
@@ -2249,12 +2435,131 @@
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = 'high';
     g.drawImage(drawn, 0, 0, w, h);
-    g.globalCompositeOperation = 'destination-in';
-    g.drawImage(subject.mask, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    const m = scratch(w, h).getContext('2d');
+    m.imageSmoothingQuality = 'high';
+    m.drawImage(subject.mask, 0, 0, w, h);
+    const md = m.getImageData(0, 0, w, h).data;
+    const alpha = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = md[i * 4 + 3];
+    // The radii were set at the cut's own size, and this is drawn at another.
+    const k = w / subject.mask.width;
+    g.putImageData(new ImageData(foregroundColour(px, alpha, w, h, Math.max(3, Math.round(90 * k)), Math.max(1, Math.round(6 * k))), w, h), 0, 0);
     kept.unshift({ drawn, mask: subject.mask, w, h, canvas });
     kept.splice(2);
     cutouts.set(cell, kept);
     return canvas;
+  }
+
+  // What colour each part-covered pixel of the subject really is. A strand of
+  // hair a pixel wide is half hair and half whatever was behind it, and drawn
+  // as it is over a neighbouring photo it brings that background along: the
+  // dog's wisps came out outlined in the dark of the road. Forte and Pitié's
+  // blur fusion (2021) estimates the subject's own colour there from the
+  // pixels round it that are wholly subject and wholly not — a wide pass
+  // (radius r1) and then a narrow one (r2) — and leaves every pixel that is
+  // wholly one or the other exactly as it was. Worked in tiles, and only the
+  // tiles an edge passes through, since most of any cutout is solid.
+  function foregroundColour(px, alpha, w, h, r1, r2) {
+    const s = 4;
+    const sw = Math.ceil(w / s);
+    const sh = Math.ceil(h / s);
+    const sn = sw * sh;
+    // The wide pass at a quarter size: A, F·A and I·(1 − A), with F = I at first.
+    const lowA = new Float32Array(sn);
+    const lowF = [0, 1, 2].map(() => new Float32Array(sn));
+    const lowB = [0, 1, 2].map(() => new Float32Array(sn));
+    const cnt = new Float32Array(sn);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const j = Math.floor(y / s) * sw + Math.floor(x / s);
+        const a = alpha[i] / 255;
+        lowA[j] += a;
+        cnt[j] += 1;
+        for (let c = 0; c < 3; c++) {
+          const v = px[i * 4 + c] / 255;
+          lowF[c][j] += v * a;
+          lowB[c][j] += v * (1 - a);
+        }
+      }
+    }
+    for (let j = 0; j < sn; j++) {
+      lowA[j] /= cnt[j];
+      for (let c = 0; c < 3; c++) { lowF[c][j] /= cnt[j]; lowB[c][j] /= cnt[j]; }
+    }
+    const R = Math.max(1, Math.round(r1 / s));
+    const mA = boxMean(lowA, sw, sh, R);
+    const mF = lowF.map((plane) => boxMean(plane, sw, sh, R));
+    const mB = lowB.map((plane) => boxMean(plane, sw, sh, R));
+    const up = (plane, x, y) => {
+      const u = clamp((x + 0.5) / s - 0.5, 0, sw - 1);
+      const v = clamp((y + 0.5) / s - 0.5, 0, sh - 1);
+      const u0 = Math.floor(u); const v0 = Math.floor(v);
+      const u1 = Math.min(sw - 1, u0 + 1); const v1 = Math.min(sh - 1, v0 + 1);
+      const tu = u - u0; const tv = v - v0;
+      return (plane[v0 * sw + u0] * (1 - tu) + plane[v0 * sw + u1] * tu) * (1 - tv) + (plane[v1 * sw + u0] * (1 - tu) + plane[v1 * sw + u1] * tu) * tv;
+    };
+
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      out[i * 4] = px[i * 4]; out[i * 4 + 1] = px[i * 4 + 1]; out[i * 4 + 2] = px[i * 4 + 2];
+      out[i * 4 + 3] = alpha[i];
+    }
+    const TILE = 128;
+    for (let ty = 0; ty < h; ty += TILE) {
+      for (let tx = 0; tx < w; tx += TILE) {
+        const x1 = Math.min(w, tx + TILE);
+        const y1 = Math.min(h, ty + TILE);
+        let edge = false;
+        for (let y = ty; y < y1 && !edge; y++) {
+          for (let x = tx; x < x1; x++) { const a = alpha[y * w + x]; if (a > 0 && a < 255) { edge = true; break; } }
+        }
+        if (!edge) continue;
+        // The tile with r2 of margin: the wide pass's F and B, then the narrow.
+        const ex0 = Math.max(0, tx - r2); const ey0 = Math.max(0, ty - r2);
+        const ew = Math.min(w, x1 + r2) - ex0; const eh = Math.min(h, y1 + r2) - ey0;
+        const en = ew * eh;
+        const A = new Float32Array(en);
+        const FA = [0, 1, 2].map(() => new Float32Array(en));
+        const BA = [0, 1, 2].map(() => new Float32Array(en));
+        const I = [0, 1, 2].map(() => new Float32Array(en));
+        for (let y = 0; y < eh; y++) {
+          for (let x = 0; x < ew; x++) {
+            const X = ex0 + x; const Y = ey0 + y;
+            const i = Y * w + X; const o = y * ew + x;
+            const a = alpha[i] / 255;
+            const ba = up(mA, X, Y);
+            A[o] = a;
+            for (let c = 0; c < 3; c++) {
+              const v = px[i * 4 + c] / 255;
+              const mf = up(mF[c], X, Y) / (ba + 1e-5);
+              const mb = up(mB[c], X, Y) / (1 - ba + 1e-5);
+              const f = clamp(mf + a * (v - a * mf - (1 - a) * mb), 0, 1);
+              I[c][o] = v; FA[c][o] = f * a; BA[c][o] = mb * (1 - a);
+            }
+          }
+        }
+        const bA = boxMean(A, ew, eh, r2);
+        for (let c = 0; c < 3; c++) {
+          const bF = boxMean(FA[c], ew, eh, r2);
+          const bB = boxMean(BA[c], ew, eh, r2);
+          for (let y = ty; y < y1; y++) {
+            for (let x = tx; x < x1; x++) {
+              const i = y * w + x;
+              const a = alpha[i];
+              if (a === 0 || a === 255) continue;
+              const o = (y - ey0) * ew + (x - ex0);
+              const al = a / 255;
+              const mf = bF[o] / (bA[o] + 1e-5);
+              const mb = bB[o] / (1 - bA[o] + 1e-5);
+              out[i * 4 + c] = clamp(mf + al * (I[c][o] - al * mf - (1 - al) * mb), 0, 1) * 255;
+            }
+          }
+        }
+      }
+    }
+    return out;
   }
 
   // Asked for by drawPage when a tile wants a subject it has not got, which
