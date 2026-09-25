@@ -504,6 +504,91 @@ point ±100 is not: Google also takes about a tenth off a saturated colour at
 Black point -100 and adds a little at +100, which the per-channel model does not
 do and nothing tried yet explains.
 
+### Tone
+
+Tone is on the phone only, runs 0 to 100, and is the one tool here that looks
+at the whole picture before it touches a pixel. Measured from five copies,
+every one made by `google-android.mjs`: the chart at +54 and +100, and at +100
+the 9×9×9 colour grid from `lut-chart.mjs` filling the frame, in the middle
+half on black, and in the middle half on white (read with `lut-measure.mjs`).
+What they said is in `google-phone-tone.json`. The phone was locked for the
+rest of the work, so no photograph has been through Google's Tone yet — see
+Still open.
+
+**Local, and not a blur.** The chart's grey 128 came out of +100 as 158 in
+the open, 142 as a patch on black, 162 on 64, 146 on 192 and 142 on white, and
+146 in the strip between the black block and the chart's edge — each flat
+across the patch to within a level, and the black beside it untouched. No tone
+curve does that, and neither does anything built on a blur of the brightness,
+which would grade each patch from its middle out. The colour grid said the
+same louder: grey 32 came out 33 filling the frame, 80 on black and 23 on
+white.
+
+**Exposure fusion.** HDR+ tone maps by fusing the photo with brighter copies
+of itself (Hasinoff et al. 2016, after Mertens et al. 2007): each pixel of each
+exposure weighted by how near the middle of the range it sits, and the
+exposures blended band by band through Laplacian pyramids. Tried as it is on
+the chart, with one copy two stops brighter, it put those five patches at 156,
+150, 168, 145 and 145: the right way round each time, which nothing else tried
+managed. It never takes a pixel below itself, and it leaves black black.
+
+**How much brighter depends on the photo.** Fitted to each copy on its own,
+the full grid wanted a gain of about 1.3, white 1, the chart 4, and black more
+than anything would give. What orders them is the mean of each pixel's
+brightest channel — 198, 241, 134 and 50 — and not mean luma, on which the
+chart (123) and the full grid (128) are all but equal. A straight line in stops
+does it: 5.8 stops per 255 below a mean of 223, the slider's share of that to
+the power 1.64 (from +54 against +100).
+
+**The brightest channel, not luma.** Pure blue at 128 went to 158 on the full
+grid; by luma it is a dark colour, 9, and would have been lifted several times
+over. Rebuilding each grid patch's colour from Google's own change of one
+brightness and scaling the channels by it, the brightest channel came 5.9, 8.8
+and 7.6 from Google's colour on the three layouts, luma 7.8, 14.7 and 10.1,
+an equal shift in luma 9.7, 13.9 and 8.3.
+
+**Detail follows the exposures, not the curve.** The fusion runs on a copy
+192 pixels across and is kept as a bilateral grid — the mean change in each
+12-pixel region at each twelfth of the range — and every pixel of the photo is
+looked up in it at its own brightness, so each region gets its own curve and an
+edge between two stays an edge. On that copy a region's texture has been
+averaged away, so its pixels reach a level or two, and what the curve does
+either side of those has to be supplied. Held level, the chart's dark ground
+came out with its coarse texture ×1.08 where Google's was ×1.33 (a 7px box
+blur less a 31px one, RMS over the original's): the shadows lifted and left
+flat. Following the curve a flat field comes out on gave the ground ×1.42 but
+the grey noise patch ×0.49, where Google's kept about 0.9. Following instead
+the two exposures' own slopes, weighted as fusion blends them — which is how a
+Laplacian fusion carries fine detail — gave ×1.47 and ×1.11.
+
+What the app now makes of the five, RMS over the chart's flat places and
+colours and over every patch of the grids, at 1080:
+
+| | app | leaving it alone |
+| --- | --- | --- |
+| chart +100 | 9.7 | 23.7 |
+| chart +54 | 7.4 | 12.9 |
+| grid, full, +100 | 8.8 | 12.0 |
+| grid on black, +100 | 17.4 | 22.9 |
+| grid on white, +100 | 10.7 | 10.7 |
+
+The steps from 16 to 156 are within 8 levels of Google's at +100 and 9 at +54.
+Above that the app is up to 11 brighter at +100 (197 to 208, where Google's
+stays at 197) and 13 at +54: Google holds the chart's highlights still. Fading
+the change out towards white took the chart at +54 from 7.4 to 6.3–6.7 but cost
+as much on the full grid, whose highlights Google did lift (191 to 197), so it
+was not kept. Tried and not kept either: fusion on luma (the full grid 15.6
+against 9.4), three or more exposures, a narrower weight above the middle than
+below, a global curve after the fusion (fitted to the chart's greys it cost the
+grids more than it gave the chart), and the copy at 360 across with three or
+four levels (no better than 192 with two).
+
+Timings, on a generated 12MP photo in a phone's 780px preview in headless
+Chromium, each step read back from the canvas so the GPU's part counts: drag
+steps 47–83ms (median 53) against White point's 40–62 (42) and Sharpen's
+44–88 (50) in the same run; the first move off nought 0.37–0.49s; a 2160
+export 0.72s against White point's 0.60.
+
 ## Still open
 
 - **What Shadows' change-over actually keys on.** Median is close but not it:
@@ -597,3 +682,26 @@ do and nothing tried yet explains.
   adding a slope.
 - **Colour at White and Black point ±100**, where saturated patches are up to
   twelve levels from Google's.
+- **Tone on a photograph.** Nothing yet: the phone was locked. The gain comes
+  from a line through four synthetic images, and on the fox, the forest and
+  the portrait (means 146, 108 and 116) it puts the brighter exposure 1.8 to
+  2.6 stops up at +100 — a guess until one of them has been through the phone
+  at +25, +50 and +100. `google-android.mjs edit <dir> <photo> tone+50`
+  makes them and `ours.mjs` the app's; `real.mjs` reads only files named
+  `sharpen+N` for now.
+- **Tone's patch on black.** Google's lifts it 16 levels less than the open
+  grey; the app's lifts it the same. Fusion done at full size and depth lifts
+  it 6 less, and the 192-pixel copy none, and neither a finer grid nor a deeper
+  pyramid on the copy brings it back.
+- **Tone on a dark picture.** On the grid on black Google lifts the darks far
+  harder than anything here (grey 32 to 80) and darkens a bright green (191 to
+  144). Fusion never takes a pixel below itself, so something else is in
+  Google's — possibly a different tool altogether underneath the one slider.
+- **Tone's highlights**, held still on the chart and lifted on the full grid.
+- **Tone's fine grain.** Google's +100 kept 0.63 of the chart's faint noise at
+  4px, against 1.04 in its Sharpen +25 copy through the same JPEG, and 0.03 at
+  2px against 0.21. Tone may smooth, or the JPEG may take more off flatter
+  shadows; a copy at Tone +5 would say which.
+- **Whether Tone's regions scale with the photo.** The copy is a fixed 192
+  pixels across whatever the photo's size, as a working copy would be, but
+  only 2160 squares have been measured.
