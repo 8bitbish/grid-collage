@@ -451,6 +451,23 @@
     }
   }
 
+  // Redraw the preview when the room for it has changed. The observer calls
+  // this, and so does a sheet opening or closing, straight after the change,
+  // so the one redraw happens at the final size before anything moves — and
+  // the observer, arriving after, finds nothing left to do.
+  let fitW = 0;
+  let fitH = 0;
+  function fitPreview() {
+    const box = $('canvas-wrap');
+    const w = box.clientWidth;
+    const h = box.clientHeight;
+    if (!w || !h) return;
+    if (Math.abs(w - fitW) < 8 && Math.abs(h - fitH) < 8) return;
+    fitW = w;
+    fitH = h;
+    render();
+  }
+
   function render() {
     const { w: W, h: H } = previewSize();
     if (canvas.width !== W || canvas.height !== H) {
@@ -7773,7 +7790,8 @@
     return hslHex(custom.h, custom.s, clamp(custom.l, 0.04, 0.98));
   }
 
-  function openCustomColour() {
+  function openCustomColour() { morph(() => openCustomColourNow()); }
+  function openCustomColourNow() {
     $('bg-ticker').hidden = true;
     $('bg-custom').hidden = false;
     syncCustomRulers();
@@ -7781,7 +7799,8 @@
     syncFades();
   }
 
-  function closeCustomColour() {
+  function closeCustomColour() { morph(() => closeCustomColourNow()); }
+  function closeCustomColourNow() {
     $('bg-custom').hidden = true;
     $('bg-ticker').hidden = false;
     buildSwatches();
@@ -8093,12 +8112,38 @@
   }
 
   // The number rolls the way it is going, like a counter: up and in for
-  // larger, down for smaller.
+  // larger, down for smaller. A third of its height rather than most of it,
+  // and only when it starts to move. A quick drag changes the number every
+  // few pixels, and rolling on each of those read as a shudder (it also
+  // forced a layout each time to restart the animation). So while the
+  // numbers keep coming in the same direction, less than ROLL_REST apart,
+  // they change in place. A turn the other way rolls from wherever the last
+  // roll had got to.
+  const ROLL_PX = 7.5;
+  const ROLL_MS = 140;
+  const ROLL_REST = 180;
+  const rolling = new WeakMap();
   function roll(el, up) {
-    if (!el) return;
-    el.classList.remove('roll-up', 'roll-down');
-    void el.offsetWidth;
-    el.classList.add(up ? 'roll-up' : 'roll-down');
+    if (!el || !el.animate || calmMotion.matches) return;
+    const now = performance.now();
+    const going = rolling.get(el);
+    let from = up ? ROLL_PX : -ROLL_PX;
+    let fade = 0.35;
+    if (going) {
+      const since = now - going.at;
+      going.at = now;
+      if (going.up === up && since < ROLL_REST) return;
+      if (going.anim.playState === 'running') {
+        from = translateOf(el);
+        fade = Number(getComputedStyle(el).opacity);
+        going.anim.cancel();
+      }
+    }
+    const anim = el.animate([
+      { transform: `translateY(${from}px)`, opacity: fade },
+      { transform: 'none', opacity: 1 },
+    ], { duration: ROLL_MS, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' });
+    rolling.set(el, { anim, up, at: now });
   }
 
   // Pull the Style tab's controls back in line with state — needed after an
@@ -8219,7 +8264,8 @@
   let tileSub = null;
   let swapFrom = null;
 
-  function showTileSub(name) {
+  function showTileSub(name) { morph(() => showTileSubNow(name)); }
+  function showTileSubNow(name) {
     tileSub = name;
     $('tile-actions').hidden = !!name;
     ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust', 'effects'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
@@ -8930,6 +8976,319 @@
     syncEffects();
   }
 
+  /* ------------------------------------------------ the sheet in motion */
+
+  // A sheet arrives from below the screen and settles with a small bounce,
+  // and leaves faster, falling straight away. Everything that changes the
+  // sheet goes through morph(), which takes a picture of the scene, lets the
+  // change happen at once, and then animates from the picture to the result.
+  // The layout only ever moves once, to its final place, so the preview is
+  // drawn once at its final size and everything in between is a transform.
+  //
+  // Three things cannot be done with transforms alone:
+  // - A closing sheet is hidden the moment it closes, as it always was, so
+  //   that nothing can press it and every test that asks whether it is open
+  //   hears no. What falls away is a copy of it.
+  // - The bar fading out under an opening sheet is a copy for the same
+  //   reason.
+  // - A sheet that changes height inside itself is clipped from the top
+  //   while its edge travels. A transform would carry the foot with it, and
+  //   the foot is the one part that must not move.
+  const SHEET_OPEN_MS = 420;
+  const SHEET_CLOSE_MS = 240;
+  const SHEET_FADE_MS = 150;
+  const SHEET_CALM_MS = 120;
+  const SHEET_EASE_CLOSE = 'cubic-bezier(0.4, 0, 1, 1)';
+  const SHEET_EASE_FALLBACK = 'cubic-bezier(0.34, 1.25, 0.64, 1)';
+  // A damped spring sampled into linear(): damping 0.75 overshoots by about
+  // 3% of the travel, and the stiffness is set so it has settled to within
+  // 1% by the end of the 420ms rather than trailing on past it.
+  const SHEET_SPRING = (() => {
+    const zeta = 0.75;
+    const omega = 4.6 / (zeta * SHEET_OPEN_MS / 1000);
+    const wd = omega * Math.sqrt(1 - zeta * zeta);
+    const points = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = (i / 40) * SHEET_OPEN_MS / 1000;
+      const x = 1 - Math.exp(-zeta * omega * t) * (Math.cos(wd * t) + (zeta * omega / wd) * Math.sin(wd * t));
+      points.push(i === 40 ? '1' : x.toFixed(4));
+    }
+    return `linear(${points.join(', ')})`;
+  })();
+  const SHEET_EASE_OPEN = window.CSS && CSS.supports && CSS.supports('transition-timing-function', SHEET_SPRING)
+    ? SHEET_SPRING : SHEET_EASE_FALLBACK;
+  const calmMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+
+  const motion = { depth: 0, running: [], ghosts: [], hold: 0 };
+
+  function play(el, frames, options) {
+    if (!el.animate) return null;
+    let anim;
+    try { anim = el.animate(frames, options); } catch {
+      anim = el.animate(frames, { ...options, easing: SHEET_EASE_FALLBACK });
+    }
+    motion.running.push(anim);
+    const forget = () => { motion.running = motion.running.filter((a) => a !== anim); };
+    anim.addEventListener('finish', forget);
+    anim.addEventListener('cancel', forget);
+    return anim;
+  }
+
+  // A stand-in that looks like the element and is nothing else: no ids, so
+  // no selector finds it twice; inert, so nothing presses it. A canvas copies
+  // without its picture and a scroller without its place, so both are put
+  // back by hand.
+  function lookalike(el) {
+    const copy = el.cloneNode(true);
+    const from = [el, ...el.querySelectorAll('*')];
+    const to = [copy, ...copy.querySelectorAll('*')];
+    const scrolled = [];
+    from.forEach((src, i) => {
+      const dst = to[i];
+      dst.removeAttribute('id');
+      dst.removeAttribute('for');
+      if (src instanceof HTMLCanvasElement && src.width && src.height) {
+        try { dst.getContext('2d').drawImage(src, 0, 0); } catch { /* tainted or empty */ }
+      }
+      if (src.scrollLeft || src.scrollTop) scrolled.push([dst, src.scrollLeft, src.scrollTop]);
+      if ('value' in src && src.value !== undefined && dst.value !== src.value) { try { dst.value = src.value; } catch { /* a file input */ } }
+    });
+    copy.setAttribute('aria-hidden', 'true');
+    copy.inert = true;
+    copy.classList.add('is-ghost');
+    return { copy, settle: () => scrolled.forEach(([d, x, y]) => { d.scrollLeft = x; d.scrollTop = y; }) };
+  }
+
+  // Put a stand-in where the original was on screen, pinned to the bottom of
+  // the dock so it stays put however tall the dock has just become.
+  // Painted in the order they sit in the dock, so a bar going out goes in
+  // underneath the sheet coming in, and a sheet going out goes over the bar.
+  function pinGhost(copy, rect, host, under = null) {
+    const h = host.getBoundingClientRect();
+    Object.assign(copy.style, {
+      position: 'absolute',
+      left: `${rect.left - h.left}px`,
+      top: 'auto',
+      bottom: `${h.bottom - rect.bottom}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      margin: '0',
+      pointerEvents: 'none',
+    });
+    host.insertBefore(copy, under);
+    motion.ghosts.push(copy);
+    return copy;
+  }
+
+  function dropGhost(copy) {
+    copy.remove();
+    motion.ghosts = motion.ghosts.filter((g) => g !== copy);
+  }
+
+  const translateOf = (el) => {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 0;
+    const m = t.match(/matrix(3d)?\(([^)]+)\)/);
+    if (!m) return 0;
+    const v = m[2].split(',').map(Number);
+    return m[1] ? v[13] : v[5];
+  };
+  const clipTopOf = (el) => {
+    const c = getComputedStyle(el).clipPath;
+    const m = c && c.match(/inset\(\s*(-?[\d.]+)px/);
+    return m ? Number(m[1]) : 0;
+  };
+
+  // Everything the animation will need to start from, read before a change.
+  function sceneNow() {
+    const sheet = $('dock-drawer');
+    const bar = $('dock-root');
+    const open = !sheet.hidden;
+    const falling = motion.ghosts.find((g) => g.classList.contains('dock-drawer'));
+    const fading = motion.ghosts.find((g) => g.classList.contains('dock-root'));
+    const scene = {
+      open,
+      key: open ? [drawer, tileSub, $('bg-custom').hidden ? '' : 'custom'].join('|') : '',
+      sheetH: open ? sheet.offsetHeight - motion.hold : 0,
+      wrapH: $('canvas-wrap').clientHeight,
+      canvas: $('canvas').getBoundingClientRect(),
+      sheetTop: null,
+      sheetOpacity: 1,
+      barOpacity: bar.hidden ? (fading ? Number(getComputedStyle(fading).opacity) : 0) : Number(getComputedStyle(bar).opacity),
+    };
+    if (open) {
+      const r = sheet.getBoundingClientRect();
+      scene.sheetTy = translateOf(sheet);
+      scene.sheetTop = r.top + clipTopOf(sheet);
+      scene.sheetRect = new DOMRect(r.left, r.top - scene.sheetTy + motion.hold, r.width, r.height - motion.hold);
+      scene.sheetOpacity = Number(getComputedStyle(sheet).opacity);
+      scene.sheetCopy = lookalike(sheet);
+      // Whatever a height change was holding is not part of the picture.
+      scene.sheetCopy.copy.style.marginTop = '';
+      scene.sheetCopy.copy.style.paddingTop = '';
+      const body = $('sheet-body').getBoundingClientRect();
+      scene.bodyRect = new DOMRect(body.left, body.top - scene.sheetTy, body.width, body.height);
+    } else if (falling) {
+      scene.sheetTop = falling.getBoundingClientRect().top;
+      scene.sheetOpacity = Number(getComputedStyle(falling).opacity);
+    }
+    // The bar is only pictured here; it is copied after the change, if the
+    // change hid it, since hiding it leaves it as it was.
+    if (!bar.hidden) scene.barRect = bar.getBoundingClientRect();
+    else if (fading) scene.barRect = fading.getBoundingClientRect();
+    return scene;
+  }
+
+  function stopMotion() {
+    motion.running.slice().forEach((a) => a.cancel());
+    motion.running = [];
+    motion.ghosts.slice().forEach(dropGhost);
+    releaseHold();
+  }
+
+  function releaseHold() {
+    if (!motion.hold) return;
+    const sheet = $('dock-drawer');
+    sheet.style.marginTop = '';
+    sheet.style.paddingTop = '';
+    motion.hold = 0;
+  }
+
+  function morph(change) {
+    if (motion.depth) { change(); return; }
+    const before = sceneNow();
+    motion.depth += 1;
+    try { change(); } finally { motion.depth -= 1; }
+    animateScene(before);
+  }
+
+  function animateScene(before) {
+    const sheet = $('dock-drawer');
+    const bar = $('dock-root');
+    const dock = $('dock');
+    const open = !sheet.hidden;
+    const key = open ? [drawer, tileSub, $('bg-custom').hidden ? '' : 'custom'].join('|') : '';
+    // A change that changed nothing leaves whatever is moving to carry on.
+    if (open === before.open && key === before.key && sheet.offsetHeight - motion.hold === before.sheetH
+        && $('canvas-wrap').clientHeight === before.wrapH) return;
+
+    stopMotion();
+    // Drawn once, here, at the size it is going to be; nothing below redraws.
+    fitPreview();
+    const calm = calmMotion.matches;
+
+    // The preview, from where it was on screen to where it now is.
+    const wrap = $('canvas-wrap');
+    const was = before.canvas;
+    const now = $('canvas').getBoundingClientRect();
+    const easing = open && !before.open ? SHEET_EASE_OPEN : (!open && before.open ? SHEET_EASE_CLOSE : SHEET_EASE_OPEN);
+    const ms = !open && before.open ? SHEET_CLOSE_MS : SHEET_OPEN_MS;
+    if (!calm && now.width && was.width && (Math.abs(was.top - now.top) > 0.5 || Math.abs(was.width - now.width) > 0.5)) {
+      const w = wrap.getBoundingClientRect();
+      const s = was.width / now.width;
+      wrap.style.transformOrigin = `${now.left - w.left}px ${now.top - w.top}px`;
+      play(wrap, [
+        { transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${s})` },
+        { transform: 'none' },
+      ], { duration: ms, easing });
+    }
+
+    if (open && !before.open) {
+      const r = sheet.getBoundingClientRect();
+      if (calm) {
+        play(sheet, [{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_CALM_MS, easing: 'ease-out' });
+      } else {
+        const from = before.sheetTop !== null ? before.sheetTop - r.top : window.innerHeight - r.top;
+        play(sheet, [{ transform: `translateY(${from}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+        play(sheet, [
+          { opacity: Math.min(before.sheetOpacity, 0.6) },
+          { opacity: 1, offset: 0.33 },
+          { opacity: 1 },
+        ], { duration: SHEET_OPEN_MS, easing: 'linear' });
+      }
+      if (before.barRect && before.barOpacity > 0 && !calm) {
+        const barCopy = lookalike(bar);
+        barCopy.copy.hidden = false;
+        const ghost = pinGhost(barCopy.copy, before.barRect, dock, sheet);
+        barCopy.settle();
+        const fade = play(ghost, [{ opacity: before.barOpacity }, { opacity: 0 }], { duration: SHEET_OPEN_MS * 0.6, easing: 'ease-out', fill: 'forwards' });
+        if (fade) fade.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      }
+      return;
+    }
+
+    if (!open && before.open) {
+      if (!bar.hidden) play(bar, [{ opacity: before.barOpacity }, { opacity: 1 }], { duration: calm ? SHEET_CALM_MS : SHEET_CLOSE_MS, easing: 'ease-out' });
+      const ghost = pinGhost(before.sheetCopy.copy, before.sheetRect, dock);
+      before.sheetCopy.settle();
+      const frames = calm
+        ? [{ opacity: before.sheetOpacity }, { opacity: 0 }]
+        : [
+          { transform: `translateY(${before.sheetTy}px)`, opacity: before.sheetOpacity },
+          { transform: `translateY(${window.innerHeight - before.sheetRect.top}px)`, opacity: before.sheetOpacity },
+        ];
+      const fall = play(ghost, frames, { duration: calm ? SHEET_CALM_MS : SHEET_CLOSE_MS, easing: calm ? 'ease-in' : SHEET_EASE_CLOSE, fill: 'forwards' });
+      if (fall) fall.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      return;
+    }
+
+    if (!open) return;
+
+    // Still open, with something new in it. An arrival still in flight
+    // carries on from where it had got to.
+    if (!calm && before.sheetTy) {
+      play(sheet, [{ transform: `translateY(${before.sheetTy}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+    }
+    const r = sheet.getBoundingClientRect();
+    const radius = getComputedStyle(sheet).borderTopLeftRadius;
+    // How far the top edge has to travel: from where it was drawn to where
+    // it now is. Growing, the sheet is already its new height and is clipped
+    // down to the old edge; shrinking, it is held at its old height for the
+    // length of the move, with the flow already at the new one, so the stage
+    // and the preview move once.
+    const rise = r.top - before.sheetTop;
+    if (!calm && Math.abs(rise) > 0.5) {
+      if (rise > 0) {
+        const pad = parseFloat(getComputedStyle(sheet).paddingTop);
+        motion.hold = rise;
+        sheet.style.marginTop = `${-rise}px`;
+        sheet.style.paddingTop = `${pad + rise}px`;
+        const held = play(sheet, [
+          { clipPath: `inset(0px 0px 0px 0px round ${radius})` },
+          { clipPath: `inset(${rise}px 0px 0px 0px round ${radius})` },
+        ], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+        if (held) {
+          held.addEventListener('finish', releaseHold);
+          held.addEventListener('cancel', releaseHold);
+        } else releaseHold();
+      } else {
+        play(sheet, [
+          { clipPath: `inset(${-rise}px 0px 0px 0px round ${radius})` },
+          { clipPath: `inset(0px 0px 0px 0px round ${radius})` },
+        ], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+      }
+    }
+    // The control cross-fades: what was there goes out where it was while
+    // what replaces it comes in.
+    if (key !== before.key) {
+      const body = $('sheet-body');
+      play(body, [{ opacity: 0 }, { opacity: 1 }], { duration: calm ? SHEET_CALM_MS : SHEET_FADE_MS, easing: 'ease-out' });
+      const old = before.sheetCopy.copy.querySelector('.sheet-body');
+      if (old) {
+        // Inside the sheet, so it rides any arrival still in flight; placed
+        // against the sheet as laid out, without that motion in it.
+        const s = sheet.getBoundingClientRect();
+        const sTop = s.top - translateOf(sheet) + sheet.clientTop;
+        const sLeft = s.left + sheet.clientLeft;
+        const ghost = pinGhost(old, before.bodyRect, sheet);
+        Object.assign(ghost.style, { top: `${before.bodyRect.top - sTop}px`, bottom: 'auto', left: `${before.bodyRect.left - sLeft}px` });
+        before.sheetCopy.settle();
+        const out = play(ghost, [{ opacity: 1 }, { opacity: 0 }], { duration: calm ? SHEET_CALM_MS : SHEET_FADE_MS, easing: 'ease-out', fill: 'forwards' });
+        if (out) out.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      }
+    }
+  }
+
   // The page's own settings share one sheet, as words along its foot; the
   // others each have a sheet to themselves and a foot of their own.
   const PAGE_TABS = ['layout', 'gap', 'padding', 'corners', 'background', 'page'];
@@ -8949,7 +9308,8 @@
     target.focus({ preventScroll: true });
   }
 
-  function openDrawer(name) {
+  function openDrawer(name) { morph(() => openDrawerNow(name)); }
+  function openDrawerNow(name) {
     const wasOpen = drawer !== null;
     const fromBar = $('dock-root').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
     if (fromBar) sheetOpener = document.activeElement;
@@ -8973,7 +9333,8 @@
     syncFades();
   }
 
-  function closeDrawer() {
+  function closeDrawer() { morph(() => closeDrawerNow()); }
+  function closeDrawerNow() {
     const sheetHadFocus = $('dock-drawer').contains(document.activeElement);
     drawer = null;
     tileSub = null;
@@ -9050,7 +9411,15 @@
 
   function syncSheetValue(ratio) {
     if (drawer !== 'shape' || !ratio) return;
-    $('sheet-value-main').textContent = ratio.label;
+    const main = $('sheet-value-main');
+    if (main.textContent && main.textContent !== ratio.label) {
+      // Tallest to widest along the reel, so wider rolls up.
+      const order = [...$('ratios').children].map((b) => b.dataset.id);
+      const was = order.indexOf(main.dataset.id);
+      roll(main, order.indexOf(ratio.id) > was);
+    }
+    main.textContent = ratio.label;
+    main.dataset.id = ratio.id;
     $('sheet-value-sub').textContent = RATIO_USES[ratio.id] || '';
   }
 
@@ -10926,20 +11295,7 @@
     .catch(() => {})
     .then(collectShared);
 
-  if (window.ResizeObserver) {
-    let lastW = 0;
-    let lastH = 0;
-    new ResizeObserver(() => {
-      const box = $('canvas-wrap');
-      const w = box.clientWidth;
-      const h = box.clientHeight;
-      if (!w || !h) return;
-      if (Math.abs(w - lastW) < 8 && Math.abs(h - lastH) < 8) return;
-      lastW = w;
-      lastH = h;
-      render();
-    }).observe($('canvas-wrap'));
-  }
+  if (window.ResizeObserver) new ResizeObserver(fitPreview).observe($('canvas-wrap'));
   requestAnimationFrame(() => render());
 
   /* ------------------------------------------------------ install / offline */

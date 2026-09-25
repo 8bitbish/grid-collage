@@ -1415,6 +1415,7 @@ body.is-picking .tile::after {
    the foot. The corners nest: 30 on the sheet less its 8 is 22, the radius
    of every 44 control in its foot. */
 .dock-drawer {
+  position: relative;
   max-width: 520px;
   margin: 0 auto;
   display: flex;
@@ -1452,9 +1453,9 @@ body.is-picking .tile::after {
   border-color: transparent;
   background: var(--background-control);
 }
-.dock-back #dock-back-cross,
-.dock-back.is-cross #dock-back-arrow { display: none; }
-.dock-back.is-cross #dock-back-cross { display: block; }
+.dock-back .back-cross,
+.dock-back.is-cross .back-arrow { display: none; }
+.dock-back.is-cross .back-cross { display: block; }
 
 /* The page's settings as words. Words read at a glance where icons have to
    be learnt, and five of them cannot fit beside Back at 390px, so the row
@@ -1503,7 +1504,16 @@ body.is-picking .tile::after {
   text-align: center;
 }
 .has-value .sheet-value { display: flex; }
-.sheet-value strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sheet-value strong { display: block; font-size: 16px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; }
+/* The ratio's window, the same idea as a dial's number: 20 in the layout, 36
+   to draw in, fading over the 8 above and below. */
+.value-window {
+  display: block;
+  padding-block: 8px;
+  margin-block: -8px;
+  -webkit-mask-image: linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
+  mask-image: linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
+}
 .sheet-value span { font-size: 12px; color: var(--content-secondary); }
 .sheet-balance { flex: none; width: 44px; display: none; }
 .has-value .sheet-balance { display: block; }
@@ -2053,7 +2063,7 @@ input[type="range"]::-moz-range-thumb {
 /* Layouts, 54 apart. The chosen one is drawn at 50 in white with a heavier
    stroke; then 36, 32, and 28 at sixty per cent for the rest. Each option is
    still a 54 by 68 button whatever size its drawing is. */
-#dp-layout, #dp-shape { height: 76px; }
+.dock-panel.has-reel { height: 76px; }
 .reel-layouts .layout-btn,
 .reel-layouts .reel-echo {
   flex: none;
@@ -2084,7 +2094,7 @@ input[type="range"]::-moz-range-thumb {
 /* Ratios, the same way, 56 apart, tallest to widest. A shape is a rectangle
    in its own proportion; every ratio here is square or taller, so the height
    is what each size sets and the width follows from the ratio. */
-.reel-ratios #ratios button,
+.reel-ratios .segmented button,
 .reel-ratios .reel-echo {
   flex: none;
   width: 56px;
@@ -2127,17 +2137,25 @@ input[type="range"]::-moz-range-thumb {
   gap: 2px;
   max-width: none;
 }
+/* The number's window. It takes 30 in the layout but is 50 tall, the extra
+   10 above and below given back with negative margins, and it fades out over
+   those 10 instead of cutting off. A roll moves the number 7.5 either way, so
+   the 28 of its box never leaves the window, and near the ends it fades
+   rather than being cut in half, which is what the old 30px clip did. */
 .dial .dock-label {
   justify-content: center;
-  height: 30px;
-  overflow: hidden;
+  height: 50px;
+  padding-block: 10px;
+  margin-block: -10px;
+  -webkit-mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
   color: var(--content-primary);
   font-size: 22px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
 }
-.dial .val { display: inline-block; font-size: 22px; font-weight: 600; }
+.dial .val { display: inline-block; font-size: 22px; font-weight: 600; line-height: 28px; }
 /* 44 is the floor for anything a finger is meant to find, and the ruler is
    it: drawn at 40 it was the one control in the sheet under it. */
 .dial-track {
@@ -2179,15 +2197,9 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 10px;
 }
 
-/* The number rolls the way it is going, like a counter: larger arrives from
-   below, smaller from above. It follows the drag, so it is never ahead of or
-   behind the ruler; with reduced motion it simply changes. */
-.val.roll-up { animation: roll-up 160ms ease-out; }
-.val.roll-down { animation: roll-down 160ms ease-out; }
-@keyframes roll-up { from { transform: translateY(45%); opacity: 0.25; } to { transform: none; opacity: 1; } }
-@keyframes roll-down { from { transform: translateY(-45%); opacity: 0.25; } to { transform: none; opacity: 1; } }
+/* The number rolls the way it is going, like a counter — see roll() in
+   app.js, which animates it. With reduced motion it simply changes. */
 @media (prefers-reduced-motion: reduce) {
-  .val.roll-up, .val.roll-down { animation: none; }
   .reel-layouts .layout-glyph, .seg-shape { transition: none; }
 }
 
@@ -2629,12 +2641,14 @@ body.is-library .toast {
   .dock-back { width: 38px; height: 38px; }
   .dock-tab { height: 38px; }
   .sheet-go { min-height: 38px; }
-  #dp-layout, #dp-shape { height: 58px; }
+  .dock-panel.has-reel { height: 58px; }
   .reel-layouts .layout-btn, .reel-layouts .reel-echo,
-  .reel-ratios #ratios button, .reel-ratios .reel-echo { height: 54px; }
+  .reel-ratios .segmented button, .reel-ratios .reel-echo { height: 54px; }
   .reel-layouts [data-d="0"] .layout-glyph { width: 40px; height: 40px; }
   .reel-ratios [data-d="0"] .seg-shape { --s: 34px; }
-  .dial .dock-label, .ticker-name { height: 24px; line-height: 24px; font-size: 18px; }
+  .ticker-name { height: 24px; line-height: 24px; font-size: 18px; }
+  .dial .dock-label { height: 44px; font-size: 18px; }
+  .dial .val { line-height: 24px; }
   .dial .val { font-size: 18px; }
   .dial-track { height: 34px; }
   .dial input[type="range"] { height: 34px; }
@@ -2740,8 +2754,8 @@ body.is-library .toast {
   cursor: grab;
 }
 /* The end handle reads as the closing edge, so it takes the second colour. */
-#trim-end::-webkit-slider-thumb { background: var(--content-secondary); }
-#trim-end::-moz-range-thumb { background: var(--content-secondary); }
+.trim-bars input.trim-end::-webkit-slider-thumb { background: var(--content-secondary); }
+.trim-bars input.trim-end::-moz-range-thumb { background: var(--content-secondary); }
 
 /* Trimming's own landscape rules, here rather than up in the block with the
    rest of them: these selectors are no more specific than the ones they have

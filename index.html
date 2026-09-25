@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.25j">
+<link rel="stylesheet" href="styles.css?v=2026.09.25k">
 </head>
 <body class="on-home">
 
@@ -220,7 +220,7 @@
            the middle is the page's layout. It runs round without an end: the
            echoes either side are pictures of the same buttons, kept out of
            #layouts so that list holds exactly one button per layout. -->
-      <div class="dock-panel" id="dp-layout" hidden>
+      <div class="dock-panel has-reel" id="dp-layout" hidden>
         <div class="reel reel-layouts" id="layout-reel">
           <div class="reel-echoes" aria-hidden="true"></div>
           <div class="layouts" id="layouts"></div>
@@ -229,7 +229,7 @@
         <span class="reel-dot" aria-hidden="true"></span>
       </div>
 
-      <div class="dock-panel" id="dp-shape" hidden>
+      <div class="dock-panel has-reel" id="dp-shape" hidden>
         <div class="reel reel-ratios" id="ratio-reel">
           <div class="reel-echoes" aria-hidden="true"></div>
           <div class="segmented" id="ratios"></div>
@@ -397,7 +397,7 @@
             <label class="sr" for="trim-start">Start</label>
             <input type="range" id="trim-start" min="0" max="1000" step="1" value="0">
             <label class="sr" for="trim-end">End</label>
-            <input type="range" id="trim-end" min="0" max="1000" step="1" value="1000">
+            <input type="range" class="trim-end" id="trim-end" min="0" max="1000" step="1" value="1000">
           </div>
         </div>
 
@@ -514,8 +514,8 @@
 
      <div class="sheet-foot">
       <button class="dock-back circle" id="dock-back" type="button" aria-label="Back">
-        <svg id="dock-back-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
-        <svg id="dock-back-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        <svg class="back-arrow" id="dock-back-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+        <svg class="back-cross" id="dock-back-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
       <!-- Words, not icons: they read at a glance, and a row of five cannot
            fit beside Back at 390px, so it scrolls, fading at whichever edge
@@ -529,7 +529,7 @@
         <button class="dock-tab" type="button" role="tab" data-drawer="background">Background</button>
         <button class="dock-tab" type="button" role="tab" data-drawer="page">Page</button>
       </div>
-      <p class="sheet-value" id="sheet-value" aria-live="polite"><strong id="sheet-value-main"></strong><span id="sheet-value-sub"></span></p>
+      <p class="sheet-value" id="sheet-value" aria-live="polite"><span class="value-window"><strong id="sheet-value-main"></strong></span><span id="sheet-value-sub"></span></p>
       <button class="btn btn-primary sheet-go" id="btn-export" type="button">Export</button>
       <span class="sheet-balance" aria-hidden="true"></span>
      </div>
@@ -637,6 +637,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.25j"></script>
+<script src="app.js?v=2026.09.25k"></script>
 </body>
 </html>
