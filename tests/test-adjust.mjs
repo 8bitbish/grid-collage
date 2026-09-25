@@ -869,6 +869,148 @@ else {
     'and lifts the rest of its detail as Google lifted the fox\'s, within 0.3 from 3 to 24px', shown(body));
 }
 
+/* -------------------------------------------------- Tone against Google's */
+
+// Tone is on the phone only, and looks at the whole photo: the same grey 128
+// came out of Google's +100 lighter or darker by what was round it. What
+// Google made of the calibration chart is in calibration/google-phone-tone.json.
+// The chart is toned in a project of its own and exported at 2160, and read
+// at the same places: the grey in each of its settings, the 32 steps, and the
+// dark ground's coarse texture — a 7px box blur less a 31px one, its RMS over
+// the same of the chart as it was.
+const googleTone = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/calibration/google-phone-tone.json'), 'utf8'));
+const CONTEXTS = {
+  background: [1080, 1275], 'strip beside the black block': [30, 650], 'patch on 0': [299, 650], 'patch on 64': [820, 650],
+  'patch on 192': [1341, 650], 'patch on 255': [1862, 650], 'surround 0': [100, 650], 'surround 255': [1700, 650],
+};
+const tonedChart = async (amount) => {
+  await p.click('#btn-home');
+  await p.waitForFunction(() => document.body.classList.contains('on-home'));
+  await p.click('#btn-new');
+  await p.waitForFunction(() => !document.body.classList.contains('on-home'));
+  await p.setInputFiles('#file-input', [{ name: 'chart.png', mimeType: 'image/png', buffer: chartPng }]);
+  await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 1);
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(400);
+  await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await p.waitForTimeout(200);
+  await p.click('.dock-item[data-tile="adjust"]');
+  await choose('tone');
+  const oneWay = await p.$eval('#adjust', (e) => e.min === '0');
+  await slide(amount);
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+  await p.click('.dock-item[data-drawer="export"]');
+  await p.selectOption('#quality', '2160');
+  await p.selectOption('#format', 'image/png');
+  const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+  await p.click('#btn-export');
+  const download = await got;
+  await p.click('#dock-back');
+  if (!download) return null;
+  return {
+    oneWay,
+    ...await p.evaluate(async ({ b64, original, L, points }) => {
+      const read = async (data) => {
+        const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+        const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d', { willReadFrequently: true });
+        g.drawImage(bmp, 0, 0);
+        return g;
+      };
+      const mean = (g, x, y, r) => {
+        const d = g.getImageData(x - r, y - r, 2 * r + 1, 2 * r + 1).data;
+        const s = [0, 0, 0];
+        for (let i = 0; i < d.length; i += 4) { s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; }
+        return s.map((v) => Math.round(v / (d.length / 4)));
+      };
+      const band = (g) => {
+        const [x, y, w, h] = [256, 1990, 1600, 80];
+        const d = g.getImageData(x - 16, y - 16, w + 32, h + 32).data;
+        const W = w + 32, H = h + 32;
+        // Summed-area table of luma, for both box blurs at once.
+        const sat = new Float64Array((W + 1) * (H + 1));
+        for (let j = 0; j < H; j++) {
+          for (let i = 0; i < W; i++) {
+            const o = (j * W + i) * 4;
+            sat[(j + 1) * (W + 1) + i + 1] = 0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]
+              + sat[j * (W + 1) + i + 1] + sat[(j + 1) * (W + 1) + i] - sat[j * (W + 1) + i];
+          }
+        }
+        const box = (cx, cy, r) => (sat[(cy + r + 1) * (W + 1) + cx + r + 1] - sat[(cy - r) * (W + 1) + cx + r + 1]
+          - sat[(cy + r + 1) * (W + 1) + cx - r] + sat[(cy - r) * (W + 1) + cx - r]) / (2 * r + 1) ** 2;
+        let s2 = 0, n = 0;
+        for (let j = 16; j < H - 16; j += 2) for (let i = 16; i < W - 16; i += 2) { const v = box(i, j, 3) - box(i, j, 15); s2 += v * v; n++; }
+        return Math.sqrt(s2 / n);
+      };
+      const g = await read(b64);
+      const before = await read(original);
+      return {
+        contexts: Object.fromEntries(Object.entries(points).map(([k, [x, y]]) => [k, mean(g, x, y, 8)])),
+        steps: L.steps.levels.map((_, i) => mean(g, L.steps.x + i * L.steps.w + L.steps.w / 2, L.steps.y + L.steps.h / 2, 12)[1]),
+        texture: band(g) / band(before),
+      };
+    }, { b64: fs.readFileSync(await download.path()).toString('base64'), original: chartPng.toString('base64'), L: layout, points: CONTEXTS }),
+  };
+};
+const grey = (rgb) => rgb[1];
+const stepsBetween = (toned, google, lo, hi) => layout.steps.levels.map((lv, i) => [lv, toned[i], google[i][1]]).filter(([lv]) => lv >= lo && lv <= hi);
+const listedSteps = (rows) => rows.map(([lv, o, g]) => `${lv}:${o}/${g}`).join(' ');
+
+const tone100 = await tonedChart(100);
+const google100 = googleTone.chart['tone+100'];
+if (!tone100) check(false, 'the toned chart export arrives');
+else {
+  check(tone100.oneWay, 'Tone only goes one way');
+  const bg = grey(tone100.contexts.background);
+  check(Math.abs(bg - grey(google100.contexts.background)) <= 4,
+    'Tone 100 lifts open grey 128 as Google\'s does, within 4 levels', `${bg} against Google's ${grey(google100.contexts.background)}`);
+  // The local part. Google's +100 took the same 128 to 158 in the open, 162
+  // on a 64 surround, 146 on 192, 142 on white and 146 in the strip beside
+  // the black block, flat across each patch; the app to 154, 155, 148, 152
+  // and 153 — the right way round each time, but on white and beside black
+  // by a quarter as much. Fitted to the photographs too, the fusion is
+  // gentler than the chart alone asked for. On black Google's went to 142
+  // and the app's does not follow at all. See Tone in app.js.
+  const c = Object.fromEntries(Object.entries(tone100.contexts).map(([k, v]) => [k, grey(v)]));
+  check(c['patch on 64'] > bg && c['patch on 192'] < bg - 3 && c['patch on 255'] < bg && c['strip beside the black block'] < bg,
+    'and like Google\'s, lifts it further on a dark surround and less on a light one or beside black',
+    `open ${bg}, on 64 ${c['patch on 64']}, on 192 ${c['patch on 192']}, on 255 ${c['patch on 255']}, strip ${c['strip beside the black block']}; Google 158, 162, 146, 142, 146`);
+  check(c['surround 0'] === 0 && Math.abs(c['surround 255'] - grey(google100.contexts['surround 255'])) <= 3,
+    'black stays black and white stays within 3 of where Google\'s put it', `black ${c['surround 0']}, white ${c['surround 255']} against ${grey(google100.contexts['surround 255'])}`);
+  // The shadows and middle darker than Google's by up to 15 levels (58 to 77
+  // against 91), which is the price of the colour fit: fitted to the fox and
+  // the portrait over the whole frame, it took the portrait at +100 from 22
+  // to 11 levels RMS off Google's and cost the chart's grey steps, a sliver
+  // of any photo, 7 more. Charts alone had them within 8. Above them the app
+  // is brighter, by as much as 8 at 197, where Google holds its highlights
+  // still. Holding them here too cost as much on the colour grid, which
+  // Google's lifted, as it saved on the chart.
+  const low = stepsBetween(tone100.steps, google100.steps, 16, 156);
+  check(low.every(([, o, g]) => Math.abs(o - g) <= 15), 'the steps from 16 to 156 come within 15 levels of Google\'s', listedSteps(low));
+  const high = stepsBetween(tone100.steps, google100.steps, 165, 247);
+  check(high.every(([, o, g]) => o - g <= 12 && g - o <= 3), 'and from 165 up no more than 12 brighter', listedSteps(high));
+  // Detail in the shadows lifted with them, as Google's is: ×1.33 of the
+  // ground's coarse texture against ×1.25 here. Held level where the small
+  // copy has no pixels, it was ×1.08, the shadows lifted and left flat. On
+  // the photographs, which cannot be committed, the app's detail by region
+  // came within 0.1 of Google's at +100 everywhere but the portrait's shirt,
+  // hair and soft background (calibration/google-phone-tone.json), so the
+  // chart's ground is held to within 0.25.
+  check(tone100.texture > 1.2 && Math.abs(tone100.texture - googleTone.detail['ground band, tone+100']) <= 0.25,
+    'and the dark ground\'s texture is lifted with it, within 0.25 of Google\'s',
+    `×${tone100.texture.toFixed(2)} against ×${googleTone.detail['ground band, tone+100']}`);
+}
+
+const tone54 = await tonedChart(54);
+const google54 = googleTone.chart['tone+54'];
+if (!tone54) check(false, 'the chart toned at 54 arrives');
+else {
+  const low = stepsBetween(tone54.steps, google54.steps, 16, 156);
+  check(low.every(([, o, g]) => Math.abs(o - g) <= 9), 'Tone 54 comes within 9 levels of Google\'s steps from 16 to 156', listedSteps(low));
+  check(tone100 && grey(tone54.contexts.background) < grey(tone100.contexts.background) && grey(tone54.contexts.background) > 136,
+    'and lifts open grey less than 100 does, and well clear of nothing', `${grey(tone54.contexts.background)} against ${tone100 && grey(tone100.contexts.background)}; Google 144`);
+}
+
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 
 await b.close();

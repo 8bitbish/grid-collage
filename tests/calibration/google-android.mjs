@@ -135,8 +135,11 @@ async function setSlider(target) {
   // thirty nudges and settled on 54 for 50. Sharpen's slider is linear, so a
   // copy at 54 measures as well as one at 50 provided it is compared with the
   // app at 54 — which is why the file is named for where it really landed.
+  // Near is a fifth of the way there at most, and never nought: five either
+  // side let Tone +5 settle on 0, which is no edit, and Photos saved nothing.
   const got = read();
-  if (Math.abs(got - target) > 5) throw new Error(`slider settled on ${got}, not ${target}`);
+  const near = Math.min(5, Math.max(2, Math.round(Math.abs(target) / 5)));
+  if (Math.abs(got - target) > near || (target && !got)) throw new Error(`slider settled on ${got}, not ${target}`);
   return got;
 }
 
