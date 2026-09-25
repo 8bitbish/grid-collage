@@ -504,8 +504,95 @@ point ±100 is not: Google also takes about a tenth off a saturated colour at
 Black point -100 and adds a little at +100, which the per-channel model does not
 do and nothing tried yet explains.
 
+## The colour tools
+
+Brightness, Contrast, Saturation, Warmth, Tint, Skin tone and Blue tone are not
+fitted at all. Each is a lookup table of Google's own output, and the app
+interpolates in it; `google-colour.json` has everything measured.
+
+**The chart.** `node lut-chart.mjs <dir> 13` writes `lut.png`, every colour of a
+13×13×13 grid as a flat patch filling the 2160 square (levels 0, 21, 43 … 255,
+which is k×255/12 rounded, and so not evenly spaced), and `lut.json`, where
+each patch is as a fraction of the frame, so it reads the same off Google's
+1000px copies. It also writes `lut-on-black.png` and `lut-on-white.png`, the
+same grid in the middle half on a black or white surround. `lut-chart.mjs 9`
+makes the 9×9×9 chart whose colours mostly fall between the 13's.
+
+**Reading it.** `node lut-measure.mjs lut.json full <copies…>` writes each copy's
+colours in and out as `<copy>.lut.json`, averaged over the middle 40% of each
+patch, clear of the edges the JPEG's halved colour smears. Use `black` or
+`white` in place of `full` for the surround charts.
+
+**The tables.** `google-web.mjs edit <dir> --chart=lut.png brightness+25 …` at
+±25, ±37, ±50, ±75 and ±100 for each tool, then `node colour-tables.mjs <dir>`,
+which writes `colour-tables.png` at the root: plain RGB, 169×910, a row per
+green level of each table, the tables stacked tool by tool and knot by knot in
+the order at the top of the script, which `app.js` reads in the same order.
+200KB. It also undoes the capture's one bias: at the ends of the range a JPEG's
+noise can only go one way, so a patch Google left white reads 1.53 low and one
+left black 0.40 high, where every other level came back within 0.10 on colours
+Skin tone does not touch.
+
+What was found:
+
+- **All seven are global.** The same colour came back within the capture's noise
+  whether the grid filled the frame or sat on black or white (medians 0.2 to
+  0.9 levels), so none looks at the rest of the photo. Tone, the phone's other
+  tone tool, is the exception, and is not here.
+- **None is simple.** A curve per channel read off the greys, a curve on
+  brightness added to all three channels, or one multiplied through them —
+  the best of the three was 34 levels out at Brightness +100 on an average move
+  of 98, 20 on Contrast's 33, 38 on Saturation's 38 (greys do not move at all),
+  9 on Warmth's 46 and 7 on Tint's 34. Warmth moves greys, as white balance
+  does (128 to 166,122,68 at +100), but it is not a gain per channel either.
+  Saturation -100 is black and white by no luma formula: skin 213,170,128 goes
+  to 177, Rec. 601's, and red 213,43,43 to 105, nobody's.
+- **Skin tone needs no face.** It moves oranges and skin colours and leaves the
+  rest within a level; Blue tone the same with blues. Their bands are narrow:
+  191,64,32 moves 56 levels under Skin tone +100 while 223,64,64 hardly moves.
+- **Between settings, a straight line.** ±37 mixed from ±25 and ±50 came within
+  0.3 to 2.2 levels on average, the capture's noise, and 4 at worst bar
+  Brightness +37's 11.5. No setting is a share of ±100 — Brightness +37 is 21
+  levels off 0.37 of +100 on average — so every knot is kept.
+- **Noise sets the floor.** A reading is about 1.1 levels from the truth: colours
+  Skin tone leaves alone read 1.09 from where they started on one chart and
+  1.25 on the other. And a 9³ table predicted the 13³ colours about as well as
+  the 13³ table predicted the 9³ (2.1 against 2.0 levels on average for
+  Brightness, 1.9 against 2.0 for Skin tone), so a finer grid would not move
+  the mean.
+
+The app against Google, levels of RGB distance, mean / 90th percentile / worst,
+from its own 2160 exports of the charts:
+
+| tool | 13³ chart, all ten settings | 9³ chart at +100, held out | Google's move there |
+| --- | --- | --- | --- |
+| Brightness | 0.52 / 0.94 / 2.4 | 1.74 / 3.18 / 6.4 | 95.4 |
+| Contrast | 0.49 / 0.77 / 2.5 | 2.54 / 5.36 / 13.1 | 32.6 |
+| Saturation | 0.45 / 0.80 / 2.5 | 2.17 / 4.41 / 15.8 | 36.6 |
+| Warmth | 0.52 / 0.92 / 2.4 | 1.74 / 3.16 / 7.7 | 44.5 |
+| Tint (on black) | 0.50 / 0.81 / 2.4 | 2.12 / 3.74 / 9.1 | 33.4 |
+| Skin tone | 0.57 / 1.12 / 2.4 | 1.85 / 2.83 / 19.8 | 3.6 |
+| Blue tone | 0.57 / 1.11 / 2.5 | 1.93 / 3.30 / 25.4 | 13.7 |
+
+The first column is the tables' own colours, and says the app reproduces what
+was read, rounding and all. The second is the one that matters: colours the
+tables never saw, against a floor of about 1.3 to 1.6 for comparing a table
+with a second capture. `test-colour.mjs` holds eight of those colours to
+Google's at +100.
+
 ## Still open
 
+- **The colour tools at the edges of their bands.** The worst held-out colours,
+  13 to 25 levels, are where Skin tone's and Blue tone's bands begin and where
+  Contrast and Saturation push a colour into the end of the range; both bend
+  between the chart's colours. Only there would a finer grid help: a 17³ or
+  25³ chart of Skin tone and Blue tone, split over several copies to keep the
+  patches big enough for a 1000px JPEG.
+- **The order Google combines tools in.** Every capture was one tool at a time,
+  so the app runs them in the order Google lists them, and nothing says
+  whether Google does. A copy with two tools set at once — Brightness and
+  Black point, Saturation and Warmth — would, but `google-web.mjs` sets one
+  slider per copy.
 - **What Shadows' change-over actually keys on.** Median is close but not it:
   the calibration chart and a plain surround of 128 share a median and came
   out at slightly different points of the change, so a photo with a median

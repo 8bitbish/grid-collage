@@ -638,10 +638,35 @@
   //          brightness is low, and the median where the two change over.
   //          Google's Shadows lifts a dark photo much further than a bright
   //          one; this is how a tool says so.
+  //   table  in place of glsl: the tool is a lookup table of colours read
+  //          off Google Photos, in colour-tables.png; see COLOUR_TABLES.
+  //          Tools with tables that sit next to each other in this list are
+  //          looked up together, as one table made of theirs.
   //
   // Listed in the order Google Photos lists them, which is also the order the
   // tone tools run in.
   const ADJUSTMENTS = [
+    {
+      id: 'brightness', label: 'Brightness', min: -100, max: 100, stage: 'tone',
+      icon: '<circle class="solid" cx="12" cy="12" r="3.6"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/>',
+      // A table, like every tool from here to Blue tone that has one; see
+      // COLOUR_TABLES. Far stronger than Highlights: +100 takes grey 128 to
+      // 214 and 64 to 144, -100 takes 128 to 57, and colours keep their
+      // saturation as they go rather than washing out, which is why no curve
+      // fitted it. The same curve on each channel, read off the greys, came
+      // out 34 levels from Google's colours on average at +100, and the same
+      // shift added to all three 38.
+      table: true,
+    },
+    {
+      id: 'contrast', label: 'Contrast', min: -100, max: 100, stage: 'tone',
+      icon: '<rect x="4" y="4" width="16" height="16" rx="3"/><path class="solid" d="M20 5.5V17a3 3 0 0 1-3 3H5.5z"/>',
+      // An S about the middle grey, pivoting a little above it: +100 takes
+      // 64 to 46, 128 to 154 and 213 to 239, and pushes colour out with it,
+      // red 213,43,43 to 245,20,19. Down is gentler, 128 to 119. A curve per
+      // channel off the greys missed Google's colours by 20 at +100.
+      table: true,
+    },
     {
       id: 'whitePoint', label: 'White point', min: -100, max: 100, stage: 'tone',
       icon: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/>',
@@ -781,6 +806,53 @@
       glsl: `
         c = clamp(c, 0.0, 1.0);
         c = vec3(curve_blackPoint(c.r), curve_blackPoint(c.g), curve_blackPoint(c.b));`,
+    },
+    {
+      id: 'saturation', label: 'Saturation', min: -100, max: 100, stage: 'tone',
+      icon: '<path d="M12 4.25c3 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.5-6 5.5-10z"/><path class="solid" d="M6.5 14.25a5.5 5.5 0 0 0 11 0z"/>',
+      // Greys stay where they are at every setting. -100 is black and white,
+      // but not by any luma formula: skin 213,170,128 goes to 177, which is
+      // Rec. 601's, and red 213,43,43 to 105, which is nobody's. Up is
+      // gentler than down, and not in proportion: +37 is not 0.37 of +100
+      // by as much as 16 levels, where between ±25 and ±50 a straight line
+      // holds to within the capture's noise.
+      table: true,
+    },
+    {
+      id: 'warmth', label: 'Warmth', min: -100, max: 100, stage: 'tone',
+      icon: '<path d="M10 13.8V4.8a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/><circle class="solid" cx="12" cy="17.3" r="1.9"/>',
+      // Moves greys too, as white balance does: +100 takes 128 to 166,122,68
+      // and -100 to 89,134,189. But not as white balance does, a gain on
+      // each channel: a curve per channel read off those greys missed the
+      // colours by 22 on average, and the same shift added to every colour
+      // of a brightness by 9 on average, 34 for one colour in ten and 80 at
+      // worst.
+      table: true,
+    },
+    {
+      id: 'tint', label: 'Tint', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="9.5" cy="12" r="5.5"/><circle cx="14.5" cy="12" r="5.5"/><path class="solid" d="M12 7.1a5.5 5.5 0 0 1 0 9.8a5.5 5.5 0 0 1 0-9.8z"/>',
+      // Warmth's other axis: +100 is magenta, 128 to 166,114,163, and -100
+      // green, 128 to 90,142,93.
+      table: true,
+    },
+    {
+      id: 'skinTone', label: 'Skin tone', min: -100, max: 100, stage: 'tone',
+      icon: '<circle cx="12" cy="12" r="8.5"/><circle class="solid" cx="9.2" cy="10.2" r="1.1"/><circle class="solid" cx="14.8" cy="10.2" r="1.1"/><path d="M8.6 14.2a4 4 0 0 0 6.8 0"/>',
+      // It needs no face. On the chart it moved oranges and skin colours
+      // and left everything else within a level: +100 takes 213,170,128 to
+      // 225,166,115, warmer, and -100 to 201,171,142, paler. The band is
+      // narrow — 191,64,32 moves 56 levels at +100 while 223,64,64 barely
+      // moves — which is where the table is coarsest; see COLOUR_TABLES.
+      table: true,
+    },
+    {
+      id: 'blueTone', label: 'Blue tone', min: -100, max: 100, stage: 'tone',
+      icon: '<path d="M3.5 9.5c2.8-2 5.7-2 8.5 0s5.7 2 8.5 0M3.5 14.5c2.8-2 5.7-2 8.5 0s5.7 2 8.5 0"/>',
+      // Skies and water: +100 takes 85,149,234 to 1,90,225, deeper, and -100
+      // to 159,192,235, paler. Nothing that is not blue moves. As narrow as
+      // Skin tone at the band's edge, and a stronger move inside it.
+      table: true,
     },
     {
       id: 'sharpen', label: 'Sharpen', min: 0, max: 100, stage: 'detail',
@@ -1188,6 +1260,201 @@
     return 1 / (1 + Math.exp((median - ADAPTS.adapt.median) / ADAPTS.adapt.width));
   }
 
+  // The colour tools — Brightness, Contrast, Saturation, Warmth, Tint, Skin
+  // tone and Blue tone — are Google's own, read as lookup tables rather than
+  // fitted. A chart of 13 x 13 x 13 flat colours went through Google Photos
+  // at every setting in `knots` below, and what came back is
+  // colour-tables.png, made
+  // by tests/calibration/colour-tables.mjs; see the README there.
+  //
+  // Tables because nothing simpler fitted any of them. Each is global — the
+  // same colour came back within a level whether the chart filled the frame
+  // or sat on black or white — but none is a curve per channel, a curve on
+  // brightness added to all three, or one multiplied through them. At +100
+  // the best of those was 34 levels out on Brightness's average move of 98,
+  // 20 on Contrast's 33, 38 on Saturation's 38, 9 on Warmth's 46 and 7 on
+  // Tint's 34; Skin tone and Blue tone move few colours, and missed the one
+  // they moved most by 55 and 120. A table has no model to be wrong.
+  //
+  // Between the chart's colours it is interpolated tetrahedrally, as colour
+  // pipelines do, which keeps a grey on the grey axis. Held to a second
+  // chart of 9 x 9 x 9 colours, most of which fall between the 13's, the
+  // app's exports came within 1.7 to 2.5 levels of Google on average at
+  // +100, and one colour in ten 2.8 to 5.4 out. The floor for that is about
+  // 1.3 to 1.6, since each reading of Google's is itself about 1.1 levels
+  // out, and a 9³ table did about as well on the 13³ colours, so what is
+  // left over is not the grid. The worst single colours, 6 to 13 levels out
+  // for Brightness, Contrast, Warmth and Tint and 16 to 25 for Saturation,
+  // Skin tone and Blue tone, are where a tool's band starts — Skin tone's
+  // and Blue tone's are narrow — or where a colour is pushed into the edge
+  // of the range, both of which bend between the chart's colours.
+  //
+  // Between settings each entry moves in a straight line, as the curves'
+  // knots do. ±37 was measured to check it: mixed from ±25 and ±50 it came
+  // within 0.3 to 2.2 levels on average, the capture's noise, and 4 at worst
+  // bar Brightness +37's 11.5. No setting is a fixed share of ±100 — +37 of
+  // Brightness is 21 levels off 0.37 of +100 on average — so every knot is
+  // kept.
+  //
+  // Fetched the first time a tile needs one, 200KB, and kept offline by the
+  // service worker with the rest of the shell. Until it arrives a tile is
+  // drawn without its colour tools, and redrawn once it has.
+  const COLOUR_TABLES = {
+    file: 'colour-tables.png',
+    // The order colour-tables.mjs writes them in. Change one, change both.
+    tools: ['brightness', 'contrast', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone'],
+    knots: [-100, -75, -50, -37, -25, 25, 37, 50, 75, 100],
+    // The chart's levels are these rounded: 0, 21, 43 … 234, 255.
+    size: 13,
+  };
+  const TABLED = ADJUSTMENTS.filter((a) => a.table);
+
+  // The order the look runs the tools in: detail first, on the photo as it
+  // arrived, then the rest as listed.
+  const LOOK_ORDER = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
+
+  // Neighbouring tools with tables, looked up together: Brightness and
+  // Contrast before the curves, Saturation to Blue tone after them. The
+  // shader looks up one table per run rather than one per tool. Seven
+  // lookups made the shader so much bigger that a Highlights drag with
+  // every colour tool at nought took 94ms a step against 45 before them,
+  // and the first move off nought, when the shader is compiled, 3.4s
+  // against 0.3. With two it is 39-52ms against 40-41, and 0.36s. A run's
+  // table is its tools' tables one after another, worked out here at every
+  // colour of the grid, which is exact there and interpolated between as
+  // any one table is; a run with one tool in use is that tool's table.
+  const TABLE_RUNS = LOOK_ORDER.reduce((runs, a, i) => {
+    if (!a.table) return runs;
+    if (i > 0 && LOOK_ORDER[i - 1].table) runs[runs.length - 1].push(a);
+    else runs.push([a]);
+    return runs;
+  }, []);
+  let colourTables = null;
+  let colourLoading = null;
+  // Whether a redraw is already waiting on them, so a drag while they load
+  // asks for one redraw and not one a frame.
+  let colourRedraw = false;
+
+  function loadColourTables() {
+    if (colourTables) return Promise.resolve(colourTables);
+    if (!colourLoading) {
+      colourLoading = fetch(COLOUR_TABLES.file)
+        .then((res) => { if (!res.ok) throw new Error(`${res.status}`); return res.blob(); })
+        // As the bytes are, whatever the file says about colour spaces: they
+        // are levels, not a picture, and converted they would be wrong.
+        .then((blob) => createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }))
+        .then((bmp) => {
+          const g = scratch(bmp.width, bmp.height).getContext('2d', { willReadFrequently: true });
+          g.drawImage(bmp, 0, 0);
+          colourTables = { bytes: g.getImageData(0, 0, bmp.width, bmp.height).data, width: bmp.width };
+          return colourTables;
+        })
+        .catch((err) => {
+          // Tried again next time one is wanted: a phone off the network
+          // before the worker has cached it should not lose them for good.
+          colourLoading = null;
+          console.warn('colour tables did not load', err);
+          return null;
+        });
+    }
+    return colourLoading;
+  }
+
+  const usesTables = (adjust) => !!adjust && TABLED.some((a) => adjust[a.id]);
+
+  // Before anything is drawn for keeps: an export or a cover waits for the
+  // tables if any tile on the pages wants them.
+  const tablesForPages = (pages) => (pages.some((pg) => pg && pg.cells.some((c) => c && usesTables(c.adjust)))
+    ? loadColourTables() : Promise.resolve(null));
+
+  // One tool's table at one slider position: 13³ entries of three levels,
+  // 0..255, blue outermost, then green, then red. Nought is every colour as
+  // it came.
+  function tableAt(tool, value) {
+    const n = COLOUR_TABLES.size;
+    const level = (i) => Math.round((i * 255) / (n - 1));
+    const t = COLOUR_TABLES.tools.indexOf(tool.id);
+    const knots = [0, ...COLOUR_TABLES.knots].sort((a, b) => a - b);
+    const v = clamp(value, knots[0], knots[knots.length - 1]);
+    let i = 0;
+    while (i < knots.length - 2 && knots[i + 1] < v) i += 1;
+    const [a0, a1] = [knots[i], knots[i + 1]];
+    const mix = (v - a0) / (a1 - a0);
+    const { bytes, width } = colourTables;
+    const entry = (knot, r, g, b) => {
+      if (knot === 0) return [level(r), level(g), level(b)];
+      const y = (t * COLOUR_TABLES.knots.length + COLOUR_TABLES.knots.indexOf(knot)) * n + g;
+      const o = (y * width + b * n + r) * 4;
+      return [bytes[o], bytes[o + 1], bytes[o + 2]];
+    };
+    const out = new Float32Array(n * n * n * 3);
+    for (let b = 0; b < n; b += 1) {
+      for (let g = 0; g < n; g += 1) {
+        for (let r = 0; r < n; r += 1) {
+          const lo = entry(a0, r, g, b);
+          const hi = entry(a1, r, g, b);
+          const o = ((b * n + g) * n + r) * 3;
+          for (let c = 0; c < 3; c += 1) out[o + c] = lo[c] + mix * (hi[c] - lo[c]);
+        }
+      }
+    }
+    return out;
+  }
+
+  // A colour through one table, 0..255 each way: tetrahedral, on the
+  // chart's own levels, as the shader does it.
+  function throughTable(entries, rgb) {
+    const n = COLOUR_TABLES.size;
+    const step = 255 / (n - 1);
+    const level = (k) => Math.floor(k * step + 0.5);
+    const cell = (x) => {
+      let k = clamp(Math.floor(x / step), 0, n - 2);
+      if (k > 0 && x < level(k)) k -= 1;
+      if (k < n - 2 && x > level(k + 1)) k += 1;
+      return [k, clamp((x - level(k)) / (level(k + 1) - level(k)), 0, 1)];
+    };
+    const [[r, fr], [g, fg], [b, fb]] = rgb.map((x) => cell(clamp(x, 0, 255)));
+    const at = (dr, dg, db) => {
+      const o = (((b + db) * n + g + dg) * n + r + dr) * 3;
+      return [entries[o], entries[o + 1], entries[o + 2]];
+    };
+    // The corners walked from black's to white's in the order of the three
+    // fractions, largest first, each step weighted by how far it goes.
+    const steps = [[fr, [1, 0, 0]], [fg, [0, 1, 0]], [fb, [0, 0, 1]]].sort((x, y) => y[0] - x[0]);
+    const corner = [0, 0, 0];
+    let prev = at(0, 0, 0);
+    const out = [...prev];
+    steps.forEach(([f, d]) => {
+      d.forEach((v, c) => { corner[c] += v; });
+      const next = at(...corner);
+      for (let c = 0; c < 3; c += 1) out[c] += f * (next[c] - prev[c]);
+      prev = next;
+    });
+    return out;
+  }
+
+  // A run's table at a cell's settings: the colours of the grid through each
+  // of its tools in use, in order. Null when none of them is.
+  function runTable(run, adjust) {
+    const using = run.filter((tool) => adjust[tool.id]);
+    if (!using.length) return null;
+    const tables = using.map((tool) => tableAt(tool, adjust[tool.id]));
+    if (tables.length === 1) return tables[0];
+    const n = COLOUR_TABLES.size;
+    const level = (i) => Math.round((i * 255) / (n - 1));
+    const out = new Float32Array(n * n * n * 3);
+    for (let b = 0; b < n; b += 1) {
+      for (let g = 0; g < n; g += 1) {
+        for (let r = 0; r < n; r += 1) {
+          let c = [level(r), level(g), level(b)];
+          tables.forEach((t) => { c = throughTable(t, c); });
+          out.set(c, ((b * n + g) * n + r) * 3);
+        }
+      }
+    }
+    return out;
+  }
+
   // The copy a detail tool works on, sized from the photo itself rather than
   // whatever happens to be decoded: tool.grid pixels, each side rounded up to
   // 16, which is the rule that reproduced Google's 1232px for the 2160px
@@ -1335,6 +1602,7 @@
     }`;
 
   const PASSED = ADJUSTMENTS.filter((a) => a.passes);
+  const TABLE_UNIT = 5 + PASSED.length;
   // The furthest a blur in a pass reaches, in pixels either side. Four σ,
   // so σ up to 3 of the working copy, which is a photo well past soft.
   const KERNEL_REACH = 12;
@@ -1365,14 +1633,82 @@
       varying vec2 v_uv;
       float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }`;
 
+  // The colour tables in the shader. Each run's, at the cell's settings, is
+  // a band of 13 rows of the texture on its unit: a row per green level, and
+  // along it, blue outermost, each entry as two texels, the high bytes of
+  // its three levels and then the low, so the fraction of a level a setting
+  // between two knots leaves is not rounded away. Nearest, and interpolated
+  // here, for the same reason as the curves.
+  function glslTables() {
+    const n = COLOUR_TABLES.size;
+    const w = 2 * n * n;
+    const h = n * TABLE_RUNS.length;
+    return `
+      uniform sampler2D u_tables;
+      ${TABLE_RUNS.map((_, k) => `uniform float u_run${k};`).join('\n')}
+      // The chart's levels are k x 255/12 rounded, so not evenly spaced:
+      // 21 then 22 apart. Taken as even they put a colour up to half a
+      // level out on the steep parts of a table.
+      float tableLevel(float k) { return floor(k * ${255 / (n - 1)} + 0.5); }
+      vec2 tableCell(float x) {
+        float k = clamp(floor(x / ${255 / (n - 1)}), 0.0, ${n - 2}.0);
+        if (k > 0.0 && x < tableLevel(k)) k -= 1.0;
+        if (k < ${n - 2}.0 && x > tableLevel(k + 1.0)) k += 1.0;
+        return vec2(k, clamp((x - tableLevel(k)) / (tableLevel(k + 1.0) - tableLevel(k)), 0.0, 1.0));
+      }
+      vec3 tableEntry(float row, vec3 k) {
+        vec2 at = vec2((k.b * ${n}.0 + k.r) * 2.0 + 0.5, row * ${n}.0 + k.g + 0.5) / vec2(${w}.0, ${h}.0);
+        vec3 high = texture2D(u_tables, at).rgb;
+        vec3 low = texture2D(u_tables, at + vec2(1.0 / ${w}.0, 0.0)).rgb;
+        return (high * 65280.0 + low * 255.0) / 65535.0;
+      }
+      vec3 table(float row, vec3 c) {
+        vec3 x = clamp(c, 0.0, 1.0) * 255.0;
+        vec2 r = tableCell(x.r);
+        vec2 g = tableCell(x.g);
+        vec2 b = tableCell(x.b);
+        vec3 k = vec3(r.x, g.x, b.x);
+        vec3 f = vec3(r.y, g.y, b.y);
+        // The one of the cube's six tetrahedra the colour falls in, walked
+        // from the corner nearest black to the one nearest white along the
+        // three axes, largest fraction first. Chosen by small selects and
+        // then read once: written as six branches of their own, each with
+        // its own reads, the lookup compiled to so much more that the first
+        // move off nought took twice as long.
+        vec3 d1 = vec3(0.0);
+        vec3 d2 = vec3(0.0);
+        if (f.r >= f.g) {
+          if (f.g >= f.b) { d1.r = 1.0; d2.g = 1.0; }
+          else if (f.r >= f.b) { d1.r = 1.0; d2.b = 1.0; }
+          else { d1.b = 1.0; d2.r = 1.0; }
+        } else {
+          if (f.b >= f.g) { d1.b = 1.0; d2.g = 1.0; }
+          else if (f.b >= f.r) { d1.g = 1.0; d2.b = 1.0; }
+          else { d1.g = 1.0; d2.r = 1.0; }
+        }
+        vec3 d3 = vec3(1.0) - d1 - d2;
+        vec3 c0 = tableEntry(row, k);
+        vec3 c1 = tableEntry(row, k + d1);
+        vec3 c2 = tableEntry(row, k + d1 + d2);
+        vec3 c3 = tableEntry(row, k + vec3(1.0));
+        return c0 + dot(f, d1) * (c1 - c0) + dot(f, d2) * (c2 - c1) + dot(f, d3) * (c3 - c2);
+      }`;
+  }
+
   function lookFragment(packed) {
-    const order = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
+    // Each tool in its own block, or for a run of tools with tables, one
+    // lookup where the run starts.
+    const steps = LOOK_ORDER.map((a) => {
+      if (!a.table) return `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`;
+      const k = TABLE_RUNS.findIndex((run) => run[0] === a);
+      return k < 0 ? '' : `if (u_run${k} != 0.0) { c = table(${k}.0, c); }`;
+    });
     return `${GLSL_HEAD}
       ${glslStore(packed)}
       uniform sampler2D u_image;
       uniform vec2 u_texel;
       uniform sampler2D u_curves;
-      ${ADJUSTMENTS.map((a) => `uniform float u_${a.id};`).join('\n')}
+      ${ADJUSTMENTS.filter((a) => !a.table).map((a) => `uniform float u_${a.id};`).join('\n')}
       vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
       // A level from a curve's row, read as two bytes and interpolated here
       // rather than by the texture: linear filtering would blend the high and
@@ -1387,6 +1723,7 @@
         return mix(level(i, row), level(i + 1.0, row), x - i) / 255.0;
       }
       ${CURVED.map((a, row) => `float curve_${a.id}(float y) { return curve(${row}.0, y); }`).join('\n')}
+      ${TABLED.length ? glslTables() : ''}
       // A pass's result, brought up from the working copy to the pixel being
       // drawn. Bilinear, as Google brings its own back up, and by hand,
       // because bytes holding half a number each cannot be filtered and half
@@ -1406,7 +1743,7 @@
       void main() {
         vec4 source = texture2D(u_image, v_uv);
         vec3 c = source.rgb;
-        ${order.map((a) => `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`).join('\n')}
+        ${steps.join('\n')}
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), source.a);
       }`;
   }
@@ -1556,6 +1893,12 @@
     PASSED.forEach((a, i) => gl.uniform1i(main.at(`u_result_${a.id}`), 5 + i));
     gl.activeTexture(gl.TEXTURE1);
     newTexture(gl.NEAREST);
+    // The colour tables on the first unit after the passes' results.
+    if (TABLED.length) {
+      gl.uniform1i(main.at('u_tables'), TABLE_UNIT);
+      gl.activeTexture(gl.TEXTURE0 + TABLE_UNIT);
+      newTexture(gl.NEAREST);
+    }
     gl.activeTexture(gl.TEXTURE0);
     // A phone can take its context back at any time. What has already been
     // drawn is safe, being plain 2D canvases; the next edit makes a new one.
@@ -1571,6 +1914,8 @@
       uploads: 0,
       // The slider positions the curve texture was last filled for.
       curvesFor: null,
+      // And the colour tables'.
+      tablesFor: null,
       // Each pass's program, made the first time it runs.
       programs: new Map(),
       // What a tool's passes leave, most recently used first. See runPasses.
@@ -1737,12 +2082,47 @@
       look.curvesFor = curvesFor;
     }
 
+    const amounts = Object.fromEntries(ADJUSTMENTS.map((a) => [a.id, (adjust[a.id] || 0) / 100]));
+
+    // The runs' tables at this cell's settings, about 35KB a run, sent when
+    // those change. Tools whose tables have not arrived yet sit out; lookOf
+    // asks for them and draws again when they come.
+    const runsOn = TABLE_RUNS.map((run) => !!colourTables && run.some((tool) => adjust[tool.id]));
+    const tablesFor = colourTables ? TABLED.map((a) => adjust[a.id] || 0).join(',') : '';
+    if (tablesFor && runsOn.some(Boolean) && tablesFor !== look.tablesFor) {
+      const n = COLOUR_TABLES.size;
+      const w = 2 * n * n;
+      const bytes = new Uint8Array(w * n * TABLE_RUNS.length * 4);
+      TABLE_RUNS.forEach((run, band) => {
+        const entries = runTable(run, adjust);
+        if (!entries) return;
+        for (let b = 0; b < n; b += 1) {
+          for (let g = 0; g < n; g += 1) {
+            for (let r = 0; r < n; r += 1) {
+              const from = ((b * n + g) * n + r) * 3;
+              const at = ((band * n + g) * w + (b * n + r) * 2) * 4;
+              for (let c = 0; c < 3; c += 1) {
+                const fixed = Math.min(65535, Math.max(0, Math.round((entries[from + c] / 255) * 65535)));
+                bytes[at + c] = fixed >> 8;
+                bytes[at + 4 + c] = fixed & 255;
+              }
+              bytes[at + 3] = 255;
+              bytes[at + 7] = 255;
+            }
+          }
+        }
+      });
+      gl.activeTexture(gl.TEXTURE0 + TABLE_UNIT);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, n * TABLE_RUNS.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+      gl.activeTexture(gl.TEXTURE0);
+      look.tablesFor = tablesFor;
+    }
+
     // Each tool with passes, over the photo at its working copy's size or
     // the look's, whichever is smaller: a look smaller than Google's copy
     // already is the copy, only coarser, and σ follows the copy down. A look
     // with every pixel the photo has is the exception, and runs them at the
     // copy's size even when that is bigger, as Google does for a small photo.
-    const amounts = Object.fromEntries(ADJUSTMENTS.map((a) => [a.id, (adjust[a.id] || 0) / 100]));
     const whole = w === src.width && h === src.height;
     PASSED.forEach((tool, i) => {
       if (!amounts[tool.id]) return;
@@ -1767,7 +2147,8 @@
     look.el.height = h;
     gl.viewport(0, 0, w, h);
     gl.uniform2f(look.main.at('u_texel'), 1 / w, 1 / h);
-    ADJUSTMENTS.forEach((a) => gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]));
+    ADJUSTMENTS.forEach((a) => { if (!a.table) gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]); });
+    runsOn.forEach((on, k) => gl.uniform1f(look.main.at(`u_run${k}`), on ? 1 : 0));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     const out = document.createElement('canvas');
@@ -1827,8 +2208,19 @@
       const grid = detailGrid(tool, photo);
       detail[tool.id] = { grid, blur: tool.forBlur(blurOf(src, grid)) };
     });
+    // A colour tool drawn before its table has arrived is drawn without it,
+    // and the look is marked so, to be drawn again once the table is here.
+    const waiting = !colourTables && usesTables(cell.adjust);
+    if (waiting && !colourRedraw) {
+      colourRedraw = true;
+      loadColourTables().then((tables) => {
+        colourRedraw = false;
+        if (tables) { render(); redrawFilms(); }
+      });
+    }
     const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`
-      + Object.values(detail).map((d) => `/${d.blur.x.toFixed(4)},${d.blur.y.toFixed(4)}`).join('');
+      + Object.values(detail).map((d) => `/${d.blur.x.toFixed(4)},${d.blur.y.toFixed(4)}`).join('')
+      + (waiting ? '~' : '');
 
     const kept = looks.get(cell) || [];
     const hit = kept.find((l) => l.src === src && l.sig === sig && l.w === w && l.h === h);
@@ -6324,6 +6716,8 @@
     // A page of video is the one thing here that takes long enough to need
     // saying so: every frame has to be decoded, composed and encoded again.
     if (moving) showOpening('Rendering', 'Reading the video…');
+    // Every page's, before any is drawn, video pages' stills included.
+    await tablesForPages(filled);
     let failed = 0;
 
     const files = [];
@@ -6979,6 +7373,9 @@
     if (!cell) return;
     const tool = adjustment(adjustTool) || ADJUSTMENTS[0];
     const value = (cell.adjust && cell.adjust[tool.id]) || 0;
+    // Choosing a colour tool fetches its table, so it is here by the time
+    // the slider first moves.
+    if (tool.table) loadColourTables();
 
     [...$('adjust-tools').children].forEach((btn) => {
       const a = adjustment(btn.dataset.adjust);
@@ -8055,6 +8452,7 @@
       await Promise.all(photosOn(first).filter((p) => p.small).map(atSize));
       await postersFor(first);
       await subjectsFor(first);
+      await tablesForPages([first]);
       const W = 400;
       const H = Math.round((W * state.ratio.h) / state.ratio.w);
       const c = document.createElement('canvas');
