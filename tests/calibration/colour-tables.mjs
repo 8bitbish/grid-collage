@@ -1,11 +1,19 @@
 /* Google's colour tools as lookup tables, for the app to read.
  *
- *   node colour-tables.mjs <copies dir> [png]
+ *   node colour-tables.mjs <copies dir> [<copies dir> ...] [png]
  *
- * <copies dir> holds Google Photos' copies of lut.png (lut-chart.mjs at 13)
- * as google-web.mjs names them, brightness+25.jpg and so on, each already
- * read by lut-measure.mjs into <copy>.lut.json. Writes the tables to
- * colour-tables.png at the repository root, or wherever [png] says.
+ * The copies dirs hold Google Photos' copies of lut.png (lut-chart.mjs at
+ * 13) as google-web.mjs names them, brightness+25.jpg and so on, each
+ * already read by lut-measure.mjs into <copy>.lut.json; each copy is taken
+ * from the first dir that has it. Writes the tables to colour-tables.png at
+ * the repository root, or wherever [png] says.
+ *
+ * White point's and Black point's tables come last. The app does not look
+ * them up in place of their curves, which were read off every level of a
+ * ramp and are finer on greys than any patch; it uses them to correct the
+ * colour the curves carry, which is what a patch can say. See FIX in
+ * app.js. Highlights needs none, and Shadows cannot have one: how it
+ * carries colour depends on the photo.
  *
  * The image is plain RGB, 169 wide: one row of the image per green level
  * of one table, and along it the 13 red levels of each of the 13 blue ones,
@@ -24,13 +32,15 @@
  */
 import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
 
-export const TOOLS = ['brightness', 'contrast', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone'];
+export const TOOLS = ['brightness', 'contrast', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone',
+  'whitePoint', 'blackPoint'];
 export const KNOTS = [-100, -75, -50, -37, -25, 25, 37, 50, 75, 100];
 export const N = 13;
 
-const [dir, outArg] = process.argv.slice(2);
-if (!dir) { console.error('usage: node colour-tables.mjs <copies dir> [png]'); process.exit(2); }
-const out = outArg || path.join(import.meta.dirname, '..', '..', 'colour-tables.png');
+const args = process.argv.slice(2);
+const dirs = args.filter((a) => !a.endsWith('.png'));
+if (!dirs.length) { console.error('usage: node colour-tables.mjs <copies dir> [<copies dir> ...] [png]'); process.exit(2); }
+const out = args.find((a) => a.endsWith('.png')) || path.join(import.meta.dirname, '..', '..', 'colour-tables.png');
 
 // The mean a reading of v comes out at when noise of σ is clipped at the
 // nearer end of the range, and its inverse by bisection.
@@ -58,7 +68,8 @@ const W = N * N;
 const rows = TOOLS.length * KNOTS.length * N;
 const raw = Buffer.alloc((W * 3 + 1) * rows);
 TOOLS.forEach((tool, t) => KNOTS.forEach((knot, k) => {
-  const file = path.join(dir, `${tool}${knot > 0 ? '+' : ''}${knot}.jpg.lut.json`);
+  const name = `${tool}${knot > 0 ? '+' : ''}${knot}.jpg.lut.json`;
+  const file = dirs.map((d) => path.join(d, name)).find((f) => fs.existsSync(f)) || path.join(dirs[0], name);
   const pairs = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (pairs.length !== N ** 3) throw new Error(`${file}: ${pairs.length} patches, not ${N ** 3}`);
   pairs.forEach((p, i) => {
