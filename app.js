@@ -640,11 +640,11 @@
   //          one; this is how a tool says so.
   //   table  in place of glsl: the tool is a lookup table of colours read
   //          off Google Photos, in colour-tables.png; see COLOUR_TABLES.
-  //          Tools with tables that sit next to each other in this list are
-  //          looked up together, as one table made of theirs.
+  //          Tools with tables that run one after another are looked up
+  //          together, as one table made of theirs.
   //
-  // Listed in the order Google Photos lists them, which is also the order the
-  // tone tools run in.
+  // Listed in the order Google Photos lists them, which is the panel's
+  // order. The order they run in is not the same; see RUN_ORDER.
   const ADJUSTMENTS = [
     {
       id: 'brightness', label: 'Brightness', min: -100, max: 100, stage: 'tone',
@@ -1309,12 +1309,35 @@
   };
   const TABLED = ADJUSTMENTS.filter((a) => a.table);
 
-  // The order the look runs the tools in: detail first, on the photo as it
-  // arrived, then the rest as listed.
-  const LOOK_ORDER = [...ADJUSTMENTS].sort((a, b) => (a.stage === 'detail' ? 0 : 1) - (b.stage === 'detail' ? 0 : 1));
+  // The order Google applies the tools in when more than one is set, which
+  // no tool measured on its own can say. Read off Google's copies of the
+  // 9 x 9 x 9 chart with two or three sliders set at once, forty
+  // combinations, each held to every order of its own tools as predicted
+  // from Google's single-tool tables; see tests/calibration/README.md.
+  //
+  // White balance first, as a camera's pipeline has it: Warmth and Tint came
+  // out best ahead of every other tool they were paired with (Warmth with
+  // Contrast 2.8 levels from Google on average against 6.9 the other way,
+  // with Black point 3.1 against 8.0, with Brightness 2.5 against 12.1).
+  // Then the four tone curves, then Contrast and Brightness over what they
+  // leave (Black point then Brightness 8.4 against 21.6, White point then
+  // Brightness 5.4 against 30.1), then the colour tools. Over all forty the
+  // panel's order was 7.84 out on average and this one 4.58; the best of
+  // every order there is came to 4.49, and differs only where the pairs
+  // cannot tell orders apart or where none of them fits.
+  //
+  // A tool not named here — any added since — runs first, after the detail
+  // tools, until it has been measured against the rest.
+  const RUN_ORDER = ['warmth', 'tint', 'whitePoint', 'highlights', 'shadows', 'blackPoint',
+    'contrast', 'brightness', 'saturation', 'skinTone', 'blueTone'];
 
-  // Neighbouring tools with tables, looked up together: Brightness and
-  // Contrast before the curves, Saturation to Blue tone after them. The
+  // The order the look runs the tools in: detail first, on the photo as it
+  // arrived, then the rest by RUN_ORDER.
+  const runRank = (a) => (a.stage === 'detail' ? -2 : RUN_ORDER.indexOf(a.id));
+  const LOOK_ORDER = [...ADJUSTMENTS].sort((a, b) => runRank(a) - runRank(b));
+
+  // Tools with tables that run one after another, looked up together: Warmth
+  // and Tint before the curves, Contrast to Blue tone after them. The
   // shader looks up one table per run rather than one per tool. Seven
   // lookups made the shader so much bigger that a Highlights drag with
   // every colour tool at nought took 94ms a step against 45 before them,
@@ -1435,10 +1458,28 @@
 
   // A run's table at a cell's settings: the colours of the grid through each
   // of its tools in use, in order. Null when none of them is.
+  //
+  // Two things about the second run that no order says. Brightness turned
+  // down goes before Contrast rather than after: with Contrast +50 and
+  // Brightness -50 that was 6.1 levels from Google against 9.5, and with
+  // Contrast +100 11.4 against 20.3, where Brightness up wanted Contrast
+  // first by as much (5.5 against 10.4, 2.8 against 9.6). And Blue tone
+  // acts at its setting times one less Saturation's: with Saturation +50
+  // and Blue tone +50, Google's blues came out halfway between the two
+  // tools' own, 96,159,255 to 66,142,254 where Blue tone alone makes
+  // 36,123,253, and Blue tone at +25 after Saturation matched to 3.5 against
+  // 6.5 at +50; with Saturation +100 it has no effect at all (3.9 against
+  // 8.0), and with Saturation -50 it acts at +75 (11.3 against 13.6, the
+  // one pair still well off). Skin tone, the other tool for a band of
+  // hues, came out worse scaled so (3.0 against 2.6) and is left alone.
   function runTable(run, adjust) {
     const using = run.filter((tool) => adjust[tool.id]);
     if (!using.length) return null;
-    const tables = using.map((tool) => tableAt(tool, adjust[tool.id]));
+    const contrast = using.findIndex((tool) => tool.id === 'contrast');
+    const brightness = using.findIndex((tool) => tool.id === 'brightness');
+    if (contrast >= 0 && brightness > contrast && adjust.brightness < 0) using.splice(contrast, 0, using.splice(brightness, 1)[0]);
+    const setting = (tool) => (tool.id === 'blueTone' ? adjust.blueTone * (1 - (adjust.saturation || 0) / 100) : adjust[tool.id]);
+    const tables = using.map((tool) => tableAt(tool, setting(tool)));
     if (tables.length === 1) return tables[0];
     const n = COLOUR_TABLES.size;
     const level = (i) => Math.round((i * 255) / (n - 1));

@@ -6,7 +6,8 @@
  *   node google-web.mjs check     headless: says whether the session still works
  *   node google-web.mjs edit <dir> <setting> ...
  *                                 uploads the chart, and for each setting —
- *                                 blackPoint+100, shadows-50 — saves an edited
+ *                                 blackPoint+100, shadows-50, or several at
+ *                                 once as brightness+50,warmth-25 — saves an edited
  *                                 copy and downloads it as <dir>/<setting>.jpg,
  *                                 ready for measure.mjs. Everything it uploaded
  *                                 or saved is binned afterwards, and the Bin
@@ -110,36 +111,40 @@ export async function upload(page, file) {
   throw new Error('the upload never appeared');
 }
 
-// One setting on one photo: into the editor, the slider set, a copy saved and
-// downloaded. Resolves to the copy's address, so it can be binned.
-export async function editCopy(page, photo, id, value, saveAs) {
-  if (!SLIDERS[id]) throw new Error(`no slider for ${id}`);
+// One setting on one photo: into the editor, the sliders set, a copy saved
+// and downloaded. Resolves to the copy's address, so it can be binned.
+// `sliders` is [[id, value], ...]; more than one is how the order Google
+// applies its tools in was read, since each tool alone cannot say it.
+export async function editCopy(page, photo, sliders, saveAs) {
+  for (const [id] of sliders) if (!SLIDERS[id]) throw new Error(`no slider for ${id}`);
   await page.goto(photo);
   await page.waitForTimeout(3000);
   await page.getByRole('button', { name: /^Edit/ }).first().click();
   await page.waitForTimeout(4000);
   await page.locator('[aria-label="Adjust"]').first().click();
   await page.waitForTimeout(2000);
-  const set = await page.evaluate(({ label, value }) => {
-    // The sliders carry no labels of their own; their names are the only
-    // leaf text in each row, and the two come in the same order.
-    const inputs = [...document.querySelectorAll('input[type=range]')].filter((e) => e.offsetParent !== null);
-    const sidebar = document.querySelector('[aria-label="Editor sidebar"]');
-    const names = [...sidebar.querySelectorAll('*')]
-      .filter((e) => e.children.length === 0 && e.offsetParent !== null)
-      .map((e) => (e.textContent || '').trim())
-      .filter((t) => /^[A-Z][A-Za-z ]+$/.test(t));
-    if (names.length !== inputs.length) return `${names.length} names for ${inputs.length} sliders`;
-    const el = inputs[names.indexOf(label)];
-    if (!el) return `no ${label} among ${names.join(', ')}`;
-    // Through the native setter, so the page's own listeners see a change.
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(value / 100));
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    return el.value === String(value / 100) ? null : `slider read back ${el.value}`;
-  }, { label: SLIDERS[id], value });
-  if (set) throw new Error(`setting ${id} to ${value}: ${set}`);
-  await page.waitForTimeout(2500);
+  for (const [id, value] of sliders) {
+    const set = await page.evaluate(({ label, value }) => {
+      // The sliders carry no labels of their own; their names are the only
+      // leaf text in each row, and the two come in the same order.
+      const inputs = [...document.querySelectorAll('input[type=range]')].filter((e) => e.offsetParent !== null);
+      const sidebar = document.querySelector('[aria-label="Editor sidebar"]');
+      const names = [...sidebar.querySelectorAll('*')]
+        .filter((e) => e.children.length === 0 && e.offsetParent !== null)
+        .map((e) => (e.textContent || '').trim())
+        .filter((t) => /^[A-Z][A-Za-z ]+$/.test(t));
+      if (names.length !== inputs.length) return `${names.length} names for ${inputs.length} sliders`;
+      const el = inputs[names.indexOf(label)];
+      if (!el) return `no ${label} among ${names.join(', ')}`;
+      // Through the native setter, so the page's own listeners see a change.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(value / 100));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return el.value === String(value / 100) ? null : `slider read back ${el.value}`;
+    }, { label: SLIDERS[id], value });
+    if (set) throw new Error(`setting ${id} to ${value}: ${set}`);
+    await page.waitForTimeout(2500);
+  }
   // Save copy lives in the menu beside Save; the edit to the original is
   // never saved, so the next setting starts from the chart as it came.
   await page.locator('[aria-haspopup=menu]:visible').first().click();
@@ -244,9 +249,13 @@ if (cmd === 'login') {
     const chart = await upload(page, chartArg ? chartArg.slice(8) : path.join(import.meta.dirname, 'out', 'chart.png'));
     made.push(chart);
     for (const setting of settings) {
-      const [, id, value] = /^([a-zA-Z]+)([+-]\d+)$/.exec(setting) || [];
-      if (!id) throw new Error(`not a setting: ${setting}`);
-      made.push(await editCopy(page, chart, id, Number(value), path.join(dir, `${setting}.jpg`)));
+      // brightness+50, or several tools on the one copy: brightness+50,warmth-25
+      const sliders = setting.split(',').map((one) => {
+        const [, id, value] = /^([a-zA-Z]+)([+-]\d+)$/.exec(one) || [];
+        if (!id) throw new Error(`not a setting: ${one}`);
+        return [id, Number(value)];
+      });
+      made.push(await editCopy(page, chart, sliders, path.join(dir, `${setting}.jpg`)));
       console.log(`${setting}.jpg`);
     }
   } finally {

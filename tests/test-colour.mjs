@@ -157,6 +157,36 @@ for (const [id, want] of Object.entries(GOOGLE)) {
     `${mean.toFixed(1)} levels out on average, ${Math.max(...e).toFixed(1)} at worst, on a move of ${moved.toFixed(1)}`);
   await slide(0);
 }
+// Tools set together run in the order Google runs them, which is not the
+// panel's (see RUN_ORDER in app.js). What Google Photos made of the same
+// eight colours with two sliders set at once, off its copies of the 9³
+// chart. In the panel's order these came out 34, 12, 8.8 and 8.1 levels
+// out on average, and Saturation with Blue tone 49 at worst on the sky;
+// in Google's, 4.2, 2.8, 2.8 and 4.1, and 17 at worst on the sky, which is
+// the edge of Blue tone's band.
+const TOGETHER = {
+  'brightness+50,whitePoint-50': { skin: [254, 197, 170], orange: [253, 171, 113], sky: [141, 201, 253], green: [110, 205, 111], red: [239, 67, 67], purple: [206, 106, 238], grey: [174, 174, 173], pale: [240, 239, 182] },
+  'brightness+50,warmth+50': { skin: [254, 199, 158], orange: [254, 171, 91], sky: [164, 211, 253], green: [133, 217, 77], red: [255, 68, 51], purple: [245, 110, 238], grey: [208, 181, 151], pale: [253, 246, 168] },
+  'brightness+50,contrast-50': { skin: [255, 199, 172], orange: [255, 173, 115], sky: [144, 204, 254], green: [111, 213, 111], red: [255, 77, 77], purple: [220, 115, 252], grey: [180, 180, 180], pale: [243, 244, 178] },
+  'saturation+50,blueTone+50': { skin: [238, 154, 117], orange: [236, 124, 48], sky: [67, 149, 233], green: [46, 163, 48], red: [207, 23, 23], purple: [169, 56, 206], grey: [128, 128, 129], pale: [225, 224, 142] },
+};
+for (const [setting, want] of Object.entries(TOGETHER)) {
+  const sliders = setting.split(',').map((one) => /^([a-zA-Z]+)([+-]\d+)$/.exec(one).slice(1));
+  for (const [id, value] of sliders) {
+    await choose(id);
+    await slide(Number(value));
+  }
+  const got = await readCanvas();
+  const e = offAll(got, want);
+  const mean = e.reduce((t, x) => t + x, 0) / e.length;
+  check(mean <= 5 && Math.max(...e) <= 18, `${setting.replace(',', ' with ')} lands where Google's did`,
+    `${mean.toFixed(1)} levels out on average, ${Math.max(...e).toFixed(1)} at worst`);
+  for (const [id] of sliders) {
+    await choose(id);
+    await slide(0);
+  }
+}
+
 const back = await readCanvas();
 check(Math.max(...offAll(back, COLOURS)) <= 1, 'every tool back at nought is the photo again');
 
