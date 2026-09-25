@@ -19,6 +19,9 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
+  // The colour tools' tables. Fetched only when one is used, but kept here
+  // so a phone that has never used one still can with no connection.
+  './colour-tables.png',
 ];
 
 // The files whose contents are the app itself. A change to any of them is an
