@@ -468,7 +468,15 @@
     render();
   }
 
+  // What a dial is passing over, drawn in place of the page until it settles
+  // — see renderAs.
+  let previewing = null;
   function render() {
+    const putBack = previewing ? previewing() : null;
+    try { drawPreview(); } finally { if (putBack) putBack(); }
+  }
+
+  function drawPreview() {
     const { w: W, h: H } = previewSize();
     if (canvas.width !== W || canvas.height !== H) {
       canvas.width = W;
@@ -4150,15 +4158,65 @@
     goTo(Math.min(state.current, state.pages.length - 1));
   }
 
+  // The photos already placed, in order, into the cells of another layout.
+  // A layout previewed under the dial's needle is drawn from this and so is
+  // the one it settles on, so the two are the same picture.
+  function cellsFor(pg, layout) {
+    const kept = pg.cells.filter(Boolean);
+    return blankCells(layout).map((_, i) => kept[i] || null);
+  }
+
   function setLayout(layout) {
     snapshot();
     const pg = page();
-    // Keep the photos that were already placed, in order.
-    const kept = pg.cells.filter(Boolean);
     pg.layout = layout;
-    pg.cells = blankCells(layout).map((_, i) => kept[i] || null);
+    pg.cells = cellsFor(pg, layout);
     if (state.selected >= pg.cells.length) state.selected = -1;
     refresh();
+  }
+
+  // Draw the preview as if something were already so. A dial passing over
+  // an option shows it this way: the photos are the ones already decoded,
+  // the drawing is drawPage's own, and nothing is saved, recorded or
+  // re-thumbnailed until the dial comes to rest on one. The change is made
+  // for the length of each redraw and undone straight after, so nothing but
+  // the preview ever sees it; and it is kept for every redraw until then, so
+  // a poster landing mid-drag does not flick the page back.
+  function renderAs(apply) {
+    previewing = apply;
+    render();
+  }
+
+  function previewLayout(btn) {
+    const layout = LAYOUTS.find((l) => l.id === btn.dataset.id);
+    const pg = page();
+    if (!layout || layout.id === pg.layout.id) { renderAs(null); return; }
+    renderAs(() => {
+      const was = { layout: pg.layout, cells: pg.cells };
+      pg.layout = layout;
+      pg.cells = cellsFor(pg, layout);
+      return () => { pg.layout = was.layout; pg.cells = was.cells; };
+    });
+  }
+
+  function previewRatio(btn) {
+    const ratio = RATIOS.find((r) => r.id === btn.dataset.id);
+    if (!ratio || ratio.id === state.ratio.id) { renderAs(null); return; }
+    renderAs(() => {
+      const was = state.ratio;
+      state.ratio = ratio;
+      return () => { state.ratio = was; };
+    });
+  }
+
+  function previewColour(btn) {
+    const colour = btn.dataset.id;
+    if (!/^#[0-9a-f]{6}$/i.test(colour) || colour === state.bg.toLowerCase()) { renderAs(null); return; }
+    renderAs(() => {
+      const was = state.bg;
+      state.bg = colour;
+      return () => { state.bg = was; };
+    });
   }
 
   function goTo(i) {
@@ -4168,6 +4226,7 @@
   }
 
   function refresh() {
+    previewing = null;
     saveDeck();
     render();
     renderFilmstrip();
@@ -7584,6 +7643,7 @@
     });
     layoutReel = reel($('layout-reel'), wrap, {
       chosen: () => wrap.querySelector(`[data-id="${page().layout.id}"]`),
+      previews: previewLayout,
     });
   }
 
@@ -7624,6 +7684,7 @@
     ratioReel = reel($('ratio-reel'), wrap, {
       chosen: () => wrap.querySelector(`[data-id="${state.ratio.id}"]`),
       centred: (btn) => syncSheetValue(RATIOS.find((r) => r.id === btn.dataset.id)),
+      previews: previewRatio,
     });
   }
 
@@ -7728,7 +7789,7 @@
         btn.title = colourName(colour);
         btn.setAttribute('aria-label', `Background ${colourName(colour)}${kind === 'photo' ? ', from the photos' : ''}`);
         btn.setAttribute('aria-pressed', 'false');
-        btn.addEventListener('click', () => { if (state.bg.toLowerCase() !== colour) setBg(colour); });
+        btn.addEventListener('click', () => { if (state.bg.toLowerCase() !== colour) { endRun(); setBg(colour); } });
       }
       wrap.appendChild(btn);
     };
@@ -7743,6 +7804,7 @@
         // Custom is a door rather than a colour: coming to rest on it says what
         // a tap does, and does not open it on the way past.
         settles: (btn) => btn.dataset.id !== 'custom',
+        previews: previewColour,
         centred: (btn) => { $('bg-name').textContent = btn.dataset.id === 'custom' ? 'Tap to choose' : colourName(btn.dataset.id); $('bg-name').classList.toggle('is-hint', btn.dataset.id === 'custom'); },
       });
     } else colourReel.rebuild();
@@ -7807,6 +7869,32 @@
     requestAnimationFrame(() => colourReel.sync());
   }
 
+  // The rulers are dials like the others: a colour under a finger is only
+  // drawn, and the gesture is one undo step when it lets go. A key nudging a
+  // ruler has no finger to wait for.
+  let heldBg = null;
+  function holdBg() {
+    customDragging = true;
+    buzz('pick');
+    if (!heldBg) heldBg = holdGesture(state.bg);
+  }
+  function tryBg(colour) {
+    if (!heldBg) { setBg(colour); return; }
+    state.bg = colour;
+    setBgInputs(colour);
+    render();
+  }
+  function letGoBg() {
+    customDragging = false;
+    if (!heldBg) return;
+    const was = heldBg;
+    heldBg = null;
+    if (state.bg === was.from) return;
+    keepGesture(was);
+    restyle();
+    refresh();
+  }
+
   function wireCustomColour() {
     const huePx = 7 / 7.5;
     hueDial = dialRuler($('hue-ruler').querySelector('.dial-track'), {
@@ -7816,11 +7904,11 @@
         custom.h = ((v % 360) + 360) % 360;
         if (custom.s < 0.2) custom.s = 0.55;
         if (custom.l > 0.94 || custom.l < 0.06) custom.l = 0.55;
-        setBg(customColour());
+        tryBg(customColour());
         $('hue-ruler').setAttribute('aria-valuenow', String(Math.round(custom.h)));
       },
-      begin: () => { customDragging = true; buzz('pick'); },
-      end: () => { customDragging = false; },
+      begin: holdBg,
+      end: letGoBg,
       ticks: (from, to) => {
         const out = [];
         for (let u = Math.floor(from / 7.5) * 7.5; u <= to; u += 7.5) out.push({ at: u, colour: hslHex(((u % 360) + 360) % 360, 0.6, 0.55) });
@@ -7832,11 +7920,11 @@
       get: () => (1 - custom.l) * 100,
       set: (v) => {
         custom.l = 1 - clamp(v, 2, 96) / 100;
-        setBg(customColour());
+        tryBg(customColour());
         $('shade-ruler').setAttribute('aria-valuenow', String(Math.round(v)));
       },
-      begin: () => { customDragging = true; buzz('pick'); },
-      end: () => { customDragging = false; },
+      begin: holdBg,
+      end: letGoBg,
       min: 2,
       max: 96,
       ticks: (from, to) => {
@@ -7882,9 +7970,14 @@
   // button per option and everything that counts or indexes them still means
   // what it did. Coming to rest on an echo is quietly swapped for the same
   // place among the real ones, which is what joins the end to the beginning.
-  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true }) {
+  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true, previews = null }) {
     const echoWraps = [...scroller.querySelectorAll('.reel-echoes')];
     let userScroll = false;
+    // Whether a finger is still on it. Nothing is chosen until it lets go
+    // and the reel has stopped: holding still over an option is not
+    // choosing it.
+    let held = false;
+    let settleDue = false;
     let lastCentre = null;
     let settleTimer = 0;
 
@@ -7936,6 +8029,9 @@
         if (userScroll && lastCentre) buzz('tick');
         lastCentre = real;
         centred(real);
+        // The page shows whatever is under the needle as it passes, and goes
+        // back to what it was when the needle comes back to it.
+        if (userScroll && previews) previews(real);
       }
     }
 
@@ -7946,6 +8042,8 @@
     }
 
     function settle() {
+      if (held) { settleDue = true; return; }
+      settleDue = false;
       const here = nearest();
       if (!here) return;
       const real = realOf(here);
@@ -7965,6 +8063,17 @@
       settleTimer = setTimeout(settle, 140);
     }, { passive: true });
     ['pointerdown', 'wheel', 'touchstart'].forEach((t) => scroller.addEventListener(t, () => { userScroll = true; }, { passive: true }));
+    // Touch lifts on touchend: a scroll taking over the finger cancels its
+    // pointer long before that.
+    scroller.addEventListener('touchstart', () => { held = true; }, { passive: true });
+    scroller.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'touch') held = true; }, { passive: true });
+    const letGo = () => {
+      if (!held) return;
+      held = false;
+      if (settleDue) { clearTimeout(settleTimer); settleTimer = setTimeout(settle, 140); }
+    };
+    ['touchend', 'touchcancel'].forEach((t) => scroller.addEventListener(t, letGo, { passive: true }));
+    ['pointerup', 'pointercancel'].forEach((t) => scroller.addEventListener(t, (e) => { if (e.pointerType !== 'touch') letGo(); }, { passive: true }));
 
     // A tap brings the option to the middle, where the reel says it is chosen.
     scroller.addEventListener('click', (e) => {
@@ -8240,15 +8349,30 @@
     feedback(id);
     valueDial(id);
     paintSlider(input);
-    input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
-    input.addEventListener('pointerup', endRun);
+    // Under a finger each value is drawn and nothing else happens: the
+    // gesture becomes one undo step, and is saved, when the finger lifts, and
+    // only if it ended somewhere other than where it began. A value arriving
+    // with no finger down — a key, or a script — is kept as it comes, run
+    // together with the ones just before it as it always was.
+    let held = null;
+    input.addEventListener('pointerdown', () => { if (!held) held = holdGesture(state[key]); });
+    const letGo = () => {
+      if (!held) return;
+      const was = held;
+      held = null;
+      if (state[key] === was.from) return;
+      keepGesture(was);
+      refresh();
+    };
+    input.addEventListener('pointerup', letGo);
+    input.addEventListener('pointercancel', letGo);
     input.addEventListener('input', () => {
-      snapshot(`slider:${key}`);
+      if (!held) snapshot(`slider:${key}`);
       state[key] = Number(input.value);
       label.textContent = input.value;
       restyle();
+      if (held) { render(); return; }
       refresh();
-      saveDeck();
     });
   }
 
@@ -9335,6 +9459,8 @@
 
   function closeDrawer() { morph(() => closeDrawerNow()); }
   function closeDrawerNow() {
+    // A dial let go of by closing its sheet leaves the page as it was.
+    if (previewing) { previewing = null; render(); }
     const sheetHadFocus = $('dock-drawer').contains(document.activeElement);
     drawer = null;
     tileSub = null;
@@ -10863,6 +10989,18 @@
 
   // Ends a run so the next interaction of the same kind starts a fresh step.
   const endRun = () => { coalesceKey = null; };
+
+  // A dial held under a finger is one gesture. Its undo step is the deck as
+  // it was when the finger went down, taken then and kept only when the
+  // finger lifts on something different.
+  const holdGesture = (from) => ({ snap: takeSnapshot(), from });
+  function keepGesture(held) {
+    endRun();
+    undoStack.push(held.snap);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    syncHistoryButtons();
+  }
 
   function applySnapshot(snap) {
     state.photos = snap.photos.slice();
