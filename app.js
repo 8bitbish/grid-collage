@@ -48,7 +48,21 @@
     { id: '9:16', label: '9:16', w: 9, h: 16 },
   ];
 
-  const SWATCHES = ['#ffffff', '#000000', '#f2efe9', '#e8d9c5', '#1e2a3a', '#ff4d8d', '#a8c7a0', '#c9c9d4'];
+  // What a ratio is for, said under its number in the sheet's foot. Nobody
+  // posting a carousel thinks of it as 4:5; they think of where it is going.
+  const RATIO_USES = {
+    '1:1': 'Square',
+    '4:5': 'Instagram portrait',
+    '3:4': 'Instagram, taller',
+    '9:16': 'Stories, Reels and TikTok',
+  };
+
+  // The background presets, light to dark, so turning the reel moves steadily
+  // through them. A preset is named; anything else is known by its hex.
+  const SWATCHES = [
+    ['#ffffff', 'White'], ['#f2efe9', 'Bone'], ['#e8d9c5', 'Sand'], ['#c9c9d4', 'Mist'],
+    ['#a8c7a0', 'Sage'], ['#ff4d8d', 'Pink'], ['#1e2a3a', 'Navy'], ['#000000', 'Black'],
+  ];
 
   const BASE_WIDTH = 1080;   // slider values are authored against a 1080px post
   const MAX_PAGES = 20;      // Instagram's carousel limit
@@ -406,7 +420,7 @@
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
         if (opts.picking === i && photo.subject) g.drawImage(tintOf(photo.subject), -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
-        g.fillStyle = 'rgba(125,125,145,0.16)';
+        g.fillStyle = 'rgba(142, 142, 142, 0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
         plusSign(g, rect, s);
       }
@@ -421,11 +435,17 @@
     // visible whatever lands on top of it.
     popped.forEach((draw) => draw());
 
+    // The chosen tile is ringed in white, like everything chosen, over a
+    // darker ring a little wider: white alone vanishes against a white page
+    // or a bright photo, and the pair reads on anything.
     if (opts.selected >= 0 && rects[opts.selected]) {
       g.save();
-      g.strokeStyle = '#ff4d8d';
-      g.lineWidth = Math.max(2, 4 * s);
       roundedPath(g, rects[opts.selected], radius);
+      g.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+      g.lineWidth = Math.max(4, 8 * s);
+      g.stroke();
+      g.strokeStyle = '#f5f5f5';
+      g.lineWidth = Math.max(2, 4 * s);
       g.stroke();
       g.restore();
     }
@@ -559,8 +579,9 @@
     g.restore();
   }
 
-  // What is chosen as the subject while choosing: the accent, at half
-  // strength, wherever the mask is. Made once per mask.
+  // What is chosen as the subject while choosing: white, a little under half
+  // strength, wherever the mask is — lit, the way everything chosen is.
+  // Made once per mask.
   function tintOf(subject) {
     if (subject.tint) return subject.tint;
     const { mask } = subject;
@@ -568,7 +589,7 @@
     c.width = mask.width;
     c.height = mask.height;
     const g = c.getContext('2d');
-    g.fillStyle = 'rgba(255, 77, 141, 0.5)';
+    g.fillStyle = 'rgba(255, 255, 255, 0.45)';
     g.fillRect(0, 0, c.width, c.height);
     g.globalCompositeOperation = 'destination-in';
     g.drawImage(mask, 0, 0);
@@ -580,7 +601,7 @@
     const arm = Math.min(r.w, r.h) * 0.09;
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
-    g.strokeStyle = 'rgba(140,140,165,0.75)';
+    g.strokeStyle = 'rgba(142, 142, 142, 0.75)';
     g.lineWidth = 3 * s;
     g.lineCap = 'round';
     g.beginPath();
@@ -5963,8 +5984,10 @@
     // is still means the slot you are aiming at changes under you — so the
     // strip takes on exactly that width as padding and the contents stay put.
     const bar = document.querySelector('.pagesbar');
-    bar.style.setProperty('--fold-left', `${$('btn-home').offsetWidth + $('btn-photos').offsetWidth}px`);
-    bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth}px`);
+    // Each end gives up its own width and the gap it kept from the strip.
+    const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+    bar.style.setProperty('--fold-left', `${$('btn-home').offsetWidth + gap}px`);
+    bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth + gap}px`);
     bar.classList.add('is-reordering');
     el.classList.add('is-lifted');
     el.style.transition = 'none';
@@ -6098,6 +6121,13 @@
   function redrawFilms() {
     if (state.pages.some((pg) => !pg.thumb || !pg.thumb.isConnected)) { renderFilmstrip(); return; }
     state.pages.forEach(drawThumb);
+    markEmptyPages();
+  }
+
+  // Empty is a page with no photo on it anywhere, whatever its layout.
+  function markEmptyPages() {
+    const films = $('filmstrip').querySelectorAll('.film');
+    state.pages.forEach((pg, i) => { if (films[i]) films[i].classList.toggle('is-empty', !pg.cells.some(Boolean)); });
   }
 
   function renderFilmstrip() {
@@ -6126,7 +6156,14 @@
       num.className = 'film-num';
       num.textContent = i + 1;
 
-      el.append(thumb, num);
+      // A page nobody has put a photo on yet is shown as a place to fill,
+      // not as a blank picture; see markEmptyPages.
+      const empty = document.createElement('span');
+      empty.className = 'film-empty';
+      empty.setAttribute('aria-hidden', 'true');
+      empty.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>';
+
+      el.append(thumb, num, empty);
       el.addEventListener('contextmenu', (e) => e.preventDefault());
       armReorder(el, i);
 
@@ -6136,7 +6173,7 @@
     const add = document.createElement('button');
     add.className = 'film-add';
     add.type = 'button';
-    add.textContent = '+';
+    add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
     add.setAttribute('aria-label', 'Add a page');
     add.title = state.pages.length >= MAX_PAGES
       ? `A carousel tops out at ${MAX_PAGES} pages`
@@ -6146,6 +6183,7 @@
     strip.appendChild(add);
 
     markCurrent(state.current);
+    markEmptyPages();
   }
 
   // Which page the strip shows as current, kept apart from a full re-render so
@@ -6584,6 +6622,11 @@
       c.classList.toggle('is-active', on);
       c.setAttribute('aria-pressed', String(on));
     });
+    syncChips();
+    // A page that has just become a single photo has no gap to set.
+    if (drawer === 'gap' && layoutCells(pg.layout).length < 2) openDrawer('layout');
+    else if (drawer && PAGE_TABS.includes(drawer)) syncSheet();
+    if (drawer === 'layout' && layoutReel) layoutReel.sync();
 
     // Only a tile with a clip in it can be trimmed, so the action is only
     // there when it means something.
@@ -7487,6 +7530,27 @@
 
   /* ------------------------------------------------------------- controls */
 
+  // A layout drawn the way its icon is: one rounded outline with the cells
+  // divided inside it. The glyph is a grid whose own colour shows through the
+  // gaps between its cells, so the outline and the dividers are the same
+  // stroke for nothing, and it follows currentColor like any other icon.
+  function layoutGlyph(layout, into = document.createElement('i')) {
+    into.className = 'layout-glyph';
+    into.replaceChildren();
+    into.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
+    into.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+    layoutCells(layout).forEach((c) => {
+      const s = document.createElement('span');
+      s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
+      into.appendChild(s);
+    });
+    return into;
+  }
+
+  let layoutReel = null;
+  let ratioReel = null;
+  let colourReel = null;
+
   function buildLayouts() {
     const wrap = $('layouts');
     LAYOUTS.forEach((layout) => {
@@ -7495,38 +7559,41 @@
       btn.className = 'layout-btn';
       btn.title = layout.id === '1x1' ? 'Single image' : layout.id;
       btn.dataset.id = layout.id;
-      btn.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
-      btn.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
-      layoutCells(layout).forEach((c) => {
-        const s = document.createElement('span');
-        s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
-        btn.appendChild(s);
-      });
+      btn.appendChild(layoutGlyph(layout));
       btn.setAttribute('aria-label', layout.id === '1x1' ? 'Single image' : `Layout ${layout.id}`);
       btn.setAttribute('aria-pressed', 'false');
-      btn.addEventListener('click', () => setLayout(layout));
+      btn.addEventListener('click', () => { if (page().layout.id !== layout.id) setLayout(layout); });
       wrap.appendChild(btn);
+    });
+    layoutReel = reel($('layout-reel'), wrap, {
+      chosen: () => wrap.querySelector(`[data-id="${page().layout.id}"]`),
     });
   }
 
   function buildRatios() {
     const wrap = $('ratios');
-    RATIOS.forEach((ratio) => {
+    // Tallest to widest, through square: a swipe changes the page steadily and
+    // the direction always means the same thing.
+    [...RATIOS].sort((a, b) => a.w / a.h - b.w / b.h).forEach((ratio) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      // A rectangle in the option's own proportion, above the numbers. Every
-      // ratio here is square or taller, so the height is the constant and the
-      // width is what says which is which: 15px for 1:1 down to 8 for 9:16.
+      // A rectangle in the option's own proportion. The numbers stay in the
+      // button for a screen reader and for anything looking for them by name;
+      // the one you can see is under the dial, in the sheet's foot.
       const shape = document.createElement('span');
       shape.className = 'seg-shape';
-      shape.style.width = `${Math.round((15 * ratio.w) / ratio.h)}px`;
+      shape.style.setProperty('--rw', ratio.w);
+      shape.style.setProperty('--rh', ratio.h);
       shape.setAttribute('aria-hidden', 'true');
-      btn.appendChild(shape);
-      btn.appendChild(document.createTextNode(ratio.label));
+      const label = document.createElement('span');
+      label.className = 'sr';
+      label.textContent = ratio.label;
+      btn.append(shape, label);
       btn.dataset.id = ratio.id;
       btn.setAttribute('aria-label', `Post shape ${ratio.label}`);
       btn.setAttribute('aria-pressed', String(ratio.id === state.ratio.id));
       btn.addEventListener('click', () => {
+        if (state.ratio.id === ratio.id) return;
         snapshot();
         state.ratio = ratio;
         markActive(wrap, btn);
@@ -7537,28 +7604,140 @@
       wrap.appendChild(btn);
     });
     markActive(wrap, wrap.querySelector(`[data-id="${state.ratio.id}"]`));
+    ratioReel = reel($('ratio-reel'), wrap, {
+      chosen: () => wrap.querySelector(`[data-id="${state.ratio.id}"]`),
+      centred: (btn) => syncSheetValue(RATIOS.find((r) => r.id === btn.dataset.id)),
+    });
   }
 
+  // Four colours the page's own photos are made of, for the front of the
+  // reel. Read off the preview as drawn, inside the tiles only, so the
+  // background already chosen is not offered back as a colour of the photos.
+  // A few rounds of k-means on a 24px sample is enough to find the colours
+  // that stand out, and cheap enough to do every time the sheet opens.
+  function pagePalette() {
+    if (!page().cells.some(Boolean) || !canvas.width) return [];
+    const k = 24 / Math.max(canvas.width, canvas.height);
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(canvas.width * k));
+    off.height = Math.max(1, Math.round(canvas.height * k));
+    const g2 = off.getContext('2d', { willReadFrequently: true });
+    try { g2.drawImage(canvas, 0, 0, off.width, off.height); } catch { return []; }
+    const data = g2.getImageData(0, 0, off.width, off.height).data;
+    const px = [];
+    cellRects().forEach((r, i) => {
+      if (!page().cells[i]) return;
+      for (let y = Math.floor(r.y * k); y < Math.min(off.height, Math.ceil((r.y + r.h) * k)); y++) {
+        for (let x = Math.floor(r.x * k); x < Math.min(off.width, Math.ceil((r.x + r.w) * k)); x++) {
+          const o = (y * off.width + x) * 4;
+          px.push([data[o], data[o + 1], data[o + 2]]);
+        }
+      }
+    });
+    if (!px.length) return [];
+    // Seeded from four points along the lightness order, so the same page
+    // always offers the same colours rather than whichever the dice picked.
+    px.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    let centres = [0.12, 0.38, 0.62, 0.88].map((f) => px[Math.floor(f * (px.length - 1))].slice());
+    for (let round = 0; round < 6; round++) {
+      const sums = centres.map(() => [0, 0, 0, 0]);
+      px.forEach((c) => {
+        let best = 0, bestD = Infinity;
+        centres.forEach((m, j) => { const d = (c[0] - m[0]) ** 2 + (c[1] - m[1]) ** 2 + (c[2] - m[2]) ** 2; if (d < bestD) { bestD = d; best = j; } });
+        const s = sums[best]; s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; s[3] += 1;
+      });
+      centres = centres.map((m, j) => (sums[j][3] ? sums[j].slice(0, 3).map((v) => v / sums[j][3]) : m));
+    }
+    const out = [];
+    centres.forEach((m) => {
+      const hex = rgbHex(m);
+      // Two colours a thumb could not tell apart are one colour.
+      if (!out.some((h) => colourDistance(h, hex) < 28)) out.push(hex);
+    });
+    return out;
+  }
+
+  const hexRgb = (hex) => {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  const rgbHex = (c) => `#${c.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('')}`;
+  const colourDistance = (a, b) => { const x = hexRgb(a), y = hexRgb(b); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
+
+  function rgbHsl([r, g0, b]) {
+    r /= 255; g0 /= 255; b /= 255;
+    const max = Math.max(r, g0, b), min = Math.min(r, g0, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    const h = max === r ? (g0 - b) / d + (g0 < b ? 6 : 0) : max === g0 ? (b - r) / d + 2 : (r - g0) / d + 4;
+    return [h * 60, s, l];
+  }
+  function hslHex(h, s, l) {
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => { const k2 = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k2 - 3, 9 - k2, 1)); };
+    return rgbHex([f(0), f(8), f(4)].map((v) => v * 255));
+  }
+
+  // What the line above the reel says for a colour: a preset its name,
+  // anything else its hex.
+  function colourName(hex) {
+    const preset = SWATCHES.find(([c]) => c === hex.toLowerCase());
+    return preset ? preset[1] : hex.toUpperCase();
+  }
+
+  // The reel is rebuilt each time the sheet opens, because its front is the
+  // page's own photos and they change from page to page. Your own colour, if
+  // the background is one no preset or photo offers, leads it.
   function buildSwatches() {
     const wrap = $('swatches');
-    SWATCHES.forEach((colour) => {
+    wrap.replaceChildren();
+    const presets = SWATCHES.map(([c]) => c);
+    const photos = pagePalette().filter((c) => !presets.includes(c));
+    const bg = state.bg.toLowerCase();
+    const yours = (!presets.includes(bg) && !photos.includes(bg)) ? [bg] : [];
+    const add = (colour, kind) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'swatch';
-      btn.style.background = colour;
+      btn.className = `swatch is-${kind}`;
       btn.dataset.id = colour;
-      btn.title = colour.toUpperCase();
-      btn.setAttribute('aria-label', `Background ${colour.toUpperCase()}`);
-      btn.setAttribute('aria-pressed', 'false');
-      btn.addEventListener('click', () => setBg(colour));
+      if (kind === 'custom') {
+        btn.title = 'Any colour';
+        btn.setAttribute('aria-label', 'Choose any colour');
+        btn.addEventListener('click', openCustomColour);
+      } else {
+        btn.style.setProperty('--swatch', colour);
+        btn.title = colourName(colour);
+        btn.setAttribute('aria-label', `Background ${colourName(colour)}${kind === 'photo' ? ', from the photos' : ''}`);
+        btn.setAttribute('aria-pressed', 'false');
+        btn.addEventListener('click', () => { if (state.bg.toLowerCase() !== colour) setBg(colour); });
+      }
       wrap.appendChild(btn);
-    });
+    };
+    photos.forEach((c) => add(c, 'photo'));
+    yours.forEach((c) => add(c, 'yours'));
+    presets.forEach((c) => add(c, 'preset'));
+    add('custom', 'custom');
+    markActive(wrap, wrap.querySelector(`[data-id="${bg}"]`));
+    if (!colourReel) {
+      colourReel = reel($('bg-reel'), wrap, {
+        chosen: () => wrap.querySelector(`[data-id="${state.bg.toLowerCase()}"]`),
+        // Custom is a door rather than a colour: coming to rest on it says what
+        // a tap does, and does not open it on the way past.
+        settles: (btn) => btn.dataset.id !== 'custom',
+        centred: (btn) => { $('bg-name').textContent = btn.dataset.id === 'custom' ? 'Tap to choose' : colourName(btn.dataset.id); $('bg-name').classList.toggle('is-hint', btn.dataset.id === 'custom'); },
+      });
+    } else colourReel.rebuild();
   }
 
   function setBgInputs(colour) {
     $('bg').value = colour;
-    $('bg-hex').textContent = colour.toUpperCase();
-    markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour}"]`));
+    if (document.activeElement !== $('bg-hex')) $('bg-hex').value = colour.toUpperCase();
+    markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour.toLowerCase()}"]`));
+    $('bg-name').textContent = colourName(colour);
+    $('bg-name').classList.remove('is-hint');
+    if (!customDragging) syncCustomRulers();
   }
 
   function setBg(colour) {
@@ -7568,6 +7747,358 @@
     restyle();
     refresh();
     saveDeck();
+  }
+
+  /* ------------------------------------------------ a custom colour */
+
+  // Hue and shade on two more rulers, the way every other value in the sheet
+  // is set. The hue runs round without an end. Shade runs from nearly white to
+  // nearly black through the hue; a grey has no hue to speak of, so turning
+  // the hue of one lends it some saturation or it would never change.
+  const custom = { h: 0, s: 0.5, l: 1 };
+  let customDragging = false;
+  let hueDial = null;
+  let shadeDial = null;
+
+  function syncCustomRulers() {
+    const [h, s, l] = rgbHsl(hexRgb(state.bg));
+    custom.h = h; custom.s = s; custom.l = l;
+    if (hueDial) hueDial.draw();
+    if (shadeDial) shadeDial.draw();
+    $('hue-ruler').setAttribute('aria-valuenow', String(Math.round(custom.h)));
+    $('shade-ruler').setAttribute('aria-valuenow', String(Math.round((1 - custom.l) * 100)));
+  }
+
+  function customColour() {
+    return hslHex(custom.h, custom.s, clamp(custom.l, 0.04, 0.98));
+  }
+
+  function openCustomColour() {
+    $('bg-ticker').hidden = true;
+    $('bg-custom').hidden = false;
+    syncCustomRulers();
+    requestAnimationFrame(() => { hueDial.draw(); shadeDial.draw(); });
+    syncFades();
+  }
+
+  function closeCustomColour() {
+    $('bg-custom').hidden = true;
+    $('bg-ticker').hidden = false;
+    buildSwatches();
+    requestAnimationFrame(() => colourReel.sync());
+  }
+
+  function wireCustomColour() {
+    const huePx = 7 / 7.5;
+    hueDial = dialRuler($('hue-ruler').querySelector('.dial-track'), {
+      unitPx: huePx,
+      get: () => custom.h,
+      set: (v) => {
+        custom.h = ((v % 360) + 360) % 360;
+        if (custom.s < 0.2) custom.s = 0.55;
+        if (custom.l > 0.94 || custom.l < 0.06) custom.l = 0.55;
+        setBg(customColour());
+        $('hue-ruler').setAttribute('aria-valuenow', String(Math.round(custom.h)));
+      },
+      begin: () => { customDragging = true; buzz('pick'); },
+      end: () => { customDragging = false; },
+      ticks: (from, to) => {
+        const out = [];
+        for (let u = Math.floor(from / 7.5) * 7.5; u <= to; u += 7.5) out.push({ at: u, colour: hslHex(((u % 360) + 360) % 360, 0.6, 0.55) });
+        return out;
+      },
+    });
+    shadeDial = dialRuler($('shade-ruler').querySelector('.dial-track'), {
+      unitPx: 7 / 3.6,
+      get: () => (1 - custom.l) * 100,
+      set: (v) => {
+        custom.l = 1 - clamp(v, 2, 96) / 100;
+        setBg(customColour());
+        $('shade-ruler').setAttribute('aria-valuenow', String(Math.round(v)));
+      },
+      begin: () => { customDragging = true; buzz('pick'); },
+      end: () => { customDragging = false; },
+      min: 2,
+      max: 96,
+      ticks: (from, to) => {
+        const out = [];
+        for (let u = Math.max(2, Math.floor(from / 3.6) * 3.6); u <= Math.min(96, to); u += 3.6) out.push({ at: u, colour: hslHex(custom.h, Math.max(custom.s, 0.35), 1 - u / 100) });
+        return out;
+      },
+    });
+    // The rulers answer the keyboard like any slider: a degree or a step at a
+    // time, ten with Shift.
+    [['hue-ruler', hueDial, 1], ['shade-ruler', shadeDial, 1]].forEach(([id, dial, unit]) => {
+      $(id).addEventListener('keydown', (e) => {
+        const step = (e.shiftKey ? 10 : 1) * unit;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); dial.nudge(step); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); dial.nudge(-step); }
+      });
+    });
+    $('bg-presets').addEventListener('click', closeCustomColour);
+    const hex = $('bg-hex');
+    // The field is the target, not only the text in it: a press on its
+    // margin or its border lands on the field and would otherwise do nothing.
+    hex.parentElement.addEventListener('pointerdown', (e) => {
+      if (e.target !== hex.parentElement) return;
+      e.preventDefault();
+      hex.focus();
+      hex.select();
+    });
+    const takeHex = () => {
+      const v = hex.value.trim().replace(/^#?/, '#');
+      const full = /^#[0-9a-f]{3}$/i.test(v) ? `#${v.slice(1).split('').map((c) => c + c).join('')}` : v;
+      if (/^#[0-9a-f]{6}$/i.test(full)) { setBg(full.toLowerCase()); buzz('tap'); } else hex.value = state.bg.toUpperCase();
+    };
+    hex.addEventListener('change', takeHex);
+    hex.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); takeHex(); hex.blur(); } });
+  }
+
+  /* ----------------------------------------------- reels and rulers */
+
+  // A row of options turned under a fixed centre, like a dial: whatever comes
+  // to rest in the middle is chosen, a tap on one brings it there, and it runs
+  // round without an end. The echoes either side are pictures of the real
+  // buttons, rebuilt from them, so the list itself still holds exactly one
+  // button per option and everything that counts or indexes them still means
+  // what it did. Coming to rest on an echo is quietly swapped for the same
+  // place among the real ones, which is what joins the end to the beginning.
+  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true }) {
+    const echoWraps = [...scroller.querySelectorAll('.reel-echoes')];
+    let userScroll = false;
+    let lastCentre = null;
+    let settleTimer = 0;
+
+    const nodes = () => [...scroller.querySelectorAll('.reel-echo, :scope > .layouts > *, :scope > .segmented > *, :scope > .swatches > *')];
+    const realOf = (el) => (el.classList.contains('reel-echo') ? list.children[Number(el.dataset.of)] : el);
+    const centreOf = (el) => el.offsetLeft + el.offsetWidth / 2;
+
+    function rebuild() {
+      const items = [...list.children];
+      const step = items[0] ? items[0].offsetWidth || 54 : 54;
+      const copies = Math.max(1, Math.ceil(460 / Math.max(1, items.length * step)));
+      echoWraps.forEach((wrap) => {
+        wrap.replaceChildren();
+        for (let c = 0; c < copies; c++) {
+          items.forEach((item, i) => {
+            const e = document.createElement('span');
+            // What kind of option it is, not which class of button: an echo
+            // that answered to .swatch or .layout-btn would be counted and
+            // clicked as one of the real buttons.
+            e.className = ['reel-echo', ...[...item.classList].filter((c) => c.startsWith('is-') && c !== 'is-active')].join(' ');
+            e.dataset.of = String(i);
+            e.innerHTML = item.innerHTML;
+            e.style.cssText = item.style.cssText;
+            wrap.appendChild(e);
+          });
+        }
+      });
+      mark();
+    }
+
+    function nearest() {
+      const mid = scroller.scrollLeft + scroller.clientWidth / 2;
+      let best = null, bestD = Infinity;
+      nodes().forEach((el) => { const d = Math.abs(centreOf(el) - mid); if (d < bestD) { bestD = d; best = el; } });
+      return best;
+    }
+
+    // How far each option is from the centre decides how big it is drawn;
+    // CSS does the rest from data-d.
+    function mark() {
+      const mid = scroller.scrollLeft + scroller.clientWidth / 2;
+      const all = nodes();
+      const step = all[0] ? all[0].offsetWidth || 54 : 54;
+      all.forEach((el) => { el.dataset.d = String(Math.min(3, Math.round(Math.abs(centreOf(el) - mid) / step))); });
+      const here = nearest();
+      if (!here) return;
+      const real = realOf(here);
+      if (real !== lastCentre) {
+        if (userScroll && lastCentre) buzz('tick');
+        lastCentre = real;
+        centred(real);
+      }
+    }
+
+    function centre(el, smooth) {
+      if (!el || !scroller.clientWidth) return;
+      scroller.scrollTo({ left: centreOf(el) - scroller.clientWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
+      if (!smooth) mark();
+    }
+
+    function settle() {
+      const here = nearest();
+      if (!here) return;
+      const real = realOf(here);
+      if (here !== real) {
+        // Onto the same option among the real ones, where it can be chosen and
+        // from where either end is reachable again.
+        scroller.scrollLeft += centreOf(real) - centreOf(here);
+      }
+      mark();
+      if (userScroll && real !== chosen() && settles(real)) real.click();
+      userScroll = false;
+    }
+
+    scroller.addEventListener('scroll', () => {
+      mark();
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(settle, 140);
+    }, { passive: true });
+    ['pointerdown', 'wheel', 'touchstart'].forEach((t) => scroller.addEventListener(t, () => { userScroll = true; }, { passive: true }));
+
+    // A tap brings the option to the middle, where the reel says it is chosen.
+    scroller.addEventListener('click', (e) => {
+      const echo = e.target.closest('.reel-echo');
+      if (echo) {
+        const real = realOf(echo);
+        scroller.scrollLeft += centreOf(real) - centreOf(echo);
+        userScroll = false;
+        real.click();
+        centre(real, true);
+        return;
+      }
+      const btn = e.target.closest('button');
+      if (btn && btn.parentElement === list) { userScroll = false; centre(btn, true); }
+    });
+
+    // Left and right step through the options, round the end, and choose.
+    scroller.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      e.stopPropagation();
+      const items = [...list.children];
+      const at = Math.max(0, items.indexOf(realOf(document.activeElement.closest('.reel-echo, button') || chosen())));
+      const next = items[(at + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length];
+      next.focus({ preventScroll: true });
+      next.click();
+      centre(next, true);
+    });
+
+    rebuild();
+    return {
+      rebuild,
+      // Not while a finger is turning it: a refresh landing mid-drag would
+      // snatch the reel back to where it started.
+      sync: () => { if (userScroll) return; rebuild(); centre(chosen(), false); },
+    };
+  }
+
+  // A ruler dragged under a fixed needle. The ruler follows the finger — drag
+  // it left and larger numbers come under the needle — which is the reverse
+  // of a slider and the right way round for something being held. It is
+  // drawn on a canvas at the screen's own resolution whenever the value
+  // moves, the needle is CSS, and the value itself is always the caller's.
+  function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity }) {
+    const ruler = track.querySelector('.dial-ruler');
+    let press = null;
+
+    function draw() {
+      const w = track.clientWidth, h = track.clientHeight;
+      if (!w || !h) return;
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      if (ruler.width !== Math.round(w * dpr) || ruler.height !== Math.round(h * dpr)) {
+        ruler.width = Math.round(w * dpr);
+        ruler.height = Math.round(h * dpr);
+      }
+      const c = ruler.getContext('2d');
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.clearRect(0, 0, w, h);
+      const value = get();
+      const half = w / 2 / unitPx;
+      ticks(value - half - 2, value + half + 2).forEach((t) => {
+        const x = w / 2 + (t.at - value) * unitPx;
+        c.globalAlpha = t.alpha === undefined ? 1 : t.alpha;
+        c.fillStyle = t.colour;
+        const tw = t.width || 4;
+        const th = t.height || 24;
+        const y = t.bottom ? h - th : (h - th) / 2;
+        c.beginPath();
+        if (c.roundRect) c.roundRect(x - tw / 2, y, tw, th, tw / 2); else c.rect(x - tw / 2, y, tw, th);
+        c.fill();
+      });
+      c.globalAlpha = 1;
+    }
+
+    track.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      e.preventDefault();
+      track.setPointerCapture(e.pointerId);
+      press = { id: e.pointerId, x: e.clientX, from: get() };
+      track.classList.add('is-held');
+      begin(e);
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      const v = clamp(press.from - (e.clientX - press.x) / unitPx, min, max);
+      set(v);
+      draw();
+    });
+    const release = (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      press = null;
+      track.classList.remove('is-held');
+      end(e);
+    };
+    track.addEventListener('pointerup', release);
+    track.addEventListener('pointercancel', release);
+    if (window.ResizeObserver) new ResizeObserver(draw).observe(track);
+
+    return {
+      draw,
+      nudge: (d) => { set(clamp(get() + d, min, max)); draw(); },
+    };
+  }
+
+  // The deck's three numbers on rulers. Their range inputs stay the control:
+  // a drag on the ruler writes the input and sends it the same events a
+  // finger on it would, so the undo run, the notches and the state all go
+  // through exactly the code they always did.
+  const DIAL_PX = 3;
+  const dials = {};
+  function valueDial(id) {
+    const input = $(id);
+    const panel = input.closest('.dial');
+    const step = Number(input.step) || 1;
+    const fire = (type) => input.dispatchEvent(type.startsWith('pointer')
+      ? new PointerEvent(type, { bubbles: true })
+      : new Event(type, { bubbles: true }));
+    dials[id] = dialRuler(panel.querySelector('.dial-track'), {
+      unitPx: DIAL_PX,
+      min: Number(input.min),
+      max: Number(input.max),
+      get: () => Number(input.value),
+      set: (v) => {
+        const snapped = clamp(Math.round(v / step) * step, Number(input.min), Number(input.max));
+        if (snapped === Number(input.value)) return;
+        const up = snapped > Number(input.value);
+        input.value = String(snapped);
+        fire('input');
+        roll(panel.querySelector('.val'), up);
+      },
+      begin: () => fire('pointerdown'),
+      end: () => { fire('pointerup'); fire('change'); },
+      ticks: (from, to) => {
+        const out = [];
+        const lo = Math.max(Number(input.min), Math.ceil(from / 2) * 2);
+        const hi = Math.min(Number(input.max), to);
+        const secondary = getComputedStyle(document.documentElement).getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+        for (let u = lo; u <= hi; u += 2) {
+          const major = u % 10 === 0;
+          out.push({ at: u, colour: secondary, width: 1.5, height: major ? 18 : 10, bottom: true, alpha: major ? 1 : 0.5 });
+        }
+        return out;
+      },
+    });
+  }
+
+  // The number rolls the way it is going, like a counter: up and in for
+  // larger, down for smaller.
+  function roll(el, up) {
+    if (!el) return;
+    el.classList.remove('roll-up', 'roll-down');
+    void el.offsetWidth;
+    el.classList.add(up ? 'roll-up' : 'roll-down');
   }
 
   // Pull the Style tab's controls back in line with state — needed after an
@@ -7614,6 +8145,7 @@
     panel.style.setProperty('--frac', clamp((value - min) / span, 0, 1));
     const read = panel.querySelector('.slider-read');
     if (read) read.textContent = `${Math.round(value)}${input.dataset.read || ''}`;
+    if (dials[input.id]) dials[input.id].draw();
   }
 
   // The part of a drag that is only feedback: the fill, the readout, the knob
@@ -7660,8 +8192,9 @@
     const label = $(`${id}-val`);
     input.value = state[key];
     label.textContent = state[key];
-    paintSlider(input);
     feedback(id);
+    valueDial(id);
+    paintSlider(input);
     input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
     input.addEventListener('pointerup', endRun);
     input.addEventListener('input', () => {
@@ -7721,6 +8254,7 @@
     // way out rather than being redrawn for every photo scrolled past.
     else if (centred !== -1) { centred = -1; renderFilmstrip(); }
     setBackIcon();
+    syncSheet();
     syncFades();
   }
 
@@ -8396,17 +8930,49 @@
     syncEffects();
   }
 
+  // The page's own settings share one sheet, as words along its foot; the
+  // others each have a sheet to themselves and a foot of their own.
+  const PAGE_TABS = ['layout', 'gap', 'padding', 'corners', 'background', 'page'];
+  const TILE_TOOL = { zoom: 'Zoom', rotate: 'Rotate', flip: 'Flip', replace: 'Replace', trim: 'Trim', adjust: 'Adjust', effects: 'Effects' };
+
+  // The bar is hidden while a sheet is open, so a keyboard that opened one
+  // from it would be left holding nothing; it goes to the sheet's control
+  // instead, and back to the chip it came from when the sheet shuts.
+  let sheetOpener = null;
+  function focusSheet(name) {
+    const panel = $(`dp-${name}`);
+    const target = panel.querySelector('button.is-active, [aria-pressed="true"]')
+      || panel.querySelector('input[type="range"], select, button:not([hidden])')
+      || $('dock-back');
+    target.focus({ preventScroll: true });
+  }
+
   function openDrawer(name) {
+    const wasOpen = drawer !== null;
+    const fromBar = $('dock-root').contains(document.activeElement);
+    if (fromBar) sheetOpener = document.activeElement;
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
     if (name === 'tile') showTileSub(null); else tileSub = null;
+    if (name !== 'background') { $('bg-custom').hidden = true; $('bg-ticker').hidden = false; }
     setBackIcon();
     $('dock-root').hidden = true;
     $('dock-drawer').hidden = false;
+    $('dock').classList.add('is-open');
+    syncSheet();
+    if (!wasOpen) pushSheet();
+    // The control that has just been shown was measured at nothing while it
+    // was hidden, so the reels and rulers find their places once it is laid out.
+    if (name === 'layout') layoutReel.sync();
+    if (name === 'shape') ratioReel.sync();
+    if (name === 'background') { buildSwatches(); requestAnimationFrame(() => colourReel.sync()); }
+    if (['gap', 'padding', 'corners'].includes(name)) paintSlider($(name === 'corners' ? 'radius' : name));
+    if (fromBar) focusSheet(name);
     syncFades();
   }
 
   function closeDrawer() {
+    const sheetHadFocus = $('dock-drawer').contains(document.activeElement);
     drawer = null;
     tileSub = null;
     $('dock').classList.remove('is-adjusting', 'is-effecting');
@@ -8419,20 +8985,108 @@
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
+    $('dock').classList.remove('is-open');
+    if ($('btn-photos').parentElement !== $('btn-add').parentElement) $('btn-add').parentElement.appendChild($('btn-photos'));
+    if (sheetHadFocus) (sheetOpener && sheetOpener.isConnected ? sheetOpener : $('btn-add')).focus({ preventScroll: true });
+    sheetOpener = null;
+    popSheet();
     syncFades();
   }
+
+  // What the sheet's foot holds for whatever is open: the page's settings as
+  // tabs; the number and use of the one control a sheet has; or the button
+  // the sheet exists for.
+  function syncSheet() {
+    const tabs = PAGE_TABS.includes(drawer);
+    const sheet = $('dock-drawer');
+    sheet.classList.toggle('has-tabs', tabs);
+    sheet.classList.toggle('has-value', drawer === 'shape' || drawer === 'tile');
+    sheet.classList.toggle('has-go', drawer === 'export');
+    const single = layoutCells(page().layout).length < 2;
+    [...$('dock-tabs').children].forEach((t) => {
+      const on = t.dataset.drawer === drawer;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', String(on));
+      // Nothing to put a gap between on a single photo.
+      if (t.dataset.drawer === 'gap') t.hidden = single;
+    });
+    if (tabs) {
+      const row = $('dock-tabs');
+      const on = row.querySelector('.is-active');
+      // Scrolled so the chosen word is in view, whichever end it is at.
+      if (on && row.clientWidth) {
+        const lo = on.offsetLeft - 8, hi = on.offsetLeft + on.offsetWidth + 44 - row.clientWidth;
+        if (row.scrollLeft > lo) row.scrollLeft = lo;
+        else if (row.scrollLeft < hi) row.scrollLeft = hi;
+      }
+    }
+    // A chosen tile is filled from the library — choose the tile, then the
+    // photo — so the way into it cannot be under the sheet the tile opened.
+    // The one button moves to the foot, opposite Back, rather than there being
+    // two of them; it goes back beside Add when the sheet closes.
+    const photos = $('btn-photos');
+    const home = drawer === 'tile' ? sheet.querySelector('.sheet-foot') : $('btn-add').parentElement;
+    if (photos.parentElement !== home) home.appendChild(photos);
+    sheet.classList.toggle('is-tile-foot', drawer === 'tile');
+    if (drawer === 'shape') syncSheetValue(state.ratio);
+    else if (drawer === 'tile') {
+      $('sheet-value-main').textContent = tileSub ? TILE_TOOL[tileSub] || '' : '';
+      $('sheet-value-sub').textContent = '';
+    }
+  }
+
+  // The bar's two settings say what is set: Ratio by its number, Layout by a
+  // drawing of the layout, which is also how its icon looks at rest.
+  let chipLayoutId = null;
+  function syncChips() {
+    $('chip-ratio').textContent = state.ratio.label;
+    const layout = page().layout;
+    if (layout.id !== chipLayoutId) { layoutGlyph(layout, $('chip-layout')); chipLayoutId = layout.id; }
+    $('chip-layout').parentElement.setAttribute('aria-label', `Layout, ${layout.id === '1x1' ? 'single image' : layout.id}`);
+    $('chip-ratio').parentElement.setAttribute('aria-label', `Ratio, ${state.ratio.label}`);
+  }
+
+  function syncSheetValue(ratio) {
+    if (drawer !== 'shape' || !ratio) return;
+    $('sheet-value-main').textContent = ratio.label;
+    $('sheet-value-sub').textContent = RATIO_USES[ratio.id] || '';
+  }
+
+  // Android's back closes the sheet, as it closes any sheet. Opening one
+  // pushes an entry for the back to take away; closing it from inside takes
+  // the entry away itself, and the one popstate that causes is expected
+  // rather than obeyed.
+  let sheetEntry = false;
+  let expectPop = 0;
+  function pushSheet() {
+    if (sheetEntry) return;
+    try { history.pushState({ sheet: true }, ''); sheetEntry = true; } catch { /* a sandbox said no */ }
+  }
+  function popSheet() {
+    if (!sheetEntry) return;
+    sheetEntry = false;
+    expectPop += 1;
+    history.back();
+  }
+  window.addEventListener('popstate', () => {
+    if (expectPop) { expectPop -= 1; return; }
+    if (!sheetEntry) return;
+    sheetEntry = false;
+    if (drawer === 'tile') { cancelSwap(); select(-1); }
+    if (drawer) closeDrawer();
+  });
 
   /* ------------------------------------------------- sideways scroll hints */
 
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    // The last two are panels that scroll a rail inside themselves rather than
-    // scrolling whole: the background presets beside a colour well that stays
-    // put, and the export settings beside an Export button that does. The
-    // panel around each of them no longer moves, so it is the rail that has to
-    // carry the fade or nothing would say there was more.
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings', 'adjust-tools', 'effect-list'].map($),
+    // The export settings scroll a rail inside their panel rather than the
+    // panel scrolling whole, so it is the rail that has to carry the fade or
+    // nothing would say there was more. The reels are not here: they run round
+    // without an end, so there is always more, and they fade both edges in the
+    // stylesheet for good.
+    ...['filmstrip', 'dock-tabs', 'tile-actions', 'export-settings', 'adjust-tools', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -9954,6 +10608,7 @@
   buildLayouts();
   buildRatios();
   buildSwatches();
+  wireCustomColour();
   setBgInputs(state.bg);
   slider('gap', 'gap');
   slider('padding', 'padding');
@@ -10009,10 +10664,10 @@
   }
 
   buzzTaps($('dock'));
-  // The library and the way into it are the same kind of control, so they get
-  // the same tick — the grid scrolls, so the same tap test applies.
+  // The library gets the tick the button into it gets — that button is in the
+  // dock now, so the dock's own listener covers it. The grid scrolls, so the
+  // same tap test applies.
   buzzTaps($('photos-modal'));
-  buzzTaps($('btn-photos'));
   buzzTaps($('btn-home'));
   buzzTaps(document.querySelector('.pagesbar-end'));
   buzzTaps($('installbar'));
@@ -10020,9 +10675,15 @@
   buzzTaps($('home'));
   buzzTaps($('detail'));
 
-  [...$('dock-root').children].forEach((btn) => {
+  $('dock-root').querySelectorAll('[data-drawer]').forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
   });
+  // Moving between the page's settings keeps the sheet open and only changes
+  // what is in it.
+  [...$('dock-tabs').children].forEach((btn) => {
+    btn.addEventListener('click', () => { if (drawer !== btn.dataset.drawer) openDrawer(btn.dataset.drawer); });
+  });
+  $('btn-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('dock-back').addEventListener('click', () => {
     // Inside a tile sub-panel, step back to the tile's actions. At the top of
     // the tile bar the cross lets go of the tile, which puts the canvas back
@@ -10218,7 +10879,11 @@
     }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
 
-    if (e.target.matches('input, select, textarea')) return;
+    // A field keeps its keys, except that Escape from a ruler or a menu still
+    // shuts the sheet: those are where a keyboard lands when a sheet opens,
+    // and they have no use for Escape themselves.
+    const shuts = e.key === 'Escape' && e.target.matches('input[type="range"], select');
+    if (e.target.matches('input, select, textarea') && !shuts) return;
     // The library sits over everything, so it takes Escape before anything
     // underneath gets a look at it.
     if (libraryOpen && e.key === 'Escape') { closeLibrary(); return; }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grid Collage — build an Instagram carousel</title>
 <meta name="description" content="Build a carousel up to 20 pages. Drop photos and video in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
-<meta name="theme-color" content="#16161c">
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.25i">
+<link rel="stylesheet" href="styles.css?v=2026.09.25j">
 </head>
 <body class="on-home">
 
@@ -111,22 +111,21 @@
 <main class="app">
 
   <!-- ------------------------------------------------ pages, along the top -->
+  <!-- Back, the pages, and undo and redo in a pill built like the bottom
+       bar's, so the top and the bottom of the screen rhyme. The photos moved
+       down beside Add: this row is the only place the deck can be scrolled
+       through, and the strip is what wants its width. -->
   <div class="pagesbar">
-    <button class="home-btn" id="btn-home" type="button" aria-label="All projects" title="All projects">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
-    </button>
-    <button class="photos-btn" id="btn-photos" type="button"
-            aria-haspopup="dialog" aria-expanded="false" aria-label="Photos">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M21 8v10a2 2 0 0 1-2 2H7"/><circle cx="8" cy="11" r="1.6"/><path d="M4 16l3.5-3.5L11 16"/></svg>
-      <span class="photos-count" id="photos-count">0</span>
+    <button class="home-btn circle" id="btn-home" type="button" aria-label="All projects" title="All projects">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
     </button>
     <div class="filmstrip" id="filmstrip"></div>
     <div class="pagesbar-end">
       <button id="btn-undo" class="pb-btn" type="button" title="Undo" aria-label="Undo" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10a5 5 0 0 1 0 10H8"/><path d="M8 4L4 8l4 4"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4L4 8l4 4M4 8h10a5 5 0 0 1 0 10H8"/></svg>
       </button>
       <button id="btn-redo" class="pb-btn" type="button" title="Redo" aria-label="Redo" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8H10a5 5 0 0 0 0 10h6"/><path d="M16 4l4 4-4 4"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4l4 4-4 4M20 8H10a5 5 0 0 0 0 10h6"/></svg>
       </button>
     </div>
   </div>
@@ -135,9 +134,13 @@
   <section class="stage">
     <div class="dropzone" id="dropzone" hidden><span>Drop photos or video to add them</span></div>
     <div class="blank" id="blank" hidden>
-      <p>Nothing here yet.</p>
-      <button class="btn btn-primary" id="blank-add" type="button">Add photos</button>
+      <svg class="blank-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>
+      <p class="blank-title">Nothing here yet.</p>
       <p class="blank-sub">Photos or video. Or drop them anywhere on the page.</p>
+      <button class="btn pill" id="blank-add" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Add photos
+      </button>
     </div>
     <div class="canvas-wrap" id="canvas-wrap">
       <div class="track" id="track">
@@ -171,111 +174,158 @@
   <!-- ------------------------------------------------ settings, at the foot -->
   <nav class="dock" id="dock" aria-label="Settings">
 
+    <!-- The bar at rest. Add and Photos at the start, the page's two settings
+         in a pill that hugs them, and Export on its own at the end in a frame
+         as wide as the start, so the pill sits dead centre. The settings spell
+         themselves out only where the bar has the width for it — 398px, which
+         is a 430pt phone — and are their icons alone anywhere narrower. The
+         Layout chip carries no value: its icon is a drawing of the layout. -->
     <div class="dock-root" id="dock-root">
-      <button class="dock-item" type="button" data-drawer="layout">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
-        <span>Layout</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="shape">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M9 7h6M9 12h6"/></svg>
-        <span>Shape</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="gap">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg>
-        <span>Gap</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="padding">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="2.5" width="19" height="19" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
-        <span>Padding</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="corners">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V9a6 6 0 0 1 6-6h11"/><path d="M3 20h6"/></svg>
-        <span>Corners</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="background">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>
-        <span>Background</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="page">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
-        <span>Page</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="export">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
-        <span>Export</span>
-      </button>
+      <div class="bar-start">
+        <button class="circle" id="btn-add" type="button" aria-label="Add photos or video" title="Add photos or video">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="circle photos-btn" id="btn-photos" type="button"
+                aria-haspopup="dialog" aria-expanded="false" aria-label="Photos">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>
+          <span class="photos-count" id="photos-count">0</span>
+        </button>
+      </div>
+      <div class="bar-pill" role="group" aria-label="Page settings">
+        <button class="dock-item chip" type="button" data-drawer="shape" aria-label="Ratio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2.5h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2zM9 7h6M9 12h6"/></svg>
+          <span class="chip-label">Ratio</span><span class="chip-value" id="chip-ratio">1:1</span>
+        </button>
+        <button class="dock-item chip" type="button" data-drawer="layout" aria-label="Layout">
+          <i class="layout-glyph" id="chip-layout" aria-hidden="true"></i>
+          <span class="chip-label">Layout</span>
+        </button>
+      </div>
+      <div class="bar-end">
+        <button class="dock-item circle circle-primary" type="button" data-drawer="export" aria-label="Export" title="Export">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l4-4 4 4M12 3v12M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+        </button>
+      </div>
     </div>
 
+    <!-- The sheet everything opens into. It comes down over the bar rather
+         than beside it, with one control at a time above and its foot along
+         the bottom: Back where Add was, then the page's settings as words, or
+         the value of the one control there is, or the button the sheet is
+         for. No title — the lit tab says where you are. -->
     <div class="dock-drawer" id="dock-drawer" hidden>
-      <button class="dock-back" id="dock-back" type="button" aria-label="Back">
-        <svg id="dock-back-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
-        <svg id="dock-back-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+     <div class="sheet-body" id="sheet-body">
 
+      <!-- A dial of drawings, turned under a fixed centre. Whatever sits in
+           the middle is the page's layout. It runs round without an end: the
+           echoes either side are pictures of the same buttons, kept out of
+           #layouts so that list holds exactly one button per layout. -->
       <div class="dock-panel" id="dp-layout" hidden>
-        <div class="layouts" id="layouts"></div>
+        <div class="reel reel-layouts" id="layout-reel">
+          <div class="reel-echoes" aria-hidden="true"></div>
+          <div class="layouts" id="layouts"></div>
+          <div class="reel-echoes" aria-hidden="true"></div>
+        </div>
+        <span class="reel-dot" aria-hidden="true"></span>
       </div>
 
       <div class="dock-panel" id="dp-shape" hidden>
-        <div class="segmented" id="ratios"></div>
+        <div class="reel reel-ratios" id="ratio-reel">
+          <div class="reel-echoes" aria-hidden="true"></div>
+          <div class="segmented" id="ratios"></div>
+          <div class="reel-echoes" aria-hidden="true"></div>
+        </div>
+        <span class="reel-dot" aria-hidden="true"></span>
       </div>
 
-      <!-- The readout appears twice on purpose. The one in the label row is the
-           resting state, and the one riding the knob is for the moment a thumb
-           is over the track, when the corner of the dock is the last place
-           anybody is looking. -->
-      <div class="dock-panel dock-slider" id="dp-gap" hidden>
-        <label class="dock-label" for="gap">Gap between tiles <span class="val" id="gap-val">0</span></label>
+      <!-- A ruler dragged under a fixed needle, the number over it. The range
+           input is still the control — it holds the value, takes the keyboard
+           and is what a screen reader hears — and the ruler is how a finger
+           moves it. -->
+      <div class="dock-panel dock-slider dial" id="dp-gap" hidden>
+        <label class="dock-label" for="gap"><span class="sr">Gap between tiles</span> <span class="val" id="gap-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="gap" min="0" max="120" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <div class="dock-panel dock-slider" id="dp-padding" hidden>
-        <label class="dock-label" for="padding">Padding round the edge <span class="val" id="padding-val">0</span></label>
+      <div class="dock-panel dock-slider dial" id="dp-padding" hidden>
+        <label class="dock-label" for="padding"><span class="sr">Padding round the edge</span> <span class="val" id="padding-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="padding" min="0" max="160" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <div class="dock-panel dock-slider" id="dp-corners" hidden>
-        <label class="dock-label" for="radius">Corner radius <span class="val" id="radius-val">0</span></label>
+      <div class="dock-panel dock-slider dial" id="dp-corners" hidden>
+        <label class="dock-label" for="radius"><span class="sr">Corner radius</span> <span class="val" id="radius-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="radius" min="0" max="120" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <!-- The presets are the part that scrolls and the custom colour is the part
-           that does not. Both used to sit in the panel's own scroller, which put
-           the one control that can reach a colour the row does not offer off the
-           right-hand edge on every phone measured. -->
+      <!-- Background as a reel of colours under a fixed centre, one line of
+           text above it: a preset says its name, anything else its hex, and
+           Custom what to do. The reel opens with four colours out of this
+           page's own photos, then the presets from light to dark, then Custom.
+           Custom opens in place: a hex you can type, and hue and shade on two
+           more rulers. The system's own picker stays one tap away beside the
+           hex, for anything a ruler makes awkward. -->
       <div class="dock-panel" id="dp-background" hidden>
-        <div class="swatches" id="swatches"></div>
-        <label class="colour-row">
-          <input type="color" id="bg" value="#ffffff">
-          <span id="bg-hex">#FFFFFF</span>
-        </label>
+        <div class="ticker" id="bg-ticker">
+          <p class="ticker-name" id="bg-name" aria-live="polite">White</p>
+          <div class="reel reel-colours" id="bg-reel">
+            <div class="reel-echoes" aria-hidden="true"></div>
+            <div class="swatches" id="swatches"></div>
+            <div class="reel-echoes" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="custom-colour" id="bg-custom" hidden>
+          <div class="custom-top">
+            <button class="pill" id="bg-presets" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+              Presets
+            </button>
+            <div class="hex-field">
+              <input type="color" id="bg" value="#ffffff" aria-label="Pick any colour">
+              <label class="sr" for="bg-hex">Background colour as hex</label>
+              <input type="text" id="bg-hex" value="#FFFFFF" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="characters" inputmode="text">
+            </div>
+          </div>
+          <div class="colour-ruler" id="hue-ruler" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="359">
+            <span class="colour-ruler-label" aria-hidden="true">Hue</span>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+          </div>
+          <div class="colour-ruler" id="shade-ruler" role="slider" tabindex="0" aria-label="Shade" aria-valuemin="0" aria-valuemax="100">
+            <span class="colour-ruler-label" aria-hidden="true">Shade</span>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+          </div>
+        </div>
       </div>
 
+      <!-- Page lost its button when the bar went down to two settings, so it is
+           the last tab along the foot: the two things that act on a page as a
+           whole, beside the settings of the page as a whole. -->
       <div class="dock-panel dock-actions" id="dp-page" hidden>
         <button class="btn btn-ghost" id="btn-duplicate" type="button">Duplicate page</button>
         <button class="btn btn-ghost btn-danger" id="btn-delete-page" type="button" data-buzz="warn">Delete page</button>
       </div>
 
-      <!-- Same split as the background panel: the two settings share what room
-           is left and scroll if they must, and Export is pinned outside that
-           scroller. A panel whose whole purpose is one button cannot be a panel
-           you have to swipe sideways to reach the button in. -->
+      <!-- The settings Export used to carry, as the control; the button that
+           does the export is the sheet's foot, where a thumb already is. -->
       <div class="dock-panel dock-export" id="dp-export" hidden>
         <div class="export-settings" id="export-settings">
+          <label class="sr" for="quality">Size</label>
           <select id="quality" class="select">
             <option value="1080">1080px (Instagram)</option>
             <option value="1440">1440px</option>
             <option value="2160">2160px</option>
           </select>
+          <label class="sr" for="format">Format</label>
           <select id="format" class="select">
             <option value="image/jpeg">JPG</option>
             <option value="image/png">PNG</option>
           </select>
         </div>
-        <button class="btn btn-primary" id="btn-export" type="button">Export</button>
       </div>
 
       <!-- opens by itself when a tile is selected -->
@@ -460,6 +510,30 @@
 
       </div>
 
+     </div>
+
+     <div class="sheet-foot">
+      <button class="dock-back circle" id="dock-back" type="button" aria-label="Back">
+        <svg id="dock-back-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+        <svg id="dock-back-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <!-- Words, not icons: they read at a glance, and a row of five cannot
+           fit beside Back at 390px, so it scrolls, fading at whichever edge
+           has more, and keeps the chosen one in view. Gap is only here with a
+           collage to put a gap in. -->
+      <div class="dock-tabs" id="dock-tabs" role="tablist" aria-label="Page settings">
+        <button class="dock-tab" type="button" role="tab" data-drawer="layout">Grid</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="gap">Gap</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="padding">Padding</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="corners">Corners</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="background">Background</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="page">Page</button>
+      </div>
+      <p class="sheet-value" id="sheet-value" aria-live="polite"><strong id="sheet-value-main"></strong><span id="sheet-value-sub"></span></p>
+      <button class="btn btn-primary sheet-go" id="btn-export" type="button">Export</button>
+      <span class="sheet-balance" aria-hidden="true"></span>
+     </div>
+
     </div>
   </nav>
 </main>
@@ -563,6 +637,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.25i"></script>
+<script src="app.js?v=2026.09.25j"></script>
 </body>
 </html>
