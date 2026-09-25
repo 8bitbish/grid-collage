@@ -2,6 +2,7 @@
  * named as measure.mjs expects, so ours and Google's measure side by side.
  *
  *   node ours.mjs <dir> [--chart=<file>] highlights-100 shadows+50 ...
+ *                                        (or several at once: brightness+50,warmth-25)
  */
 import { chromium } from 'playwright';
 import { CHROME, ROOT } from '../paths.mjs';
@@ -54,19 +55,25 @@ const openAdjust = async (id) => {
   }
   await p.click(`.adjust-tool[data-adjust="${id}"]`);
 };
+// A setting is one tool, shadows+50, or several on the one tile,
+// brightness+50,warmth-25, as google-web.mjs takes them.
 for (const setting of settings) {
-  const [, id, value] = /^([a-zA-Z]+)([+-]\d+)$/.exec(setting);
-  await openAdjust(id);
-  await slide(Number(value));
-  await p.waitForTimeout(200);
+  const sliders = setting.split(',').map((one) => /^([a-zA-Z]+)([+-]\d+)$/.exec(one).slice(1));
+  for (const [id, value] of sliders) {
+    await openAdjust(id);
+    await slide(Number(value));
+    await p.waitForTimeout(200);
+  }
   for (let k = 0; k < 4 && await p.locator('#dock-drawer').isVisible(); k++) await p.click('#dock-back');
   await p.click('.dock-item[data-drawer="export"]');
   const got = p.waitForEvent('download', { timeout: 60000 });
   await p.click('#btn-export');
   await (await got).saveAs(path.join(dir, `${setting}.png`));
   await p.click('#dock-back');
-  await openAdjust(id);
-  await slide(0);
+  for (const [id] of sliders) {
+    await openAdjust(id);
+    await slide(0);
+  }
 }
 await b.close();
 srv.close();
