@@ -8937,7 +8937,9 @@
 
   // The bar is hidden while a sheet is open, so a keyboard that opened one
   // from it would be left holding nothing; it goes to the sheet's control
-  // instead, and back to the chip it came from when the sheet shuts.
+  // instead, and back to the chip it came from when the sheet shuts. Only a
+  // keyboard: a menu is focus-visible however it was focused, so moving focus
+  // after a tap drew a ring round the size menu on every Export.
   let sheetOpener = null;
   function focusSheet(name) {
     const panel = $(`dp-${name}`);
@@ -8949,7 +8951,7 @@
 
   function openDrawer(name) {
     const wasOpen = drawer !== null;
-    const fromBar = $('dock-root').contains(document.activeElement);
+    const fromBar = $('dock-root').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
     if (fromBar) sheetOpener = document.activeElement;
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });

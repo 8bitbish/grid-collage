@@ -1878,15 +1878,19 @@ body.is-picking .tile::after {
 }
 .btn-primary:hover { filter: brightness(0.92); background: var(--background-inverse); }
 
+/* The export settings are pills on the sheet like Presets and the hex field
+   beside the colours, not boxes. The chevron is --content-secondary written
+   out, because a data URI cannot read a variable. */
 .select {
   appearance: none;
-  background: var(--background-raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238d8d9c' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
-  border: 1px solid var(--border-subtle);
+  background: var(--background-control) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238e8e8e' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;
+  border: none;
   color: var(--content-primary);
   font: inherit;
-  font-size: 13px;
-  padding: 8px 26px 8px 10px;
-  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 32px 0 16px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   /* The same 44 as everything else it stands next to. A select opens a picker
      rather than acting on the tap, so a miss here costs a wheel that has to be
@@ -2264,7 +2268,11 @@ input[type="range"]::-moz-range-thumb {
    a field that opens the keyboard, and hue and shade on rulers with their
    names to the left, each ruler fading towards its name so neither takes a
    row of its own. The system's picker is the swatch in the hex field. */
-.custom-colour { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+/* Figma stacks a 36 pill and two 40 rulers 10 apart, 136 in all. Here each
+   is 44 to press, so the rows sit 2 apart to come to the same 136: the sheet
+   is the height designed, and what is drawn is within 4px of where it was
+   drawn. */
+.custom-colour { width: 100%; display: flex; flex-direction: column; gap: var(--space-between); }
 .custom-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 /* The pill and the field beside it are drawn 36 and pressed 44: the extra is
    a transparent border the background stops short of, so the box a finger is
