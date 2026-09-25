@@ -638,6 +638,15 @@
   //          brightness is low, and the median where the two change over.
   //          Google's Shadows lifts a dark photo much further than a bright
   //          one; this is how a tool says so.
+  //   regions optional, for a tool whose change to a pixel depends on where
+  //          in the photo it is: `build(copy, amount)` turns a small copy of
+  //          the photo (see smallCopy) and the slider into a bilateral grid,
+  //          a change of brightness for each of `size`/`cell` regions across
+  //          and down and `bins` levels of brightness, and the glsl reads it
+  //          as regions_<id>(t) for the pixel's own level t. Built on the CPU,
+  //          a few milliseconds a slider move, since the copy is tiny; looked
+  //          up per pixel, so an edge between two regions stays as sharp as
+  //          it was.
   //   table  in place of glsl: the tool is a lookup table of colours read
   //          off Google Photos, in colour-tables.png; see COLOUR_TABLES.
   //          Tools with tables that run one after another are looked up
@@ -865,6 +874,118 @@
       glsl: `
         c = clamp(c, 0.0, 1.0);
         c = vec3(curve_blackPoint(c.r), curve_blackPoint(c.g), curve_blackPoint(c.b));`,
+    },
+    {
+      id: 'tone', label: 'Tone', min: 0, max: 100, stage: 'tone',
+      // A tone curve's S in the ring the other tone tools use, flat at both
+      // ends, spanning 6.5 to 17.5 across and 8.5 to 15.5 down so it sits on
+      // the centre.
+      icon: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 15.5c2.6 0 3.4-1.4 4.4-3.5s1.8-3.5 4.4-3.5h2.2"/>',
+      // On the phone only; the web editor has no Tone. It brightens the
+      // shadows and the middle of a photo, and it is the one tool here that
+      // looks at the whole picture before touching a pixel. The same grey 128
+      // came out of Google's Tone +100 as 158 on the chart's open background,
+      // 142 as a patch on black, 162 on a 64 surround, 146 on 192 and 142 on
+      // white — each of those flat across the patch, with no halo on the
+      // black beside it. A tone curve cannot do that, and nor can anything
+      // built on a blur of the brightness, which would grade each patch from
+      // its middle to its edge.
+      //
+      // Exposure fusion does, which is how Google's own HDR+ tone maps
+      // (Hasinoff et al. 2016, after Mertens et al. 2007): the photo and a
+      // brighter copy of it, each pixel of each weighted by how near the
+      // middle of the range it sits, blended band by band through Laplacian
+      // pyramids. Its first try on the chart put those five patches at 156,
+      // 150, 168, 145 and 145, the right way round each time. As built here
+      // the app comes within 10.4 levels RMS of Google's +100 over the
+      // chart's flat parts and colours, and 6.9 of its +54, where leaving the
+      // photo alone is 23.7 and 12.9 out.
+      //
+      // How much brighter the second copy is depends on the photo, metered
+      // as a camera meters a scene: the log-average of each pixel's brightest
+      // channel in linear light, 3 stops of gain for each stop it sits below
+      // 2.25 stops under white, and never more than 2, the slider's share of
+      // that to the power 1.18. The fox (a log-average 1.9 stops down) and
+      // the grid on white get no second exposure at all, and are changed only
+      // by the colour and the curve below; the chart (2.6) gets a gain of 2,
+      // the portrait (2.7) 2.7, the forest (3.5) the most there is, 4. A straight line through the mean brightest channel,
+      // fitted to the charts alone, had put the fox further from Google's
+      // (11.3 levels RMS over the frame at +100) than leaving it alone (9.3).
+      //
+      // Google's Tone is the same at any size: the chart at 1080 came back
+      // within a level of the chart at 2160 everywhere, and the forest at half
+      // size within a level of the whole forest in every region — the mark of
+      // a working copy of fixed size, as here.
+      //
+      // Fused on a copy 192 pixels across of 0.7 of luma and 0.3 of the
+      // brightest channel, over two levels. Kept as a bilateral grid of what
+      // the fusion made of each 12-pixel region at each twelfth of the range,
+      // and looked up per pixel of the photo at its own brightness, so every
+      // region takes its own curve and an edge between two keeps its edge.
+      // Either side of the few levels a region's pixels reach in so small a
+      // copy, its curve follows the slope at which fusion carries fine
+      // detail; see carriedDetail. Held level there instead, the chart's dark
+      // ground came out with its texture ×1.08 where Google's was ×1.33.
+      //
+      // The colour. Each channel is scaled by the change in brightness, bar
+      // near black, where a ratio of nothing is noise and an equal shift takes
+      // over; a colour taken past white is scaled back whole, keeping its hue;
+      // and saturation round luma is raised by a tenth of the slider and a
+      // fifth for every stop the pixel was lifted. Google's lifts a colour by
+      // more than its brightest channel says: the portrait's blue shirt,
+      // 6/80/176, came out 10/109/238, every channel about ×1.36, because its
+      // luma is only 71, and its green background came out more saturated as
+      // well as lighter. On the brightest channel alone, with no saturation,
+      // the app took the shirt's blue to 188 and the portrait at +100 was
+      // 22.3 levels RMS off Google's; with luma in the brightness and the
+      // saturation, 11.2. Fitted over the charts, the three grids, the fox
+      // and the portrait at every setting, with the forest held out.
+      //
+      // Over the whole frame at 540, RMS of RGB against Google's copy, the
+      // app / leaving the photo alone, at +25, +52, +100: the fox 2.3/3.2,
+      // 3.3/5.3, 5.4/9.3; the portrait 3.7/7.8, 5.7/15.3, 11.2/28.4; the
+      // forest, held out, 5.3/5.9, 6.8/12.0, 9.7/22.6.
+      //
+      // What it does not match. The forest at +100, whose greens Google did
+      // not saturate as it did the portrait's, and which came out 7.9 off
+      // before the colour was fitted; the three photographs cannot say what
+      // Google goes by. The chart's grey steps, up to 15 levels darker than
+      // Google's through the middle, and its highlights, which Google holds
+      // still and the app lifts, 197 to 205. The grey patches on white and
+      // beside black, which Google takes 12 to 16 levels under the open grey
+      // and the app 2 or 3. The grid on black, whose darks Google lifts
+      // harder and whose bright green it darkens (191 to 144). See
+      // calibration/README.md.
+      //
+      // After all that, each channel through one curve for the whole photo,
+      // scaled with the slider and fitted with the rest: 6 to 9 levels up
+      // through the shadows and middle, 2 to 3 down at the top.
+      curves: {
+        100: [0, 8.9, 17.7, 26.6, 35.5, 44.1, 52.8, 61.5, 70.2, 78, 85.9, 93.7, 101.6, 110.1, 118.7, 127.2, 135.8, 144, 152.2, 160.4, 168.7, 175.6, 182.5, 189.4, 196.3, 202.6, 209, 215.4, 221.8, 229.6, 237.5, 245.3, 252.2],
+      },
+      regions: {
+        size: 192,
+        cell: 12,
+        bins: 12,
+        build(copy, amount) {
+          const gain = 2 ** (amount ** 1.18 * clamp(3 * (-2.25 - copy.logMax), 0, 2));
+          const weights = { centre: 0.45, sigma: 0.2, levels: 2 };
+          const fused = fuseExposures(copy.brightness, copy.w, copy.h, gain, weights);
+          return bilateralGrid(copy.brightness, fused, copy.w, copy.h, this.cell, this.bins, carriedDetail(gain, weights));
+        },
+      },
+      glsl: `
+        c = clamp(c, 0.0, 1.0);
+        float t = 0.7 * luma(c) + 0.3 * max(max(c.r, c.g), c.b);
+        float toned = clamp(t + regions_tone(t), 0.0, 1.0);
+        float lifted = toned / max(t, 1.0 / 255.0);
+        c = mix(c + (toned - t), c * lifted, min(1.0, t / 0.02));
+        // A colour lifted past white keeps its hue, all three channels scaled
+        // back together, rather than being clipped channel by channel.
+        c /= max(1.0, max(max(c.r, c.g), c.b));
+        float y = luma(c);
+        c = clamp(y + (1.0 + 0.1 * amount + 0.2 * log2(max(1.0, lifted))) * (c - y), 0.0, 1.0);
+        c = vec3(curve_tone(c.r), curve_tone(c.g), curve_tone(c.b));`,
     },
     {
       id: 'saturation', label: 'Saturation', min: -100, max: 100, stage: 'tone',
@@ -1319,6 +1440,224 @@
     return 1 / (1 + Math.exp((median - ADAPTS.adapt.median) / ADAPTS.adapt.width));
   }
 
+  // The copy a tool with regions works from, `size` pixels along its longer
+  // side: its brightness as Tone reads it, 0.7 of luma and 0.3 of the
+  // brightest channel, and the brightest channel's mean and log-average.
+  // Once per decode, and a few thousand pixels, so reading it back costs
+  // nothing to speak of.
+  const REGIONED = ADJUSTMENTS.filter((a) => a.regions);
+  const smallCopies = new WeakMap();
+  function smallCopy(src, size) {
+    let copy = smallCopies.get(src);
+    if (copy && copy.size === size) return copy;
+    const s = size / Math.max(src.width, src.height);
+    const w = Math.max(1, Math.round(src.width * s));
+    const h = Math.max(1, Math.round(src.height * s));
+    const g = scratch(w, h).getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, w, h);
+    const d = g.getImageData(0, 0, w, h).data;
+    const brightness = new Float32Array(w * h);
+    let sum = 0;
+    let logs = 0;
+    for (let i = 0; i < brightness.length; i += 1) {
+      const top = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) / 255;
+      brightness[i] = 0.7 * ((0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255) + 0.3 * top;
+      sum += top;
+      const light = top <= 0.04045 ? top / 12.92 : ((top + 0.055) / 1.055) ** 2.4;
+      logs += Math.log2(light + 1e-3);
+    }
+    // The mean, and the log-average in linear light, as an exposure meter
+    // reads a scene: stops below white that the photo sits on the whole.
+    copy = { size, w, h, brightness, meanMax: (sum / brightness.length) * 255, logMax: logs / brightness.length };
+    smallCopies.set(src, copy);
+    return copy;
+  }
+
+  // Halve and double for a Laplacian pyramid: Burt and Adelson's five-tap
+  // binomial down, bilinear up, edges clamped.
+  const BINOMIAL = [1, 4, 6, 4, 1].map((k) => k / 16);
+  function pyramidDown(a) {
+    const w = Math.ceil(a.w / 2);
+    const h = Math.ceil(a.h / 2);
+    const across = new Float32Array(a.w * h);
+    const d = new Float32Array(w * h);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < a.w; x += 1) {
+        let s = 0;
+        for (let k = -2; k <= 2; k += 1) s += BINOMIAL[k + 2] * a.d[clamp(2 * y + k, 0, a.h - 1) * a.w + x];
+        across[y * a.w + x] = s;
+      }
+    }
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        let s = 0;
+        for (let k = -2; k <= 2; k += 1) s += BINOMIAL[k + 2] * across[y * a.w + clamp(2 * x + k, 0, a.w - 1)];
+        d[y * w + x] = s;
+      }
+    }
+    return { w, h, d };
+  }
+  function pyramidUp(a, w, h) {
+    const d = new Float32Array(w * h);
+    for (let y = 0; y < h; y += 1) {
+      const fy = (y - 0.5) / 2;
+      const y0 = Math.floor(fy);
+      const ty = fy - y0;
+      const ya = clamp(y0, 0, a.h - 1) * a.w;
+      const yb = clamp(y0 + 1, 0, a.h - 1) * a.w;
+      for (let x = 0; x < w; x += 1) {
+        const fx = (x - 0.5) / 2;
+        const x0 = Math.floor(fx);
+        const tx = fx - x0;
+        const xa = clamp(x0, 0, a.w - 1);
+        const xb = clamp(x0 + 1, 0, a.w - 1);
+        d[y * w + x] = (1 - ty) * ((1 - tx) * a.d[ya + xa] + tx * a.d[ya + xb]) + ty * ((1 - tx) * a.d[yb + xa] + tx * a.d[yb + xb]);
+      }
+    }
+    return { w, h, d };
+  }
+
+  // The brighter exposure fusion blends with a photo, as a function of its
+  // gamma-encoded level: `gain` times the light, clipped at white. And how
+  // well exposed a level counts as: a Gaussian round `centre`.
+  const brighterBy = (gain) => (x) => {
+    const light = (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4) * gain;
+    return light >= 1 ? 1 : light <= 0.0031308 ? light * 12.92 : 1.055 * light ** (1 / 2.4) - 0.055;
+  };
+  const wellExposed = (centre, sigma) => (x) => Math.exp(-((x - centre) ** 2) / (2 * sigma * sigma)) + 1e-6;
+
+  // Exposure fusion of one brightness image, 0..1 and gamma-encoded, with a
+  // copy of itself `gain` times brighter in linear light: each weighted by
+  // how well exposed it is, the weights' own pyramid blending the two
+  // exposures' Laplacian bands. See Tone.
+  function fuseExposures(v, w, h, gain, { centre, sigma, levels }) {
+    const well = wellExposed(centre, sigma);
+    const bright = v.map(brighterBy(gain));
+    let dim = { w, h, d: v };
+    let lit = { w, h, d: bright };
+    let share = { w, h, d: bright.map((x, i) => well(x) / (well(x) + well(v[i]))) };
+    const bands = [];
+    for (let l = 0; l < levels; l += 1) {
+      const dimDown = pyramidDown(dim);
+      const litDown = pyramidDown(lit);
+      const dimUp = pyramidUp(dimDown, dim.w, dim.h);
+      const litUp = pyramidUp(litDown, lit.w, lit.h);
+      bands.push({
+        w: dim.w,
+        h: dim.h,
+        d: dim.d.map((x, i) => (x - dimUp.d[i]) * (1 - share.d[i]) + (lit.d[i] - litUp.d[i]) * share.d[i]),
+      });
+      dim = dimDown;
+      lit = litDown;
+      share = pyramidDown(share);
+    }
+    let out = { w: dim.w, h: dim.h, d: dim.d.map((x, i) => x * (1 - share.d[i]) + lit.d[i] * share.d[i]) };
+    for (let l = levels - 1; l >= 0; l -= 1) {
+      const up = pyramidUp(out, bands[l].w, bands[l].h);
+      out = { w: up.w, h: up.h, d: up.d.map((x, i) => x + bands[l].d[i]) };
+    }
+    return out.d;
+  }
+
+  // The curve fine detail follows through the same fusion, as 257 levels.
+  // Fusion blends each band of the two exposures, so a pixel's grain is
+  // carried at the two exposures' own slopes, weighted as they are blended
+  // there — not at the slope of what a flat field comes out as, which the
+  // weights shifting with level make far shallower. Integrated, that is the
+  // curve a region's levels should follow either side of the few its pixels
+  // reached in a copy 192 pixels across, where texture has been averaged
+  // away. See bilateralGrid, and Tone for what it bought.
+  function carriedDetail(gain, { centre, sigma }) {
+    const well = wellExposed(centre, sigma);
+    const bright = brighterBy(gain);
+    const curve = new Float32Array(257);
+    for (let k = 1; k <= 256; k += 1) {
+      const x = (k - 0.5) / 256;
+      const slope = (bright(x + 1e-3) - bright(x - 1e-3)) / 2e-3;
+      curve[k] = curve[k - 1] + (well(x) + well(bright(x)) * slope) / (well(x) + well(bright(x))) / 256;
+    }
+    return (x) => {
+      const at = clamp(x, 0, 1) * 256;
+      const i = Math.min(255, Math.floor(at));
+      return curve[i] + (curve[i + 1] - curve[i]) * (at - i);
+    };
+  }
+
+  // What `after` made of `before` region by region: the mean change of the
+  // pixels splatted into each cell of a grid `cell` pixels square and `bins`
+  // levels deep, trilinearly, as a bilateral grid is built. Kept as the
+  // change past what `follow` would make of those levels, so a level no
+  // pixel of a region reached takes the change of the nearest levels either
+  // side that one did and follows `follow` from there, and every region
+  // holds a whole curve.
+  function bilateralGrid(before, after, w, h, cell, bins, follow) {
+    const past = (x) => follow(x) - x;
+    const gw = Math.ceil(w / cell) + 1;
+    const gh = Math.ceil(h / cell) + 1;
+    const depth = bins + 1;
+    const sum = new Float32Array(gw * gh * depth);
+    const weight = new Float32Array(gw * gh * depth);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = y * w + x;
+        const gx = x / cell;
+        const gy = y / cell;
+        const gz = before[i] * bins;
+        const x0 = Math.floor(gx);
+        const y0 = Math.floor(gy);
+        const z0 = Math.min(bins - 1, Math.floor(gz));
+        const fx = gx - x0;
+        const fy = gy - y0;
+        const fz = gz - z0;
+        for (let k = 0; k < 8; k += 1) {
+          const dx = k & 1;
+          const dy = (k >> 1) & 1;
+          const dz = k >> 2;
+          const share = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy) * (dz ? fz : 1 - fz);
+          const at = ((y0 + dy) * gw + x0 + dx) * depth + z0 + dz;
+          sum[at] += share * (after[i] - before[i] - past(before[i]));
+          weight[at] += share;
+        }
+      }
+    }
+    const change = new Float32Array(gw * gh * depth);
+    for (let c = 0; c < gw * gh; c += 1) {
+      const reached = [];
+      for (let z = 0; z < depth; z += 1) if (weight[c * depth + z] > 0.05) reached.push(z);
+      const at = (z) => sum[c * depth + z] / weight[c * depth + z];
+      for (let z = 0; z < depth; z += 1) {
+        let lo = -1;
+        let hi = -1;
+        reached.forEach((r) => { if (r <= z) lo = r; if (r >= z && hi < 0) hi = r; });
+        let beyond = 0;
+        if (lo < 0 && hi >= 0) beyond = at(hi);
+        else if (hi < 0 && lo >= 0) beyond = at(lo);
+        else if (lo >= 0) beyond = hi === lo ? at(lo) : at(lo) + ((at(hi) - at(lo)) * (z - lo)) / (hi - lo);
+        change[c * depth + z] = beyond + past(z / bins);
+      }
+    }
+    return { gw, gh, depth, change };
+  }
+
+  // A tool's grid for this photo at this slider position, the last few kept
+  // per photo: a drag back over positions already passed, and the
+  // thumbnail drawn on letting go, find theirs made.
+  const regionGrids = new WeakMap();
+  function regionsOf(tool, src, amount) {
+    const copy = smallCopy(src, tool.regions.size);
+    let kept = regionGrids.get(src);
+    if (!kept) regionGrids.set(src, (kept = []));
+    let hit = kept.find((k) => k.tool === tool.id && k.amount === amount);
+    if (!hit) {
+      hit = { tool: tool.id, amount, copy, grid: tool.regions.build(copy, amount) };
+      kept.unshift(hit);
+      kept.splice(4);
+    }
+    return hit;
+  }
+
   // The colour tools — Brightness, Contrast, Saturation, Warmth, Tint, Skin
   // tone and Blue tone — are Google's own, read as lookup tables rather than
   // fitted. A chart of 13 x 13 x 13 flat colours went through Google Photos
@@ -1389,7 +1728,16 @@
   //
   // A tool not named here — any added since — runs first, after the detail
   // tools, until it has been measured against the rest.
-  const RUN_ORDER = ['warmth', 'tint', 'whitePoint', 'highlights', 'shadows', 'blackPoint',
+  //
+  // Tone is the exception, placed but not measured: it is on the phone only,
+  // and the phone's copies are one tool each, so no combination of it has
+  // been through Google. It goes after white balance and before the tone
+  // curves because that is where HDR+ puts its tone mapping (Hasinoff et al.
+  // 2016: white balance, then local tone mapping, then the finishing curves
+  // and colour), and Tone is that tone mapping. Its regions are read off the
+  // photo as it came, not after Warmth and Tint; they move brightness by a
+  // few levels, which moves a region's curve by less.
+  const RUN_ORDER = ['warmth', 'tint', 'tone', 'whitePoint', 'highlights', 'shadows', 'blackPoint',
     'contrast', 'brightness', 'saturation', 'skinTone', 'blueTone'];
 
   // The order the look runs the tools in: detail first, on the photo as it
@@ -1952,6 +2300,31 @@
       ${PASSED.map((a) => `uniform sampler2D u_result_${a.id};
       uniform vec2 u_grid_${a.id};
       vec2 result_${a.id}() { return gridAt(u_result_${a.id}, u_grid_${a.id}); }`).join('\n')}
+      ${REGIONED.length ? `
+      // One change from a tool's bilateral grid, two bytes over -1..1, laid
+      // out a region's levels side by side along each row. Nearest, and
+      // blended by hand below, for the same reason as the curves.
+      float regionAt(sampler2D s, vec3 g, float i, float j, float k) {
+        vec2 t = texture2D(s, vec2((i * g.z + k + 0.5) / (g.x * g.z), (j + 0.5) / g.y)).rg;
+        return (t.r * 65280.0 + t.g * 255.0) / 65535.0 * 2.0 - 1.0;
+      }
+      // The change for level t at this pixel: trilinear, across, down and
+      // through the levels, as a bilateral grid is sliced. g holds the
+      // grid's regions across and down and its depth; m takes v_uv to it.
+      float regionChange(sampler2D s, vec3 g, vec4 m, float t) {
+        vec3 p = vec3(clamp(v_uv.x * m.x + m.z, 0.0, g.x - 1.001), clamp(v_uv.y * m.y + m.w, 0.0, g.y - 1.001), clamp(t, 0.0, 1.0) * (g.z - 1.0));
+        vec3 i = floor(min(p, g - 1.001));
+        vec3 f = p - i;
+        float near = mix(mix(regionAt(s, g, i.x, i.y, i.z), regionAt(s, g, i.x + 1.0, i.y, i.z), f.x),
+          mix(regionAt(s, g, i.x, i.y + 1.0, i.z), regionAt(s, g, i.x + 1.0, i.y + 1.0, i.z), f.x), f.y);
+        float far = mix(mix(regionAt(s, g, i.x, i.y, i.z + 1.0), regionAt(s, g, i.x + 1.0, i.y, i.z + 1.0), f.x),
+          mix(regionAt(s, g, i.x, i.y + 1.0, i.z + 1.0), regionAt(s, g, i.x + 1.0, i.y + 1.0, i.z + 1.0), f.x), f.y);
+        return mix(near, far, f.z);
+      }` : ''}
+      ${REGIONED.map((a) => `uniform sampler2D u_regions_${a.id};
+      uniform vec3 u_regionsGrid_${a.id};
+      uniform vec4 u_regionsMap_${a.id};
+      float regions_${a.id}(float t) { return regionChange(u_regions_${a.id}, u_regionsGrid_${a.id}, u_regionsMap_${a.id}, t); }`).join('\n')}
       void main() {
         vec4 source = texture2D(u_image, v_uv);
         vec3 c = source.rgb;
@@ -2111,6 +2484,13 @@
       gl.activeTexture(gl.TEXTURE0 + TABLE_UNIT);
       newTexture(gl.NEAREST);
     }
+    // Then each tool's bilateral grid, after the tables.
+    const regionTextures = REGIONED.map((a, i) => {
+      const unit = TABLE_UNIT + 1 + i;
+      gl.uniform1i(main.at(`u_regions_${a.id}`), unit);
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      return { unit, texture: newTexture(gl.NEAREST), holds: null };
+    });
     gl.activeTexture(gl.TEXTURE0);
     // A phone can take its context back at any time. What has already been
     // drawn is safe, being plain 2D canvases; the next edit makes a new one.
@@ -2132,6 +2512,8 @@
       programs: new Map(),
       // What a tool's passes leave, most recently used first. See runPasses.
       passSets: [],
+      // A texture for each tool with regions, and which grid it holds.
+      regionTextures,
     };
     return lookGL;
   }
@@ -2360,6 +2742,33 @@
       }
     });
 
+    // Each tool with regions, its grid for this photo and slider position
+    // sent as it is: a few thousand numbers, and only when they changed.
+    REGIONED.forEach((tool, i) => {
+      if (!amounts[tool.id]) return;
+      const made = detail[tool.id] && detail[tool.id].regions;
+      if (!made) { amounts[tool.id] = 0; return; }
+      const { grid, copy } = made;
+      const held = look.regionTextures[i];
+      gl.activeTexture(gl.TEXTURE0 + held.unit);
+      gl.bindTexture(gl.TEXTURE_2D, held.texture);
+      if (held.holds !== made) {
+        const bytes = new Uint8Array(grid.change.length * 4);
+        grid.change.forEach((v, k) => {
+          const fixed = Math.round(((clamp(v, -1, 1) + 1) / 2) * 65535);
+          bytes[k * 4] = fixed >> 8;
+          bytes[k * 4 + 1] = fixed & 255;
+          bytes[k * 4 + 3] = 255;
+        });
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, grid.gw * grid.depth, grid.gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+        held.holds = made;
+      }
+      gl.activeTexture(gl.TEXTURE0);
+      const { cell } = tool.regions;
+      gl.uniform3f(look.main.at(`u_regionsGrid_${tool.id}`), grid.gw, grid.gh, grid.depth);
+      gl.uniform4f(look.main.at(`u_regionsMap_${tool.id}`), copy.w / cell, copy.h / cell, -0.5 / cell, -0.5 / cell);
+    });
+
     look.el.width = w;
     look.el.height = h;
     gl.viewport(0, 0, w, h);
@@ -2426,6 +2835,10 @@
       const grid = detailGrid(tool, photo);
       detail[tool.id] = { grid, blur: tool.forBlur(blurOf(src, grid)) };
     });
+    REGIONED.forEach((tool) => {
+      if (!cell.adjust[tool.id]) return;
+      detail[tool.id] = { regions: regionsOf(tool, src, cell.adjust[tool.id] / 100) };
+    });
     // A colour tool drawn before its table has arrived is drawn without it,
     // and the look is marked so, to be drawn again once the table is here.
     const waiting = !colourTables && usesTables(cell.adjust);
@@ -2437,7 +2850,7 @@
       });
     }
     const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`
-      + Object.values(detail).map((d) => `/${d.blur.x.toFixed(4)},${d.blur.y.toFixed(4)}`).join('')
+      + Object.values(detail).filter((d) => d.blur).map((d) => `/${d.blur.x.toFixed(4)},${d.blur.y.toFixed(4)}`).join('')
       + (waiting ? '~' : '');
 
     const kept = looks.get(cell) || [];
