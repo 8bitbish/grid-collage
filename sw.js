@@ -19,9 +19,6 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
-  // The colour tools' tables. Fetched only when one is used, but kept here
-  // so a phone that has never used one still can with no connection.
-  './colour-tables.png',
 ];
 
 // The files whose contents are the app itself. A change to any of them is an
@@ -38,10 +35,17 @@ async function stampedShell() {
     const res = await fetch('./index.html', { cache: 'reload' });
     const html = await res.text();
     const found = [...html.matchAll(/(?:src|href)="\.?\/?((?:app\.js|styles\.css)\?v=[^"]+)"/g)];
-    return SHELL.concat(found.map((m) => `./${m[1]}`));
+    // The colour tools' tables, which app.js asks for under its own stamp.
+    // Fetched only when one is used, but kept here so a phone that has never
+    // used one still can with no connection. Stamped because a build reads
+    // only its own: the unstamped file, answered from here after a deploy,
+    // blacked out every photo under White or Black point.
+    const build = found.map((m) => /^app\.js\?v=(.+)$/.exec(m[1])).find(Boolean);
+    const tables = build ? [`./colour-tables.png?v=${build[1]}`] : ['./colour-tables.png'];
+    return SHELL.concat(found.map((m) => `./${m[1]}`), tables);
   } catch {
     // Unstamped is still a working app; it just costs the extra launch.
-    return SHELL;
+    return SHELL.concat('./colour-tables.png');
   }
 }
 
@@ -225,8 +229,11 @@ self.addEventListener('fetch', (event) => {
           // Arriving here with nothing cached under this exact URL, for a
           // file that is versioned, means a deploy just landed and this is
           // the new build being read for the first time. The old one is now
-          // dead weight.
-          if (!hit && isCore(request.url)) pruneOlder(cache, request.url);
+          // dead weight. The colour tables are stamped too, and a quarter of a
+          // megabyte a deploy is worth clearing, though a new table is not an
+          // update to announce: it only arrives because the new app asked.
+          const tables = new URL(request.url).pathname.endsWith('/colour-tables.png');
+          if (!hit && (isCore(request.url) || tables)) pruneOlder(cache, request.url);
           if (changed && isCore(request.url)) announceUpdate();
         }
         return response;

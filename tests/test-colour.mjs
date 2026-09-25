@@ -236,7 +236,7 @@ await choose('warmth');
 await slide(100);
 await p.click('#dock-back');
 await p.waitForTimeout(300);
-await p.route('**/colour-tables.png', async (route) => {
+await p.route('**/colour-tables.png*', async (route) => {
   await new Promise((r) => setTimeout(r, 3000));
   await route.continue();
 });

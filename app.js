@@ -1807,15 +1807,33 @@
   // asks for one redraw and not one a frame.
   let colourRedraw = false;
 
+  // Under this build's stamp, as app.js and styles.css are. Unstamped, an
+  // installed app opened on a new build was handed the table it had cached
+  // from the one before — the worker answers from its cache first — and the
+  // build that added White and Black point's rows read rows the old file
+  // did not have: the correction came back as nothing, less its half-level
+  // bias, and both tools took every photo most of the way to black.
+  const tablesUrl = () => (VERSION === 'dev' ? COLOUR_TABLES.file : `${COLOUR_TABLES.file}?v=${encodeURIComponent(VERSION)}`);
+  // And a file of any other shape than this build's is refused rather than
+  // read, whatever handed it over: a tool that waits for its table is a
+  // slow tool, where one that reads the wrong table is a broken photo.
+  const tablesHeight = () => COLOUR_TABLES.tools.length * COLOUR_TABLES.knots.length * COLOUR_TABLES.size;
+
   function loadColourTables() {
     if (colourTables) return Promise.resolve(colourTables);
     if (!colourLoading) {
-      colourLoading = fetch(COLOUR_TABLES.file)
+      const fetchTables = (init) => fetch(tablesUrl(), init)
         .then((res) => { if (!res.ok) throw new Error(`${res.status}`); return res.blob(); })
         // As the bytes are, whatever the file says about colour spaces: they
         // are levels, not a picture, and converted they would be wrong.
-        .then((blob) => createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }))
+        .then((blob) => createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }));
+      colourLoading = fetchTables()
+        // Once more past every cache before giving up on it.
+        .then((bmp) => (bmp.height === tablesHeight() ? bmp : fetchTables({ cache: 'reload' })))
         .then((bmp) => {
+          if (bmp.height !== tablesHeight() || bmp.width !== COLOUR_TABLES.size ** 2) {
+            throw new Error(`a ${bmp.width}x${bmp.height} table where this build reads ${COLOUR_TABLES.size ** 2}x${tablesHeight()}`);
+          }
           const g = scratch(bmp.width, bmp.height).getContext('2d', { willReadFrequently: true });
           g.drawImage(bmp, 0, 0);
           colourTables = { bytes: g.getImageData(0, 0, bmp.width, bmp.height).data, width: bmp.width };
