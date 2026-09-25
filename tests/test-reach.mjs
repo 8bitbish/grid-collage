@@ -46,7 +46,9 @@ const ok=(what,good,detail='')=>{ if(good){pass++;console.log(`  ✓ ${what}${de
 const DRAWERS = [
   ['layout',     '.layout-btn'],
   ['shape',      '#ratios button'],
-  ['background', '.swatch, #bg'],
+  ['background', '.swatch'],
+  ['padding',    '#dp-padding .dial-track'],
+  ['corners',    '#dp-corners .dial-track'],
   ['page',       '#dp-page .btn'],
   ['export',     '#dp-export .select, #btn-export'],
 ];
@@ -81,29 +83,52 @@ for (const [label, vp, floor] of [
       return {id: el.id || el.dataset.id || el.className, side: Math.round(Math.min(r.width, r.height))};})
     .sort((a,c)=>a.side-c.side)[0]);
 
+  // The bar holds only Ratio, Layout and Export now; the page's other
+  // settings are tabs along the foot of the sheet Layout opens.
+  const open = async (name) => {
+    if (await p.locator(`.dock-root [data-drawer="${name}"]`).count()) return p.click(`.dock-root [data-drawer="${name}"]`);
+    await p.click('.dock-root [data-drawer="layout"]');
+    await p.click(`.dock-tab[data-drawer="${name}"]`);
+  };
+
+  // Those two rows are controls too, and new ones.
+  const bar = await worst('.dock-root button');
+  ok('the bar: smallest control', bar.side >= floor, `${bar.id} at ${bar.side}px`);
+  await open('layout');
+  const tabs = await worst('.dock-tab');
+  ok('the tabs: smallest control', tabs.side >= floor, `${tabs.id} at ${tabs.side}px`);
+  await p.click('#dock-back');
+
   for (const [name, sel] of DRAWERS) {
-    await p.click(`.dock-item[data-drawer="${name}"]`);
+    await open(name);
     const w = await worst(sel);
     ok(`${name}: smallest control`, w && w.side >= floor, `${w ? w.id : 'nothing found'} at ${w ? w.side : '-'}px`);
     await p.click('#dock-back');
   }
 
-  await p.click('.dock-item[data-drawer="gap"]');
+  await open('background');
   const back = await worst('#dock-back');
   ok('the back button', back.side >= floor, `${back.side}px`);
   await p.click('#dock-back');
 
   // The two pinned controls, which must be on screen whatever the width.
-  await p.click('.dock-item[data-drawer="background"]');
+  // The colour well is no longer pinned beside the presets: any colour is the
+  // last stop on the colour reel, which runs round, so it is never out of
+  // reach — and what it opens is what has to fit. Measured on the hex field,
+  // the one control there for a colour that no swatch and no ruler offers.
+  await open('background');
+  await p.click('#swatches .swatch.is-custom');
   const well = await p.evaluate(() => {
-    const r = document.getElementById('bg').getBoundingClientRect();
-    return { right: Math.round(r.right), width: window.innerWidth, scrolls: document.getElementById('dp-background').scrollWidth - document.getElementById('dp-background').clientWidth };
+    const r = document.getElementById('bg-hex').getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), width: window.innerWidth, scrolls: document.getElementById('dp-background').scrollWidth - document.getElementById('dp-background').clientWidth };
   });
-  ok('the colour well is on screen', well.right <= well.width, `right edge ${well.right} of ${well.width}`);
+  ok('any colour opens its hex field on screen', well.left >= 0 && well.right > well.left && well.right <= well.width, `${well.left}–${well.right} of ${well.width}`);
   ok('and the panel around it does not scroll', well.scrolls <= 2, `${well.scrolls}px of slack`);
+  const customs = await worst('#bg-presets, .hex-field, #bg, .colour-ruler');
+  ok('any colour: smallest control', customs.side >= floor, `${customs.id} at ${customs.side}px`);
   await p.click('#dock-back');
 
-  await p.click('.dock-item[data-drawer="export"]');
+  await open('export');
   const exp = await p.evaluate(() => {
     const r = document.getElementById('btn-export').getBoundingClientRect();
     const panel = document.getElementById('dp-export');
@@ -143,7 +168,7 @@ for (const [label, vp, floor] of [
   // control pressed against the bottom edge of the screen, which is how the
   // trim panel arrived — 90px of content in 62px of dock.
   for (const name of ['shape','background','page','export']) {
-    await p.click(`.dock-item[data-drawer="${name}"]`);
+    await open(name);
     const fits = await p.evaluate((n) => {
       const dock = document.querySelector('.dock').getBoundingClientRect();
       const panel = document.getElementById(`dp-${n}`).getBoundingClientRect();

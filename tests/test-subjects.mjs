@@ -116,8 +116,13 @@ const chosen = async () => {
 };
 const say = (c) => `over the red ${c.left.join(',')}, over the yellow ${c.right.join(',')}`;
 
-const box = await p.locator('#canvas').boundingBox();
-const tap = (fx, fy) => p.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+// Measured again before every press rather than once. The sheet a tile opens
+// is as tall as what is in it — the effects panel more than the bar it covers —
+// and the preview gives up the difference, so a box taken before the tile was
+// chosen is a box the canvas has since moved out of.
+let box = await p.locator('#canvas').boundingBox();
+const fresh = async () => { box = await p.locator('#canvas').boundingBox(); };
+const tap = async (fx, fy) => { await fresh(); return p.mouse.click(box.x + box.width * fx, box.y + box.height * fy); };
 const settle = () => p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 60000 })
   .then(() => p.waitForTimeout(300));
 
@@ -157,6 +162,7 @@ check(near(yellowOnly.left, BLUE) && yellowOnly.yellow, 'and either can be taken
 
 // A drag while choosing still moves the photo rather than choosing.
 const before = await chosen();
+await fresh();
 await p.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.9);
 await p.mouse.down();
 await p.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.8, { steps: 6 });

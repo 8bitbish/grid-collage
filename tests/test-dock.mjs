@@ -29,6 +29,13 @@ await p.setInputFiles('#file-input', files);
 await p.waitForFunction(()=>document.querySelectorAll('.film').length===4);
 console.log(`\n--- ${label} ---`);
 
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+const openDrawer=async(name)=>{
+  if(await p.locator(`.dock-root [data-drawer="${name}"]`).count()) return p.click(`.dock-root [data-drawer="${name}"]`);
+  await p.click('.dock-root [data-drawer="layout"]');
+  await p.click(`.dock-tab[data-drawer="${name}"]`);
+};
 const rootVisible=()=>p.locator('#dock-root').isVisible();
 const drawerVisible=()=>p.locator('#dock-drawer').isVisible();
 console.log('at rest: settings list shown:', await rootVisible(), '| drawer shown:', await drawerVisible());
@@ -39,7 +46,7 @@ console.log('  it opens the library, not a drawer:', await p.locator('#photos-mo
 await p.click('#pm-close');
 
 // drill into Layout
-await p.click('.dock-item[data-drawer="layout"]');
+await openDrawer('layout');
 console.log('tapped Layout -> drawer:', await drawerVisible(), '| layouts visible:', await p.locator('#dp-layout').isVisible(),
             '| options:', await p.locator('.layout-btn').count());
 // choose one and check the page changed
@@ -51,7 +58,7 @@ console.log('  back -> settings list shown:', await rootVisible());
 // each category opens its own controls
 for (const [name, sel] of [['shape','#ratios'],['gap','#gap'],['padding','#padding'],
                             ['corners','#radius'],['background','#swatches'],['page','#btn-duplicate'],['export','#quality']]) {
-  await p.click(`.dock-item[data-drawer="${name}"]`);
+  await openDrawer(name);
   const ok = await p.locator(sel).isVisible();
   process.stdout.write(`${name}:${ok?'✓':'✗'} `);
   await p.click('#dock-back');
@@ -66,7 +73,7 @@ console.log('');
 // alongside the fact the panel cannot scroll at all, which is the reason a fade
 // there was never right — it promises more to see where there is none.
 for (const [name, id] of [['gap','gap'],['padding','padding'],['corners','radius']]) {
-  await p.click(`.dock-item[data-drawer="${name}"]`);
+  await openDrawer(name);
   const m = await p.evaluate((id) => {
     const input = document.getElementById(id);
     input.value = input.max;

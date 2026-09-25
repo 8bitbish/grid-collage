@@ -209,10 +209,13 @@ console.log('\n== a photo tile has no Trim ==');
   }
   // The slide is a full 1x1, so importing does not place the photo anywhere.
   // Open a second tile and put it there, then select that tile.
-  await p.click('.dock-item[data-drawer="layout"]');
+  await p.click('.dock-root [data-drawer="layout"]');
   await p.waitForTimeout(300);
   await p.click('.layout-btn:nth-child(2)');
   await p.waitForTimeout(600);
+  // The sheet opens over the bar, and Photos lives in the bar; close it.
+  await p.click('#dock-back');
+  await p.waitForTimeout(300);
   await p.click('#btn-photos');
   await p.waitForTimeout(500);
   await p.click('.pm-pick[aria-label*="still.png"]');

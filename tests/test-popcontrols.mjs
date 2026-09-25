@@ -138,16 +138,23 @@ const column = () => p.evaluate(() => {
   };
 });
 
-const box = await p.locator('#canvas').boundingBox();
+// Measured again before every press rather than once. The sheet a tile opens
+// is as tall as what is in it — the effects panel more than the bar it covers —
+// and the preview gives up the difference, so a box taken before the tile was
+// chosen is a box the canvas has since moved out of.
+let box = await p.locator('#canvas').boundingBox();
+const fresh = async () => { box = await p.locator('#canvas').boundingBox(); };
 const settle = () => p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 60000 })
   .then(() => p.waitForTimeout(400));
 const hold = async (fx, fy, ms = 700) => {
+  await fresh();
   await p.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
   await p.mouse.down();
   await p.waitForTimeout(ms);
   await p.mouse.up();
 };
 
+await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(200);
 await p.click('.dock-item[data-tile="effects"]');
@@ -174,6 +181,7 @@ check(plain.top !== null && Math.abs(plain.top - 0.385) < 0.01 && plain.spread <
   `top ${plain.top?.toFixed(3)}, ${plain.spread}px from blue to beige`);
 
 // A hold that moves is a drag, and chooses nothing.
+await fresh();
 await p.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.8);
 await p.mouse.down();
 await p.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.75, { steps: 4 });
@@ -186,6 +194,7 @@ await p.waitForTimeout(300);
 
 /* ------------------------------------------------------------------ edge */
 
+await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(200);
 await p.click('.dock-item[data-tile="effects"]');
@@ -235,6 +244,7 @@ check(Math.abs(reopened.spread - soft.spread) <= 1 && near((await at([[0.35, 0.4
 
 /* ---------------------------------------------------------- remove colour */
 
+await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
 await p.click('.dock-item[data-tile="effects"]');
@@ -261,6 +271,7 @@ check(withSky.top < plain.top - 0.003 && skyGone.top >= plain.top - 0.002 && nea
 // A tap picks the colour instead: a window's glass, the top row of which is
 // over the blue at x = 0.29.
 const glassBefore = (await at([[0.29, 0.47]]))[0];
+await fresh();
 await p.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.6);
 await p.waitForTimeout(900);
 const picked = await p.$eval('#edge-key', (el) => getComputedStyle(el).getPropertyValue('--key').match(/\d+/g).map(Number));
@@ -278,6 +289,7 @@ await p.click('#dock-back');
 
 // Every step of the angle slider changes the zoom the cover clamp needs, and
 // the cutout used to be made again at each new size.
+await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
 await p.click('.dock-item[data-tile="rotate"]');

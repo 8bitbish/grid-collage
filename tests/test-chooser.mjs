@@ -127,8 +127,13 @@ await p.waitForTimeout(250);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(250);
 const cleared = await dims();
+// Fully reset is the pages bar back and the dock no taller than it stands
+// with the tile's own tools in it. That used to be a fixed 82 whatever was in
+// the dock, and this read `dock<100`; the bottom of the screen is a sheet now,
+// which is as tall as its contents, so the height to compare with is the one
+// measured on the way back out of the chooser above.
 console.log('escape from the chooser:', JSON.stringify(cleared),
-  cleared.pagesBar!=='none' && cleared.dock<100 ? '✓ fully reset' : '✗ stuck');
+  cleared.pagesBar!=='none' && cleared.dock<=back.dock ? '✓ fully reset' : '✗ stuck');
 
 // A scroll made while the reel is opening is kept, not undone. The reel used
 // to put itself on its start a frame after it opened, so anything that moved

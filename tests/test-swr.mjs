@@ -36,31 +36,33 @@ const ok = (label, pass, extra = '') => { if (!pass) fails += 1; console.log(`  
 // the background of .topbar, which the markup lost long ago; getComputedStyle
 // on null threw before the first line printed, and the test sat on the stale
 // list with its question unanswered. A custom property is the stylesheet
-// speaking for itself, and no change to the markup can take it away.
+// speaking for itself, and no change to the markup can take it away. A
+// primitive rather than a role, because a role is an alias whose computed
+// value is another property's name rather than the colour this edits.
 const surface = () => page.evaluate(() =>
-  getComputedStyle(document.documentElement).getPropertyValue('--surface').trim());
+  getComputedStyle(document.documentElement).getPropertyValue('--grey-100').trim());
 
 await page.goto(`http://localhost:${PORT}/`);
 await page.evaluate(() => navigator.serviceWorker.ready);
 await page.reload();
 await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
 const first = await surface();
-console.log('visit 1 --surface:', first);
-ok('the worker is in control and the stylesheet is the shipped one', first === '#16161c', first);
+console.log('visit 1 --grey-100:', first);
+ok('the worker is in control and the stylesheet is the shipped one', first === '#1a1a1a', first);
 
 // Ship a "new deploy" — same filename, different content, no version bump.
 // Exactly the deploy CLAUDE.md says never to make, which is why the worker has
 // a safety net for it: a static file is answered from the cache and refreshed
 // behind the page, so the edit arrives one launch late rather than never.
-override = { pathname: '/styles.css', body: fs.readFileSync(`${ROOT}/styles.css`, 'utf8').replace('--surface: #16161c;', '--surface: #003300;') };
+override = { pathname: '/styles.css', body: fs.readFileSync(`${ROOT}/styles.css`, 'utf8').replace('--grey-100: #1a1a1a;', '--grey-100: #003300;') };
 
 await page.reload();
 const second = await surface();
-console.log('visit 2 --surface:', second, '(the cached copy, refreshed behind the scenes)');
+console.log('visit 2 --grey-100:', second, '(the cached copy, refreshed behind the scenes)');
 
 await page.reload();
 const third = await surface();
-console.log('visit 3 --surface:', third);
+console.log('visit 3 --grey-100:', third);
 ok('the edited stylesheet reached the next launch', third === '#003300', third);
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

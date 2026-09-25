@@ -38,15 +38,24 @@ const tap=async(sel,n=0)=>{
   if(!bx) throw new Error(`no box for ${sel} #${n}`);
   await p.touchscreen.tap(bx.x+bx.width/2, bx.y+bx.height/2); await p.waitForTimeout(250);};
 
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+// The tab tap is let through unheard, the way the old bar's was.
+const open=async(name)=>{
+  if(await p.locator(`.dock-root [data-drawer="${name}"]`).count()) return tap(`.dock-root [data-drawer="${name}"]`);
+  await tap('.dock-root [data-drawer="layout"]');
+  await tap(`.dock-tab[data-drawer="${name}"]`);
+};
+
 await buzzes();
-await tap('.dock-item[data-drawer="layout"]');
+await open('layout');
 console.log('open Layout        ->', JSON.stringify(await buzzes()));
 await tap('.layout-btn[data-id="2x2"]');
 console.log('pick a layout      ->', JSON.stringify(await buzzes()));
 await tap('#dock-back');
 console.log('back out           ->', JSON.stringify(await buzzes()));
 
-await tap('.dock-item[data-drawer="background"]');
+await open('background');
 await buzzes();
 await tap('.swatch', 1);
 console.log('pick a colour      ->', JSON.stringify(await buzzes()));
@@ -56,21 +65,32 @@ await tap('#dock-back'); await buzzes();
 // of the knob, one per notch crossed, and the firmer double at either end.
 // Twelve notches to a sweep is the number that matters — the step count is 60,
 // and buzzing every step is a rattle rather than a control.
-await tap('.dock-item[data-drawer="gap"]'); await buzzes();
-const s=await p.locator('#gap').boundingBox();
+await open('gap'); await buzzes();
+// The ruler over the input is what a finger meets now, and it follows the
+// finger: dragging it left brings larger numbers under the needle. So the
+// sweep that used to run left to right from zero runs the other way, after a
+// first pass to the right to be sure it starts from zero.
+const s=await p.locator('#dp-gap .dial-track').boundingBox();
 await p.touchscreen.tap(s.x+10, s.y+s.height/2);
 await p.waitForTimeout(200);
 console.log('touch the track    ->', JSON.stringify(await buzzes()), '(one for the grab)');
 {
   const cdp=await ctx.newCDPSession(p);
   const y=Math.round(s.y+s.height/2);
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:Math.round(s.x+2),y}]});
-  for (let x=Math.round(s.x+2); x<s.x+s.width-2; x+=6) {
-    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});
-    await p.waitForTimeout(12);
-  }
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  await p.waitForTimeout(250);
+  const sweep=async(from,to)=>{
+    const dir=Math.sign(to-from);
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:from,y}]});
+    for (let x=from; dir*(to-x)>0; x+=6*dir) {
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});
+      await p.waitForTimeout(12);
+    }
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await p.waitForTimeout(250);
+  };
+  const left=Math.round(s.x+2), right=Math.round(s.x+s.width-2);
+  await sweep(left,right); await buzzes();
+  console.log('  starting from', await p.inputValue('#gap'));
+  await sweep(right,left);
   const run=await buzzes();
   const ticks=run.filter(v=>v===4).length;
   const ends=run.filter(v=>Array.isArray(v)).length;
@@ -131,7 +151,7 @@ await tap('#choose-back'); await buzzes();
     await p.click('#dock-back'); await p.waitForTimeout(200);
   }
   await buzzes();
-  await tap('.dock-item[data-drawer="page"]'); await buzzes();
+  await open('page'); await buzzes();
   await tap('#btn-delete-page');
   const pg=await buzzes();
   console.log('delete a page      ->', JSON.stringify(pg), pg.some(dbl)?'✓ the double':'✗ wanted the double');
@@ -142,7 +162,7 @@ await tap('#choose-back'); await buzzes();
 // A select is answered in a picker of the system's own, so the tap never lands
 // on anything the dock can hear. The buzz belongs to the answer coming back.
 {
-  await tap('.dock-item[data-drawer="export"]'); await buzzes();
+  await open('export'); await buzzes();
   await p.selectOption('#format','image/png');
   await p.waitForTimeout(200);
   const sel=await buzzes();

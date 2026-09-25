@@ -20,7 +20,13 @@ const PORT=server.address().port;
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
 const _current = (pg) => pg.evaluate(()=>[...document.querySelectorAll('.film')].findIndex(f=>f.classList.contains('is-current'))+1);
-const _openDrawer = (pg, name) => pg.click(`.dock-item[data-drawer="${name}"]`);
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+const _openDrawer = async (pg, name) => {
+  if (await pg.locator(`.dock-root [data-drawer="${name}"]`).count()) return pg.click(`.dock-root [data-drawer="${name}"]`);
+  await pg.click('.dock-root [data-drawer="layout"]');
+  await pg.click(`.dock-tab[data-drawer="${name}"]`);
+};
 
 // distinct solid-ish colour per photo so we can tell pages apart
 function png(w, h, [r, g, b]) {
@@ -199,7 +205,7 @@ page.on('download', (d) => downloads.push(d.suggestedFilename()));
 // The shape drawer is still open from the ratio check; step back out first.
 await page.click('#dock-back');
 await page.waitForTimeout(250);
-await page.click('.dock-item[data-drawer="export"]');
+await _openDrawer(page, 'export');
 await page.waitForTimeout(300);
 await page.click('#btn-export');
 // The app says how many it is saving, and hands them over a quarter of a
