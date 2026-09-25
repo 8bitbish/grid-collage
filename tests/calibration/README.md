@@ -539,21 +539,29 @@ regional equalisation after the fusion made every one of them worse.
 **Metered like a camera.** How much brighter the second copy is comes from
 the log-average of each pixel's brightest channel in linear light — how many
 stops under white the photo sits on the whole: 3 stops of gain for each stop
-below 2.05, at most 2, the slider's share to the power 1.31. The first fit, to
+below 2.25, at most 2, the slider's share to the power 1.18. The first fit, to
 the charts alone, went by the plain mean and put the fox (mean 146) two stops
 up at +100, and the fox came out further from Google's than leaving it alone
 (11.3 levels RMS over the frame against 9.3). Each photo fitted on its own
 wanted gains of 1.3 (fox), 4 (forest) and 2.2 (portrait), which the mean
 cannot order and the log-average can (1.9, 3.5 and 2.7 stops down).
 
-**The brightest channel, not luma**, for the brightness and for the colour.
-Pure blue at 128 went to 158 on the full grid; by luma it is a dark colour, 9,
-and would have been lifted several times over. Rebuilding each grid patch's
-colour from Google's own change of one brightness and scaling the channels by
-it, the brightest channel came 5.9, 8.8 and 7.6 from Google's colour on the
-three layouts, luma 7.8, 14.7 and 10.1. Applying the local curve to each
-channel on its own, against scaling them by the brightest's change, fitted
-worse over everything (7.1 against 6.7).
+**The colour.** Tone moves colour as well as brightness, and not as its
+brightest channel says. The portrait's blue shirt, 6/80/176, came out of +100
+as 10/109/238 — every channel about ×1.36, a lift a colour gets when its luma
+(71) counts rather than its brightest channel (176) — and its green background
+came out more saturated as well as lighter. Scaled by the brightest channel's
+change and nothing more, the app took the shirt's blue to 188 and the portrait
+at +100 was 22.3 levels RMS off Google's; the best global curve per channel,
+anything a tone curve could do, is 9.5 off it. What fits: the brightness the
+fusion works on made 0.7 of luma and 0.3 of the brightest channel, a colour
+lifted past white scaled back whole rather than clipped channel by channel,
+and saturation round luma raised by a tenth of the slider and a fifth for each
+stop a pixel was lifted. The portrait at +100 comes to 11.2. Luma alone did
+worse on the grid on black (13.3 against 10.8 in the model), and the
+brightest channel alone left the portrait at 22. Applying the local curve to
+each channel on its own, instead of scaling them together, fitted worse over
+everything (7.1 against 6.7).
 
 **Detail follows the exposures, not the curve.** The fusion runs on a copy
 192 pixels across and is kept as a bilateral grid — the mean change in each
@@ -565,48 +573,54 @@ either side of those has to be supplied. Held level, the chart's dark ground
 came out with its coarse texture ×1.08 where Google's was ×1.33 (a 7px box
 blur less a 31px one, RMS over the original's). Following the two exposures'
 own slopes, weighted as fusion blends them — which is how a Laplacian fusion
-carries fine detail — gives ×1.54 on the chart, and on the photos each
-region's detail comes within 0.07 of Google's at +100 bar the portrait's soft
-background and hair (×1.19 and ×1.16 against ×0.93 and ×1.07).
+carries fine detail — gives ×1.25 on the chart, and on the photos each
+region's detail comes within 0.1 of Google's at +100 bar the portrait's shirt,
+hair and soft background (×1.09, ×1.16 and ×1.15 against ×0.93, ×1.07 and
+×0.93).
 
 **A curve after.** One curve for every channel and the whole photo, scaled
-with the slider, fitted by least squares with the rest: a toe taking 32 to 27,
-so a fox's black legs stay black (Google's 51 from 54, fusion alone 78), a lift
-of 6 to 10 levels through the middle, and the top let down by 2.
+with the slider, fitted by least squares with the rest: 6 to 9 levels up
+through the shadows and middle, 2 to 3 down at the top. Fitted before the
+colour, it had a toe instead, taking 32 to 27; with luma in the brightness the
+darks are lifted less to begin with and the toe went.
 
 **Size does not matter.** The chart at 1080 came back within a level of the
 chart at 2160 at every flat place, and the forest at half size within a level
 of the whole forest in every region: a working copy of fixed size, as here.
 
-The fit took the chart and grids and the fox and forest at every setting, and
-held the portrait out. RMS of RGB over the frame against Google's copy, at 540
-for the photos and at 1080 over the flat places for the charts:
+Three fits, each held to every copy it was not fitted to. The first to the
+charts and grids alone; the second with the fox and the forest, the portrait
+held out; the third, with the colour, with the fox and the portrait, the
+forest held out. RMS of RGB over the frame against Google's copy, at 540 for
+the photos and at 1080 over the flat places for the charts:
 
-| | app now | app before the photos | leaving it alone |
-| --- | --- | --- | --- |
-| fox +25 / +52 / +100 | 2.2 / 3.1 / 5.0 | 2.7 / 7.8 / 11.2 | 3.2 / 5.3 / 9.3 |
-| forest +25 / +52 / +100 | 5.4 / 6.9 / 7.9 | 5.7 / 7.0 / 11.7 | 5.9 / 12.0 / 22.6 |
-| portrait, held out, +25 / +52 / +100 | 4.3 / 8.9 / 22.3 | 5.3 / 8.6 / 24.7 | 7.8 / 15.3 / 28.4 |
-| forest at half size +100 | 8.0 | 11.8 | 23.3 |
-| chart +100 / +54 | 9.8 / 6.6 | 9.7 / 7.4 | 23.7 / 12.9 |
-| chart at 1080 +100 | 7.9 | 8.1 | 22.6 |
-| grid full / on black / on white | 9.7 / 18.7 / 10.6 | 8.8 / 17.4 / 10.7 | 12.0 / 22.9 / 10.7 |
+| | with colour (forest held out) | photos, no colour (portrait held out) | charts only | leaving it alone |
+| --- | --- | --- | --- | --- |
+| fox +25 / +52 / +100 | 2.3 / 3.3 / 5.4 | 2.2 / 3.1 / 5.0 | 2.7 / 7.8 / 11.2 | 3.2 / 5.3 / 9.3 |
+| portrait +25 / +52 / +100 | 3.7 / 5.7 / 11.2 | 4.3 / 8.9 / 22.3 | 5.3 / 8.6 / 24.7 | 7.8 / 15.3 / 28.4 |
+| forest +25 / +52 / +100 | 5.3 / 6.8 / 9.7 | 5.4 / 6.9 / 7.9 | 5.7 / 7.0 / 11.7 | 5.9 / 12.0 / 22.6 |
+| forest at half size +100 | 9.7 | 8.0 | 11.8 | 23.3 |
+| chart +100 / +54 | 10.4 / 6.9 | 9.8 / 6.6 | 9.7 / 7.4 | 23.7 / 12.9 |
+| chart at 1080 +100 | 8.4 | 7.9 | 8.1 | 22.6 |
+| grid full / on black / on white | 9.2 / 18.5 / 9.9 | 9.7 / 18.7 / 10.6 | 8.8 / 17.4 / 10.7 | 12.0 / 22.9 / 10.7 |
 
-The photos gained most; the charts moved a level either way. By eye, side by
-side at +100, the fox and the forest are Google's to within what shows in a
-whole frame. The portrait is not: Google's saturates and deepens as well as
-lifting — its blue shirt went from 176 to 238 in blue, the app's to 188 — and
-its green background came out richer and darker where the app's is lifted
-flat. A single global curve per channel, the best any tone curve could do,
-leaves the portrait at +100 9.5 from Google's, so something besides tone
-happens there.
+The colour is kept: over the nine photo copies the RMS falls from 9.3 to 6.5,
+the portrait at +100 halves, and the held-out forest gets better at +25 and
++52 and worse at +100 (7.9 to 9.7) — Google did not saturate the forest's
+greens as it did the portrait's, and three photographs cannot say what it
+goes by. The chart's grey steps pay too: at +100 up to 15 levels darker than
+Google's through the middle (58 to 77 against 91), where the charts-only fit
+had them within 8. By eye, side by side at +100, the fox is Google's to
+within what shows in a whole frame and the portrait now close; the forest's
+moss comes out visibly more saturated and yellower than Google's.
+The chart's highlights still come out brighter than Google's, 197 to 205
+against 197; neither fit asked for a hold.
 
-Timings, before the photos were added (the passes are the same), on a
-generated 12MP photo in a phone's 780px preview in headless Chromium, each step
-read back from the canvas so the GPU's part counts: drag steps 47–83ms (median
-53) against White point's 40–62 (42) and Sharpen's 44–88 (50) in the same run;
-the first move off nought 0.37–0.49s; a 2160 export 0.72s against White
-point's 0.60.
+Timings, with the colour tools merged in, on a generated 12MP photo in a
+phone's 780px preview in headless Chromium, each step read back from the
+canvas so the GPU's part counts: Tone's drag steps 63–86ms (median 68) against
+White point's 48–74 (60) in the same run; the first move off nought 0.58s
+against 0.50; a 2160 export 0.86s against 0.83.
 
 ## The colour tools
 
@@ -884,10 +898,12 @@ bar the pairs no order fits.
   adding a slope.
 - **Colour at White and Black point ±100**, where saturated patches are up to
   twelve levels from Google's.
-- **Tone's colour on a portrait.** Google's +100 saturated the portrait's
-  shirt and background as it lifted them, which the app does not; the fox and
-  forest showed nothing like it. More portraits, or a saturated chart, through
-  the phone would say what it keys on.
+- **What Tone's colour keys on.** Google's +100 saturated the portrait's
+  shirt and background as it lifted them and left the forest's greens about
+  as they were; the app now saturates by how far a pixel was lifted, which
+  fits the portrait and costs the forest. More photos through the phone, or a
+  saturated chart on dark and light surrounds, would say what it keys on —
+  skin in the frame, the colour's own saturation, or something else.
 - **Tone's patches on white and beside black.** Google's takes them 12 to 16
   levels under the open grey; the app's 2 or 3. Fitted to the charts alone the
   fusion came nearer (4) and the photos further.
@@ -896,7 +912,10 @@ bar the pairs no order fits.
   144). Fusion never takes a pixel below itself, so something else is in
   Google's.
 - **Tone's highlights**, held still on the chart and lifted on the full grid;
-  the app lifts both, the chart's 197 to 207.
+  the app lifts both, the chart's 197 to 205.
+- **Where Tone runs among the others.** After Warmth and Tint and before the
+  tone curves, by HDR+'s pipeline, not by measurement: the phone saves one
+  tool a copy, so no combination with Tone has been through Google.
 - **Tone's fine grain.** Google's +100 kept 0.63 of the chart's faint noise at
   4px, against 1.04 in its Sharpen +25 copy through the same JPEG. A copy at
   Tone +5 would say whether Tone smooths or the JPEG takes more off flatter

@@ -838,85 +838,94 @@
       // middle of the range it sits, blended band by band through Laplacian
       // pyramids. Its first try on the chart put those five patches at 156,
       // 150, 168, 145 and 145, the right way round each time. As built here
-      // the app comes within 9.8 levels RMS of Google's +100 over the chart's
-      // flat parts and colours, and 6.6 of its +54, where leaving the photo
-      // alone is 23.7 and 12.9 out.
+      // the app comes within 10.4 levels RMS of Google's +100 over the
+      // chart's flat parts and colours, and 6.9 of its +54, where leaving the
+      // photo alone is 23.7 and 12.9 out.
       //
       // How much brighter the second copy is depends on the photo, metered
       // as a camera meters a scene: the log-average of each pixel's brightest
       // channel in linear light, 3 stops of gain for each stop it sits below
-      // 2.05 stops under white, and never more than 2, the slider's share of
-      // that to the power 1.31. Fitted with the fusion's weights and the curve
-      // below over the chart at +54 and +100, the colour grid on three
-      // surrounds, and the fox and the forest at +25, +52 and +100 from the
-      // phone, with the portrait held out. The fox (a log-average 1.9 stops
-      // down) gets a gain of 1.3, the chart (2.6) 4, the grid on white
-      // nothing. A straight line through the mean brightest channel, fitted
-      // to the charts alone, had given the fox 1.8 and put it further from
-      // Google's (11.3 levels RMS over the frame at +100) than leaving it
-      // alone (9.3); metered, 5.0. The brightest channel carries the colour
-      // too: pure blue at 128 went to 158 on the full grid, not the several
-      // times over its luma of 9 would have lifted it.
+      // 2.25 stops under white, and never more than 2, the slider's share of
+      // that to the power 1.18. The fox (a log-average 1.9 stops down) and
+      // the grid on white get no second exposure at all, and are changed only
+      // by the colour and the curve below; the chart (2.6) gets a gain of 2,
+      // the portrait (2.7) 2.7, the forest (3.5) the most there is, 4. A straight line through the mean brightest channel,
+      // fitted to the charts alone, had put the fox further from Google's
+      // (11.3 levels RMS over the frame at +100) than leaving it alone (9.3).
       //
       // Google's Tone is the same at any size: the chart at 1080 came back
       // within a level of the chart at 2160 everywhere, and the forest at half
       // size within a level of the whole forest in every region — the mark of
       // a working copy of fixed size, as here.
       //
-      // Fused on a copy of the brightest channel 192 pixels across, over two
-      // levels. Kept as a bilateral grid of what the fusion made of each
-      // 12-pixel region at each twelfth of the range, and looked up per pixel
-      // of the photo at its own brightness, so every region takes its own
-      // curve and an edge between two keeps its edge. Either side of the few
-      // levels a region's pixels reach in so small a copy, its curve follows
-      // the slope at which fusion carries fine detail; see carriedDetail.
-      // Held level there instead, the chart's dark ground came out with its
-      // texture ×1.08 where Google's was ×1.33, lifted and left flat. Each
-      // channel is then scaled by the change in the brightest, bar near
-      // black, where a ratio of nothing is noise and an equal shift takes
-      // over; applying the grid to each channel on its own instead fitted
-      // worse (7.1 against 6.7 levels RMS over everything fitted).
+      // Fused on a copy 192 pixels across of 0.7 of luma and 0.3 of the
+      // brightest channel, over two levels. Kept as a bilateral grid of what
+      // the fusion made of each 12-pixel region at each twelfth of the range,
+      // and looked up per pixel of the photo at its own brightness, so every
+      // region takes its own curve and an edge between two keeps its edge.
+      // Either side of the few levels a region's pixels reach in so small a
+      // copy, its curve follows the slope at which fusion carries fine
+      // detail; see carriedDetail. Held level there instead, the chart's dark
+      // ground came out with its texture ×1.08 where Google's was ×1.33.
+      //
+      // The colour. Each channel is scaled by the change in brightness, bar
+      // near black, where a ratio of nothing is noise and an equal shift takes
+      // over; a colour taken past white is scaled back whole, keeping its hue;
+      // and saturation round luma is raised by a tenth of the slider and a
+      // fifth for every stop the pixel was lifted. Google's lifts a colour by
+      // more than its brightest channel says: the portrait's blue shirt,
+      // 6/80/176, came out 10/109/238, every channel about ×1.36, because its
+      // luma is only 71, and its green background came out more saturated as
+      // well as lighter. On the brightest channel alone, with no saturation,
+      // the app took the shirt's blue to 188 and the portrait at +100 was
+      // 22.3 levels RMS off Google's; with luma in the brightness and the
+      // saturation, 11.2. Fitted over the charts, the three grids, the fox
+      // and the portrait at every setting, with the forest held out.
       //
       // Over the whole frame at 540, RMS of RGB against Google's copy, the
-      // app / leaving the photo alone, at +25, +52, +100: the fox 2.2/3.2,
-      // 3.1/5.3, 5.0/9.3; the forest 5.4/5.9, 6.9/12.0, 7.9/22.6; the
-      // portrait, held out, 4.3/7.8, 8.9/15.3, 22.3/28.4.
+      // app / leaving the photo alone, at +25, +52, +100: the fox 2.3/3.2,
+      // 3.3/5.3, 5.4/9.3; the portrait 3.7/7.8, 5.7/15.3, 11.2/28.4; the
+      // forest, held out, 5.3/5.9, 6.8/12.0, 9.7/22.6.
       //
-      // What it does not match. The portrait at +100, where Google's also
-      // saturates and deepens: its blue shirt went from 176 to 238 in blue
-      // and the app's to 188, its green background came out richer and
-      // darker where the app's lifts it flat. The chart's highlights, which
-      // Google holds still and the app lifts, 197 to 207 at +100. The grey
-      // patches on white and beside black, which Google takes 12 to 16
-      // levels under the open grey and the app 2 or 3. The grid on black,
-      // whose darks Google lifts harder and whose bright green it darkens
-      // (191 to 144): fusion never takes a pixel below itself. See
+      // What it does not match. The forest at +100, whose greens Google did
+      // not saturate as it did the portrait's, and which came out 7.9 off
+      // before the colour was fitted; the three photographs cannot say what
+      // Google goes by. The chart's grey steps, up to 15 levels darker than
+      // Google's through the middle, and its highlights, which Google holds
+      // still and the app lifts, 197 to 205. The grey patches on white and
+      // beside black, which Google takes 12 to 16 levels under the open grey
+      // and the app 2 or 3. The grid on black, whose darks Google lifts
+      // harder and whose bright green it darkens (191 to 144). See
       // calibration/README.md.
-      // After the fusion, each channel through one curve for the whole photo,
-      // fitted by least squares over every copy but the portrait's: a toe
-      // that takes 32 down to 27 and so keeps the darkest shadows dark, where
-      // fusion alone lifted a fox's black legs from 54 to 78 that Google left
-      // at 51, and a top end let back down by up to 2 levels.
+      //
+      // After all that, each channel through one curve for the whole photo,
+      // scaled with the slider and fitted with the rest: 6 to 9 levels up
+      // through the shadows and middle, 2 to 3 down at the top.
       curves: {
-        100: [0, 6.9, 13.7, 20.6, 27.4, 38, 48.5, 59.1, 69.7, 77.9, 86.1, 94.3, 102.5, 111, 119.6, 128.1, 136.7, 145.1, 153.4, 161.8, 170.1, 177.2, 184.3, 191.5, 198.6, 205.6, 212.7, 219.8, 226.9, 233.6, 240.4, 247.1, 253.1],
+        100: [0, 8.9, 17.7, 26.6, 35.5, 44.1, 52.8, 61.5, 70.2, 78, 85.9, 93.7, 101.6, 110.1, 118.7, 127.2, 135.8, 144, 152.2, 160.4, 168.7, 175.6, 182.5, 189.4, 196.3, 202.6, 209, 215.4, 221.8, 229.6, 237.5, 245.3, 252.2],
       },
       regions: {
         size: 192,
         cell: 12,
         bins: 12,
         build(copy, amount) {
-          const gain = 2 ** (amount ** 1.31 * clamp(3 * (-2.05 - copy.logMax), 0, 2));
+          const gain = 2 ** (amount ** 1.18 * clamp(3 * (-2.25 - copy.logMax), 0, 2));
           const weights = { centre: 0.45, sigma: 0.2, levels: 2 };
-          const fused = fuseExposures(copy.max, copy.w, copy.h, gain, weights);
-          return bilateralGrid(copy.max, fused, copy.w, copy.h, this.cell, this.bins, carriedDetail(gain, weights));
+          const fused = fuseExposures(copy.brightness, copy.w, copy.h, gain, weights);
+          return bilateralGrid(copy.brightness, fused, copy.w, copy.h, this.cell, this.bins, carriedDetail(gain, weights));
         },
       },
       glsl: `
         c = clamp(c, 0.0, 1.0);
-        float t = max(max(c.r, c.g), c.b);
+        float t = 0.7 * luma(c) + 0.3 * max(max(c.r, c.g), c.b);
         float toned = clamp(t + regions_tone(t), 0.0, 1.0);
-        c = mix(c + (toned - t), c * (toned / max(t, 1.0 / 255.0)), min(1.0, t / 0.02));
-        c = clamp(c, 0.0, 1.0);
+        float lifted = toned / max(t, 1.0 / 255.0);
+        c = mix(c + (toned - t), c * lifted, min(1.0, t / 0.02));
+        // A colour lifted past white keeps its hue, all three channels scaled
+        // back together, rather than being clipped channel by channel.
+        c /= max(1.0, max(max(c.r, c.g), c.b));
+        float y = luma(c);
+        c = clamp(y + (1.0 + 0.1 * amount + 0.2 * log2(max(1.0, lifted))) * (c - y), 0.0, 1.0);
         c = vec3(curve_tone(c.r), curve_tone(c.g), curve_tone(c.b));`,
     },
     {
@@ -1372,9 +1381,11 @@
     return 1 / (1 + Math.exp((median - ADAPTS.adapt.median) / ADAPTS.adapt.width));
   }
 
-  // The copy a tool with regions works from: the photo's brightest channel,
-  // `size` pixels along its longer side, and the mean of it. Once per decode,
-  // and a few thousand pixels, so reading it back costs nothing to speak of.
+  // The copy a tool with regions works from, `size` pixels along its longer
+  // side: its brightness as Tone reads it, 0.7 of luma and 0.3 of the
+  // brightest channel, and the brightest channel's mean and log-average.
+  // Once per decode, and a few thousand pixels, so reading it back costs
+  // nothing to speak of.
   const REGIONED = ADJUSTMENTS.filter((a) => a.regions);
   const smallCopies = new WeakMap();
   function smallCopy(src, size) {
@@ -1388,18 +1399,19 @@
     g.imageSmoothingQuality = 'high';
     g.drawImage(src, 0, 0, w, h);
     const d = g.getImageData(0, 0, w, h).data;
-    const max = new Float32Array(w * h);
+    const brightness = new Float32Array(w * h);
     let sum = 0;
     let logs = 0;
-    for (let i = 0; i < max.length; i += 1) {
-      max[i] = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) / 255;
-      sum += max[i];
-      const light = max[i] <= 0.04045 ? max[i] / 12.92 : ((max[i] + 0.055) / 1.055) ** 2.4;
+    for (let i = 0; i < brightness.length; i += 1) {
+      const top = Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) / 255;
+      brightness[i] = 0.7 * ((0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255) + 0.3 * top;
+      sum += top;
+      const light = top <= 0.04045 ? top / 12.92 : ((top + 0.055) / 1.055) ** 2.4;
       logs += Math.log2(light + 1e-3);
     }
     // The mean, and the log-average in linear light, as an exposure meter
     // reads a scene: stops below white that the photo sits on the whole.
-    copy = { size, w, h, max, meanMax: (sum / max.length) * 255, logMax: logs / max.length };
+    copy = { size, w, h, brightness, meanMax: (sum / brightness.length) * 255, logMax: logs / brightness.length };
     smallCopies.set(src, copy);
     return copy;
   }

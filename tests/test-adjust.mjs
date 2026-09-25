@@ -966,7 +966,7 @@ else {
     'Tone 100 lifts open grey 128 as Google\'s does, within 4 levels', `${bg} against Google's ${grey(google100.contexts.background)}`);
   // The local part. Google's +100 took the same 128 to 158 in the open, 162
   // on a 64 surround, 146 on 192, 142 on white and 146 in the strip beside
-  // the black block, flat across each patch; the app to 155, 159, 147, 152
+  // the black block, flat across each patch; the app to 154, 155, 148, 152
   // and 153 — the right way round each time, but on white and beside black
   // by a quarter as much. Fitted to the photographs too, the fusion is
   // gentler than the chart alone asked for. On black Google's went to 142
@@ -977,21 +977,25 @@ else {
     `open ${bg}, on 64 ${c['patch on 64']}, on 192 ${c['patch on 192']}, on 255 ${c['patch on 255']}, strip ${c['strip beside the black block']}; Google 158, 162, 146, 142, 146`);
   check(c['surround 0'] === 0 && Math.abs(c['surround 255'] - grey(google100.contexts['surround 255'])) <= 3,
     'black stays black and white stays within 3 of where Google\'s put it', `black ${c['surround 0']}, white ${c['surround 255']} against ${grey(google100.contexts['surround 255'])}`);
-  // The shadows and middle to within 8 of Google's steps; above that the app
-  // is brighter, by as much as 11 at 197, where Google holds its highlights
+  // The shadows and middle darker than Google's by up to 15 levels (58 to 77
+  // against 91), which is the price of the colour fit: fitted to the fox and
+  // the portrait over the whole frame, it took the portrait at +100 from 22
+  // to 11 levels RMS off Google's and cost the chart's grey steps, a sliver
+  // of any photo, 7 more. Charts alone had them within 8. Above them the app
+  // is brighter, by as much as 8 at 197, where Google holds its highlights
   // still. Holding them here too cost as much on the colour grid, which
   // Google's lifted, as it saved on the chart.
   const low = stepsBetween(tone100.steps, google100.steps, 16, 156);
-  check(low.every(([, o, g]) => Math.abs(o - g) <= 8), 'the steps from 16 to 156 come within 8 levels of Google\'s', listedSteps(low));
+  check(low.every(([, o, g]) => Math.abs(o - g) <= 15), 'the steps from 16 to 156 come within 15 levels of Google\'s', listedSteps(low));
   const high = stepsBetween(tone100.steps, google100.steps, 165, 247);
   check(high.every(([, o, g]) => o - g <= 12 && g - o <= 3), 'and from 165 up no more than 12 brighter', listedSteps(high));
   // Detail in the shadows lifted with them, as Google's is: ×1.33 of the
-  // ground's coarse texture against ×1.54 here. Held level where the small
+  // ground's coarse texture against ×1.25 here. Held level where the small
   // copy has no pixels, it was ×1.08, the shadows lifted and left flat. On
   // the photographs, which cannot be committed, the app's detail by region
-  // came within 0.07 of Google's at +100 everywhere but the portrait's soft
-  // background (calibration/google-phone-tone.json), so the chart's ground
-  // is held to within 0.25.
+  // came within 0.1 of Google's at +100 everywhere but the portrait's shirt,
+  // hair and soft background (calibration/google-phone-tone.json), so the
+  // chart's ground is held to within 0.25.
   check(tone100.texture > 1.2 && Math.abs(tone100.texture - googleTone.detail['ground band, tone+100']) <= 0.25,
     'and the dark ground\'s texture is lifted with it, within 0.25 of Google\'s',
     `×${tone100.texture.toFixed(2)} against ×${googleTone.detail['ground band, tone+100']}`);
