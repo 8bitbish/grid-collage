@@ -680,9 +680,9 @@ else {
 // beside them to ring into. So: a bright disc on a mid grey, its edge soft as
 // a Gaussian of σ 3, exported at 2160 so it goes through at 1:1. The edge
 // should come out steeper and ring no more than Google rang at the sun, 2
-// under and 3 over, and a level or two for the JPEG it saved. With the ring
-// the app drew 18 under here; now 0 and 0, the edge 13 levels a pixel at its
-// steepest as it came and 25 sharpened.
+// under and 3 over, and a level or two for the JPEG it saved. The build that
+// drew the ring rings this disc 18 under and 10 over; now 2 and 2, the edge
+// 13 levels a pixel at its steepest as it came and 25 sharpened.
 const discPng = Buffer.from(await p.evaluate(async () => {
   const N = 2160, R = 300, SIGMA = 3, SKY = 150, SUN = 245;
   // Abramowitz and Stegun 7.1.26, to within 1.5e-7.
@@ -709,10 +709,13 @@ const discPng = Buffer.from(await p.evaluate(async () => {
 const disc = await sharpenedChart('disc.png', discPng, 100, 'disc');
 if (!disc) check(false, 'the sharpened disc arrives');
 else {
-  // Both edges of the row: the sky from 20 to 60px outside the disc, the
-  // disc from 20 to 60px inside it.
-  const outside = [...disc.row.slice(1080 - 360, 1080 - 320), ...disc.row.slice(1080 + 320, 1080 + 360)];
-  const inside = [...disc.row.slice(1080 - 280, 1080 - 240), ...disc.row.slice(1080 + 240, 1080 + 280)];
+  // Both edges of the row, from the edge's midpoint out 50px into the grey
+  // and in 50px into the disc. As it came the edge never leaves 150..245,
+  // so anything past those is ring. The ring was close in — 2 to 8px past
+  // the midpoint, down to 132 — and read from 20px out, as this first was,
+  // the check passed on the build that drew it.
+  const outside = [...disc.row.slice(1080 - 350, 1080 - 300), ...disc.row.slice(1080 + 300, 1080 + 350)];
+  const inside = [...disc.row.slice(1080 - 300, 1080 - 250), ...disc.row.slice(1080 + 250, 1080 + 300)];
   const under = 150 - Math.min(...outside);
   const over = Math.max(...inside) - 245;
   const edge = disc.row.slice(1080 + 280, 1080 + 320);
