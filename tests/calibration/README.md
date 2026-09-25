@@ -514,21 +514,24 @@ interpolates in it; `google-colour.json` has everything measured.
 13×13×13 grid as a flat patch filling the 2160 square (levels 0, 21, 43 … 255,
 which is k×255/12 rounded, and so not evenly spaced), and `lut.json`, where
 each patch is as a fraction of the frame, so it reads the same off Google's
-1000px copies. It also writes `lut-on-black.png` and `lut-on-white.png`, the
-same grid in the middle half on a black or white surround. `lut-chart.mjs 9`
-makes the 9×9×9 chart whose colours mostly fall between the 13's.
+1000px copies. It also writes `lut-on-black.png`, `lut-on-white.png` and
+`lut-on-grey.png`, the same grid in the middle half on a black, white or
+mid-grey surround. `lut-chart.mjs 9` makes the 9×9×9 chart whose colours
+mostly fall between the 13's.
 
 **Reading it.** `node lut-measure.mjs lut.json full <copies…>` writes each copy's
 colours in and out as `<copy>.lut.json`, averaged over the middle 40% of each
-patch, clear of the edges the JPEG's halved colour smears. Use `black` or
-`white` in place of `full` for the surround charts.
+patch, clear of the edges the JPEG's halved colour smears. Use `black`,
+`white` or `grey` in place of `full` for the surround charts.
 
 **The tables.** `google-web.mjs edit <dir> --chart=lut.png brightness+25 …` at
-±25, ±37, ±50, ±75 and ±100 for each tool, then `node colour-tables.mjs <dir>`,
-which writes `colour-tables.png` at the root: plain RGB, 169×910, a row per
-green level of each table, the tables stacked tool by tool and knot by knot in
-the order at the top of the script, which `app.js` reads in the same order.
-200KB. It also undoes the capture's one bias: at the ends of the range a JPEG's
+±25, ±37, ±50, ±75 and ±100 for each tool, then `node colour-tables.mjs <dir>
+[<dir> …]`, which writes `colour-tables.png` at the root: plain RGB, 169 wide,
+a row per green level of each table, the tables stacked tool by tool and knot
+by knot in the order at the top of the script, which `app.js` reads in the same
+order. With White and Black point's tables after the seven (see The tone curves
+on colour) it is 169×1170, 257KB; the seven's rows are byte for byte what they
+were. It also undoes the capture's one bias: at the ends of the range a JPEG's
 noise can only go one way, so a patch Google left white reads 1.53 low and one
 left black 0.40 high, where every other level came back within 0.10 on colours
 Skin tone does not touch.
@@ -672,16 +675,111 @@ combinations to Google's on eight colours.
 app's White point, Shadows and Black point, fitted to greys and one red, are a
 few levels off Google's on colours even alone — median / 90th / worst, White
 point -50 5.6 / 10.6 / 16, Shadows +50 3.0 / 18.7 / 55, Black point +50 5.3 /
-10.8 / 22; Highlights is within 1.3 / 3.2 / 13. That is what separates the
-app's 5.24 from the tables' 4.58, and most of what is left in the table above
-bar the pairs no order fits.
+10.8 / 22; Highlights is within 1.3 / 3.2 / 13. That was most of what
+separated the app's 5.24 from the tables' 4.58; with White and Black point
+corrected (next section) the app came to 4.65 over the forty.
+
+## The tone curves on colour
+
+The four tone curves were read off the ramp, 256 levels of grey, and carried
+onto colour by a rule each: White and Black point per channel, Highlights and
+Shadows by a shift from Rec.709 luma (Shadows' 30% of the way towards scaling
+by a ratio). On greys they are right to a level. On colour, measured against
+Google's copies of the 13³ chart at all ten settings, two of the four were not.
+`google-tone-colour.json` has everything measured.
+
+**Capturing.** All four through `google-web.mjs` on the 13³ chart at ±25, ±37,
+±50, ±75 and ±100; on the 9³ chart at ±100 as the held-out check; on the 9³
+chart on black, white and grey; on the calibration chart itself; and on
+sixteen of the 9³ colours as 540px patches filling the frame, to see whether
+the size of a patch mattered.
+
+What was found:
+
+- **White and Black point, Highlights and Shadows lowering are global.** The
+  same colour came back within about a level on the grid full-frame and on
+  black, white and grey (medians 0.8 to 0.9), and White and Black point's big
+  patches were within 0.1 to 0.2 levels of the grid's.
+- **White and Black point carry colour in no simple way.** Per channel is
+  right until a channel would clip: then Google pulls the colour back as a
+  whole (White point +50 keeps 0,255,213 at 0,255,216 where per channel makes
+  0,255,243), and not by any one ratio — 128,255,128 comes out exactly per
+  channel while 128,255,0 comes out 133,255,6. Black point up pushes
+  saturated colours' bright channels further (234,0,234 to 248,3,248 at +50),
+  and White point down lifts a pure colour's empty channels (0,255,0 to
+  11,221,9). Scaling by the brightest channel's ratio, by luma's, luma and
+  chroma apart, HSL, Levels in linear light, a hue-keeping clip and a
+  saturation scale after per channel all came out no nearer than per channel.
+- **So Google's tables correct them.** The curves stay, being finer on greys
+  than any table of 13 levels; each tool's table, less its own rule at each
+  grid colour and set to nought on the grey axis, is added over the run of
+  tone curves in one lookup (FIX in `app.js`). The correction is looked up by
+  the colour the run started from, so it composes with Highlights and Shadows
+  between them.
+- **Highlights needs no table.** The equal shift was 1.4 levels from Google at
+  -100 and 2.5 at +100 on the 13³ chart, and Rec.709's luma beat Rec.601's,
+  the mean, the brightest channel, HSL lightness and luma in linear light at
+  every setting. Its table would take the 9³ chart from 2.6 to 1.4 at +100,
+  all of it colours pushed past white, and elsewhere only add its readings'
+  noise: test-colour's eight colours, none of which reach white, went from
+  1.2 to 1.9, and the three pairs with Highlights -50 each got 0.2 to 0.5
+  worse. So it runs through the correction by its rule.
+- **Shadows carries colour differently from photo to photo, and nothing
+  measured says why.** On the grids, lowering fitted best with the shift
+  added unchanged (0.08 of the way to the ratio over the saturated dark
+  colours) full-frame and on black, white and grey alike; the big patches
+  wanted 0.18; the calibration chart 0.32, on the phone's hand-made copies and
+  the web's alike (its red under -100: 167,9,8 and 165,9,10, where the grid's
+  nearest reds say about 181). Lifting too: 0 on the bright grids, 0.25 to 0.3
+  on the grid on black, and the big patches 25 levels from the grid at +100.
+  It is not darkness (the grid on black and the grid full-frame lower alike),
+  not the median, not how colourful the photo is (the calibration chart and
+  the grid on grey are both a quarter coloured, mean chroma 21.5 and 32.6),
+  and not the size of a patch (the calibration chart's are 227×120, smaller
+  than the big patches, and further from the grid). A table read off the grid
+  would make every photo behave like the grid, which the flat patches, nearer
+  a photo's sky or wall, do not; so Shadows keeps its rule and runs through
+  the correction by it.
+- **Between settings, still a straight line.** White and Black point at ±37,
+  mixed from ±25 and ±50, came within 1.2 to 1.6 levels of Google's on
+  average, the capture's noise.
+
+The app against Google, from its own 2160 exports, mean / 90th percentile /
+worst, before and after; greys moved by nothing more than rounding (0.1 to
+1.1 levels either way, the same before and after):
+
+| | 13³ chart, all ten settings | 9³ chart at +100, held out | 9³ at -100, held out |
+| --- | --- | --- | --- |
+| White point, main | 2.3 to 8.9 / 5.4 to 23.7 / 12 to 60 | 8.8 / 25.4 / 59 | 9.5 / 17.9 / 31 |
+| White point, now | 0.4 to 0.7 / 0.6 to 1.3 / 1 to 3 | 1.7 / 2.9 / 6 | 1.4 / 2.3 / 4 |
+| Black point, main | 3.2 to 10.3 / 5.7 to 19.1 / 12 to 39 | 10.3 / 17.6 / 39 | 10.0 / 20.0 / 35 |
+| Black point, now | 0.4 to 0.6 / 0.6 to 1.1 / 2 to 7 | 2.3 / 3.8 / 29 | 1.4 / 2.3 / 4 |
+
+The worst, 29, is one colour where Black point +100 bends everything below 64
+to black between two of the grid's levels. On the big patches the corrected
+tools came within 0.9 to 1.7 levels on average (the rules alone 7.8 to 11.4),
+and on the calibration chart's 27 colours 1.6 (3.4 and 7.3). Over the forty
+combinations of Combining tools the app went from 5.24 to 4.65 levels from
+Google on average, the seventeen with a tone curve from 6.34 to 4.96; every
+pair with White or Black point came nearer (Blue tone +50 with White point
+-50 6.3 to 2.2, Black point +50 with Warmth 6.6 to 2.7, Contrast +50 with
+Black point 10.3 to 8.2) and none went further. `test-colour.mjs` holds White
+and Black point, and Highlights, to Google's at ±100 on eight colours.
 
 ## Still open
 
-- **The tone tools on colours.** White point, Shadows and Black point alone
-  are 2 to 5.6 levels off Google's on colours at the median and up to 55 at
-  worst (see Combining tools); they were fitted to greys. Google's 13³ copies
-  of all four at ±50 are the start of a table or a better colour model.
+- **What Shadows' colour depends on.** The same colours, lowered, want 0.08
+  of the way to scaling by a ratio on a grid of small patches, 0.18 as big
+  flat patches and 0.32 on the calibration chart, and lifted, anything from
+  nought to 0.3 (see The tone curves on colour). Not darkness, the median,
+  colourfulness or patch size. The calibration chart with its colours
+  swapped for the grid's, or the grid with its patches spread over a grey
+  surround one by one, would say whether it is the neighbours, the layout
+  or something about the whole photo.
+- **How dark Google counts a chart three quarters black.** The 9³ grid on
+  black has a median of nought, which the app counts as fully dark, and
+  Google's greys under Shadows +100 sat 0.7 of the way to the dark curve:
+  128 lifted to 162 where the app makes 171.
 - **Tools that combine rather than chain.** Brightness with Contrast (on the
   ramp their changes add), Brightness with Black point on colours with a
   channel at nought (159,0,32 comes out 142,0,0 — Black point's alone, as if
@@ -786,5 +884,3 @@ bar the pairs no order fits.
   would test it in between: the patch with its edge at 140 and at 90 levels,
   and a black and a white patch with soft edges to set the range without
   adding a slope.
-- **Colour at White and Black point ±100**, where saturated patches are up to
-  twelve levels from Google's.

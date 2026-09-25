@@ -642,6 +642,13 @@
   //          off Google Photos, in colour-tables.png; see COLOUR_TABLES.
   //          Tools with tables that run one after another are looked up
   //          together, as one table made of theirs.
+  //   fix    with curves: Google's table for the tool is in colour-tables.png
+  //          too, and corrects the colour the glsl carries rather than
+  //          replacing it; see FIX.
+  //   mirror with fix, and for any tool between two that have it: what the
+  //          glsl does, as `mirror(c, curve)` on 0..255 RGB with curve()
+  //          taking and giving 0..255, so the correction can be worked out
+  //          against exactly what the shader will have drawn.
   //
   // Listed in the order Google Photos lists them, which is the panel's
   // order. The order they run in is not the same; see RUN_ORDER.
@@ -680,6 +687,19 @@
       // move. Between those it is not a straight line, which is why all eight
       // positions are here: interpolated from ±50 and ±100 alone, ±25 and ±75
       // came out up to seven levels from Google's.
+      //
+      // Per channel is right on greys and away from the edge of the range,
+      // but not all of it. Where a channel would clip, Google pulls the
+      // colour back as a whole — 0,255,213 comes out 0,255,216 at +50,
+      // where a curve per channel makes 0,255,243 — and turned down it
+      // lifts a pure colour's empty channels a little, 0,255,0 to 11,221,9.
+      // Nothing simpler did better than per channel on the 13³ chart
+      // (scaling by the brightest channel's ratio, by luma's, Levels in
+      // linear light, a saturation scale after), so Google's own table
+      // corrects it: on the 9³ chart's colours, which the table never saw,
+      // ±100 went from 8.8 and 9.6 levels out on average to 1.6 and 1.3.
+      fix: true,
+      mirror: (c, curve) => c.map(curve),
       curves: {
         '-100': [0, 8, 15.6, 23, 30.6, 38, 45.6, 52.8, 59.6, 67, 73.6, 81, 87.6, 94, 100.6, 107, 113.6, 119.6, 125.6, 131.6, 137.6, 143, 148.6, 154, 159.6, 164.6, 169.6, 174.6, 179.6, 184.6, 189.6, 193.8, 197],
         '-75': [0, 8, 15.6, 22.7, 30.6, 37.9, 45.5, 52.9, 60.6, 67.6, 74.6, 81.6, 88.6, 94.8, 101.5, 108, 114.6, 121, 127.4, 133.6, 139.4, 145.6, 151.6, 157.4, 162.6, 168.4, 173.5, 178.9, 184.6, 189.6, 194.7, 199.4, 203.3],
@@ -712,6 +732,17 @@
       // Nothing below a quarter moves. Down pulls the upper tones in and
       // lets white slip to 252; up lifts them until everything from 224 is
       // white, which is how hard the Photos one really goes.
+      //
+      // On the 13³ chart the equal shift held up — 1.4 levels out at -100
+      // and 2.5 at +100 — and Rec.709's luma beat Rec.601's, the mean, the
+      // brightest channel and luma in linear light at every setting. What
+      // is left is colours pushed past white at +100, which Google does not
+      // clip channel by channel. Its table would take the 9³ chart from 2.6
+      // to 1.4 levels out, but everywhere else it only adds its readings'
+      // noise — the eight colours test-colour holds, none of which reach
+      // white, went from 1.2 to 1.9 — so it has none (see FIX), and runs
+      // through the correction by its rule.
+      mirror: (c, curve) => { const y = luma709(c); const d = curve(y) - y; return c.map((x) => x + d); },
       curves: {
         '-100': [0, 8, 16, 24, 32, 40, 47.6, 55, 62.6, 70, 77.6, 85, 92.6, 99, 105.6, 112.2, 118.6, 124.2, 129.6, 135, 140.6, 146, 151.6, 157, 162.6, 169.8, 177, 186, 195.6, 207.6, 221, 237, 252],
         '-75': [0, 8, 16, 23.9, 32, 39.9, 48, 55.9, 63.6, 71, 78.6, 86, 93.6, 100, 107.5, 114, 120.6, 126.8, 133.6, 139.3, 145.4, 151.4, 157.6, 163.8, 170.6, 176.9, 184.8, 193, 202.6, 213.6, 225.4, 239.4, 253],
@@ -743,6 +774,18 @@
       // file). That is the 0.3 below, and with it the colour patches came
       // within a level or two of Google's; an equal shift alone was twelve
       // to fourteen levels out.
+      //
+      // But that share depends on the photo, in a way nothing measured yet
+      // explains, which is why Shadows alone of the tone curves has no
+      // table to correct it (see FIX). Lowering, on Google's own copies: the
+      // calibration chart's colours wanted 0.32, sixteen big flat patches
+      // 0.18, and a grid of small patches 0.08, the same full-frame or on
+      // black, white or grey. Not darkness, the median or how colourful the
+      // photo is — the grid on grey matches the calibration chart on all
+      // three — nor the size of the patches. A table read off the grid
+      // would make every photo behave like the grid, and the flat patches,
+      // which are nearer a photo's sky or wall, do not; so this stays as it
+      // was, and the question is in tests/calibration/README.md.
       //
       // Lifting is the one thing in this list that looks at the photo. The
       // same chart on a mostly dark surround came back lifted far higher —
@@ -776,6 +819,12 @@
         median: 127.2,
         width: 0.9,
       },
+      mirror: (c, curve) => {
+        const y = luma709(c);
+        const toned = curve(y);
+        const spread = 1 + 0.3 * (toned / Math.max(y, 1) - 1);
+        return c.map((x) => toned + Math.min(spread, 4) * (x - y));
+      },
       glsl: `
         c = clamp(c, 0.0, 1.0);
         float y = luma(c);
@@ -793,6 +842,16 @@
       // look. White stays put either way, give or take a level. All eight
       // positions, for the same reason as White point: +25 and +75 were eight
       // levels off Google's when interpolated.
+      //
+      // Like White point, per channel on greys and not quite on colours:
+      // up, Google pushes a saturated colour's bright channels further —
+      // 234,0,234 to 248,3,248 at +50, where a curve per channel makes
+      // 232,0,232 — as though deepening the blacks kept the colour from
+      // dulling. No model tried came nearer than per channel, so Google's
+      // table corrects it: ±100 from 10.2 and 10.1 levels out on the 9³
+      // chart's colours to 2.2 and 1.3.
+      fix: true,
+      mirror: (c, curve) => c.map(curve),
       curves: {
         '-100': [41, 46.8, 51.6, 57, 62.6, 68.6, 74.6, 80.6, 86.6, 92.6, 98.6, 105, 111.6, 118, 124.6, 131, 137.6, 144.2, 151.6, 158.2, 165.6, 172.2, 179.6, 186.6, 194, 201.2, 209, 216.6, 224.2, 232, 239.6, 247, 255],
         '-75': [29.5, 39.6, 45.6, 51.4, 57.6, 63.6, 69.6, 75.9, 82.6, 89, 95.6, 101.9, 108.6, 115.6, 122.5, 129, 135.6, 142.7, 149.5, 156.9, 164.6, 171.5, 178.6, 185.9, 193.6, 200.9, 208.5, 216, 224.1, 232, 239.6, 246.9, 255],
@@ -1302,7 +1361,9 @@
   const COLOUR_TABLES = {
     file: 'colour-tables.png',
     // The order colour-tables.mjs writes them in. Change one, change both.
-    tools: ['brightness', 'contrast', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone'],
+    // The last two are tone curves' tables, which correct them; see FIX.
+    tools: ['brightness', 'contrast', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone',
+      'whitePoint', 'blackPoint'],
     knots: [-100, -75, -50, -37, -25, 25, 37, 50, 75, 100],
     // The chart's levels are these rounded: 0, 21, 43 … 234, 255.
     size: 13,
@@ -1352,6 +1413,46 @@
     else runs.push([a]);
     return runs;
   }, []);
+
+  // The tone curves were read off greys and one red, and carried onto
+  // colour by a rule each: White and Black point per channel, Highlights
+  // and Shadows by a shift from luma. On Google's copies of the 13³ chart
+  // those rules were right on greys, to within a level, and White and
+  // Black point's were off on colour: at ±100, 8.4 to 10.3 levels on
+  // average. No single rule fitted Google better (see each tool's entry),
+  // so the rules stay, and Google's own table for each corrects what it
+  // carries.
+  //
+  // The curves stay because they were read off every one of 256 levels of
+  // a ramp, which no table of 13 levels can match on greys; the tables are
+  // what a patch can say, which is how a colour moves. So a run of tone
+  // curves — all four, one after another in RUN_ORDER — is drawn by its
+  // glsl as before, and then corrected by one table: at each of the 13³
+  // colours of the grid, what the tools would make of it with each fixed
+  // tool's table's say added, less what their glsl makes of it, looked up
+  // by the colour the run started from. A tool's say is its table less its
+  // own rule at that colour, and nought on the grey axis, which leaves
+  // every grey on the curve. Highlights and Shadows have no say (see their
+  // entries) but run through the correction by their rules, between White
+  // and Black point, so the run stays one lookup.
+  //
+  // White and Black point are global, as their tables have to be: the same
+  // colour came back within a level or so on the 9³ grid full-frame, on
+  // black, on white and on grey, and as sixteen big flat patches (0.1 to
+  // 0.2 levels from the grid's). On the 9³ chart's colours, which no table
+  // saw, each alone at ±100 came to 1.3 to 2.2 levels from Google on
+  // average, the capture's floor, where the rules alone were 8.8 to 10.2
+  // out; on the big patches 0.9 to 1.7 against 7.8 to 11.4; and on the
+  // calibration chart's 27 colours 1.6 against 3.4 and 7.3.
+  const FIXED = ADJUSTMENTS.filter((a) => a.fix);
+  const FIX_RUNS = LOOK_ORDER.reduce((runs, a, i) => {
+    if (!a.mirror) return runs;
+    if (i > 0 && LOOK_ORDER[i - 1].mirror) runs[runs.length - 1].push(a);
+    else runs.push([a]);
+    return runs;
+  }, []).filter((run) => run.some((a) => a.fix));
+  const luma709 = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
   let colourTables = null;
   let colourLoading = null;
   // Whether a redraw is already waiting on them, so a drag while they load
@@ -1383,7 +1484,7 @@
     return colourLoading;
   }
 
-  const usesTables = (adjust) => !!adjust && TABLED.some((a) => adjust[a.id]);
+  const usesTables = (adjust) => !!adjust && (TABLED.some((a) => adjust[a.id]) || FIXED.some((a) => adjust[a.id]));
 
   // Before anything is drawn for keeps: an export or a cover waits for the
   // tables if any tile on the pages wants them.
@@ -1490,6 +1591,67 @@
           let c = [level(r), level(g), level(b)];
           tables.forEach((t) => { c = throughTable(t, c); });
           out.set(c, ((b * n + g) * n + r) * 3);
+        }
+      }
+    }
+    return out;
+  }
+
+  // A tool in a fixed run, as its glsl draws it, on 0..255: the curve read
+  // as the shader reads its row, straight between the 256 levels.
+  function drawnBy(tool, value, dark) {
+    const levels = curveTable(tool, value, dark);
+    const curve = (y) => {
+      const x = clamp(y, 0, 255);
+      const i = Math.min(Math.floor(x), 254);
+      return levels[i] + (x - i) * (levels[i + 1] - levels[i]);
+    };
+    return (c) => tool.mirror(c.map((x) => clamp(x, 0, 255)), curve);
+  }
+
+  // A run's correction at a cell's settings, as 13³ entries on 0..255 about
+  // 127.5, which the shader adds less a half; see FIX. Null when none of its
+  // fixed tools is in use.
+  function fixTable(run, adjust, dark) {
+    const using = run.filter((tool) => adjust[tool.id]);
+    if (!using.some((tool) => tool.fix)) return null;
+    const n = COLOUR_TABLES.size;
+    const level = (i) => Math.round((i * 255) / (n - 1));
+    const steps = using.map((tool) => {
+      const value = adjust[tool.id];
+      const drawn = drawnBy(tool, value, dark);
+      if (!tool.fix) return { drawn, say: null };
+      // What Google's table says that the rule does not, at the grid's
+      // colours.
+      const google = tableAt(tool, value);
+      const say = new Float32Array(n * n * n * 3);
+      for (let b = 0; b < n; b += 1) {
+        for (let g = 0; g < n; g += 1) {
+          for (let r = 0; r < n; r += 1) {
+            if (r === g && g === b) continue;
+            const o = ((b * n + g) * n + r) * 3;
+            const ruled = drawn([level(r), level(g), level(b)]);
+            for (let c = 0; c < 3; c += 1) say[o + c] = google[o + c] - ruled[c];
+          }
+        }
+      }
+      return { drawn, say };
+    });
+    const out = new Float32Array(n * n * n * 3);
+    for (let b = 0; b < n; b += 1) {
+      for (let g = 0; g < n; g += 1) {
+        for (let r = 0; r < n; r += 1) {
+          let ruled = [level(r), level(g), level(b)];
+          let meant = ruled;
+          steps.forEach(({ drawn, say }) => {
+            ruled = drawn(ruled);
+            const extra = say ? throughTable(say, meant.map((x) => clamp(x, 0, 255))) : [0, 0, 0];
+            meant = drawn(meant).map((x, c) => clamp(x + extra[c], 0, 255));
+          });
+          // Against the glsl's own result before its final clamp, so the two
+          // meet exactly at the grid whatever the rule overshot.
+          const o = ((b * n + g) * n + r) * 3;
+          for (let c = 0; c < 3; c += 1) out[o + c] = clamp(127.5 + meant[c] - ruled[c], 0, 255);
         }
       }
     }
@@ -1683,10 +1845,11 @@
   function glslTables() {
     const n = COLOUR_TABLES.size;
     const w = 2 * n * n;
-    const h = n * TABLE_RUNS.length;
+    const h = n * (TABLE_RUNS.length + FIX_RUNS.length);
     return `
       uniform sampler2D u_tables;
       ${TABLE_RUNS.map((_, k) => `uniform float u_run${k};`).join('\n')}
+      ${FIX_RUNS.map((_, k) => `uniform float u_fix${k};`).join('\n')}
       // The chart's levels are k x 255/12 rounded, so not evenly spaced:
       // 21 then 22 apart. Taken as even they put a colour up to half a
       // level out on the steep parts of a table.
@@ -1738,11 +1901,19 @@
 
   function lookFragment(packed) {
     // Each tool in its own block, or for a run of tools with tables, one
-    // lookup where the run starts.
+    // lookup where the run starts. A run of tools with fixes keeps the
+    // colour it started from, and is corrected by it once its last is done.
     const steps = LOOK_ORDER.map((a) => {
-      if (!a.table) return `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`;
-      const k = TABLE_RUNS.findIndex((run) => run[0] === a);
-      return k < 0 ? '' : `if (u_run${k} != 0.0) { c = table(${k}.0, c); }`;
+      if (a.table) {
+        const k = TABLE_RUNS.findIndex((run) => run[0] === a);
+        return k < 0 ? '' : `if (u_run${k} != 0.0) { c = table(${k}.0, c); }`;
+      }
+      const block = `if (u_${a.id} != 0.0) { float amount = u_${a.id}; ${a.glsl} }`;
+      const k = FIX_RUNS.findIndex((run) => run.includes(a));
+      if (k < 0) return block;
+      const run = FIX_RUNS[k];
+      return (run[0] === a ? `vec3 fixFrom${k} = c;` : '') + block
+        + (run[run.length - 1] === a ? `if (u_fix${k} != 0.0) { c = clamp(c + table(${TABLE_RUNS.length + k}.0, fixFrom${k}) - 0.5, 0.0, 1.0); }` : '');
     });
     return `${GLSL_HEAD}
       ${glslStore(packed)}
@@ -1764,7 +1935,7 @@
         return mix(level(i, row), level(i + 1.0, row), x - i) / 255.0;
       }
       ${CURVED.map((a, row) => `float curve_${a.id}(float y) { return curve(${row}.0, y); }`).join('\n')}
-      ${TABLED.length ? glslTables() : ''}
+      ${TABLED.length || FIXED.length ? glslTables() : ''}
       // A pass's result, brought up from the working copy to the pixel being
       // drawn. Bilinear, as Google brings its own back up, and by hand,
       // because bytes holding half a number each cannot be filtered and half
@@ -1935,7 +2106,7 @@
     gl.activeTexture(gl.TEXTURE1);
     newTexture(gl.NEAREST);
     // The colour tables on the first unit after the passes' results.
-    if (TABLED.length) {
+    if (TABLED.length || FIXED.length) {
       gl.uniform1i(main.at('u_tables'), TABLE_UNIT);
       gl.activeTexture(gl.TEXTURE0 + TABLE_UNIT);
       newTexture(gl.NEAREST);
@@ -2126,16 +2297,21 @@
     const amounts = Object.fromEntries(ADJUSTMENTS.map((a) => [a.id, (adjust[a.id] || 0) / 100]));
 
     // The runs' tables at this cell's settings, about 35KB a run, sent when
-    // those change. Tools whose tables have not arrived yet sit out; lookOf
-    // asks for them and draws again when they come.
+    // those change, and the fixed runs' corrections after them. Tools whose
+    // tables have not arrived yet sit out, and fixed tools go uncorrected;
+    // lookOf asks for them and draws again when they come.
     const runsOn = TABLE_RUNS.map((run) => !!colourTables && run.some((tool) => adjust[tool.id]));
-    const tablesFor = colourTables ? TABLED.map((a) => adjust[a.id] || 0).join(',') : '';
-    if (tablesFor && runsOn.some(Boolean) && tablesFor !== look.tablesFor) {
+    // A run is corrected only when a tool with a table is in use: Shadows on
+    // its own has nothing to add, and its band would be left empty.
+    const fixesOn = FIX_RUNS.map((run) => !!colourTables && run.some((tool) => tool.fix && adjust[tool.id]));
+    const tablesFor = colourTables ? [...TABLED, ...FIXED].map((a) => adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}` : '';
+    if (tablesFor && [...runsOn, ...fixesOn].some(Boolean) && tablesFor !== look.tablesFor) {
       const n = COLOUR_TABLES.size;
       const w = 2 * n * n;
-      const bytes = new Uint8Array(w * n * TABLE_RUNS.length * 4);
-      TABLE_RUNS.forEach((run, band) => {
-        const entries = runTable(run, adjust);
+      const bands = [...TABLE_RUNS.map((run) => () => runTable(run, adjust)), ...FIX_RUNS.map((run) => () => fixTable(run, adjust, dark))];
+      const bytes = new Uint8Array(w * n * bands.length * 4);
+      bands.forEach((make, band) => {
+        const entries = make();
         if (!entries) return;
         for (let b = 0; b < n; b += 1) {
           for (let g = 0; g < n; g += 1) {
@@ -2154,7 +2330,7 @@
         }
       });
       gl.activeTexture(gl.TEXTURE0 + TABLE_UNIT);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, n * TABLE_RUNS.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, n * bands.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
       gl.activeTexture(gl.TEXTURE0);
       look.tablesFor = tablesFor;
     }
@@ -2190,6 +2366,7 @@
     gl.uniform2f(look.main.at('u_texel'), 1 / w, 1 / h);
     ADJUSTMENTS.forEach((a) => { if (!a.table) gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]); });
     runsOn.forEach((on, k) => gl.uniform1f(look.main.at(`u_run${k}`), on ? 1 : 0));
+    fixesOn.forEach((on, k) => gl.uniform1f(look.main.at(`u_fix${k}`), on ? 1 : 0));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     const out = document.createElement('canvas');
