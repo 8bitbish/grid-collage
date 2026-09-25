@@ -106,6 +106,13 @@ await p.waitForTimeout(200);
 const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
 check(await p.locator('#tile-adjust').isVisible() && tools.length >= 2, 'the panel opens with a tool per adjustment', tools.join(', '));
 check(await p.locator('#adjust-reset').isDisabled(), 'Reset has nothing to put back on an unedited tile');
+// Each icon in the middle of its ring. `.dock-item span` once outranked the
+// ring's own centring and put every icon five pixels left of it.
+const offCentre = await p.$$eval('.adjust-tool .adjust-ring', (rings) => Math.max(...rings.map((r) => {
+  const a = r.getBoundingClientRect(), b = r.querySelector('svg').getBoundingClientRect();
+  return Math.max(Math.abs(a.x + a.width / 2 - b.x - b.width / 2), Math.abs(a.y + a.height / 2 - b.y - b.height / 2));
+})));
+check(offCentre <= 0.5, 'every tool\'s icon sits in the middle of its ring', `worst ${offCentre.toFixed(2)}px off`);
 
 const choose = (id) => p.click(`.adjust-tool[data-adjust="${id}"]`);
 // A drag, as far as the app can tell: input while moving, change on letting go.

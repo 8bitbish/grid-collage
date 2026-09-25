@@ -784,7 +784,9 @@
     },
     {
       id: 'sharpen', label: 'Sharpen', min: 0, max: 100, stage: 'detail',
-      icon: '<path d="M12 4l8.5 15h-17z"/>',
+      // From 4.5 to 19.5, so it sits on the ring's centre like the round
+      // icons beside it; from 4 it rode half a unit high.
+      icon: '<path d="M12 4.5l8.5 15h-17z"/>',
       // Google's Sharpen is Polyblur (Delbracio, Garcia-Dorado, Choi, Kelly
       // and Milanfar, Google Research, 2021): model the photo's softness as
       // a Gaussian blur K of some σ, then undo it with a polynomial in K,
