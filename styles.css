@@ -2392,11 +2392,17 @@ body.is-library .toast {
    conic fill behind a disc the colour of the dock, so the icon sits inside a
    ring rather than on a pie. --amount is 0..1, written by app.js on the
    button and inherited from there — declaring a default on the ring itself
-   would shadow it, and did: every ring drew empty. */
+   would shadow it, and did: every ring drew empty.
+   The ring is a span in a dock item, and `.dock-item span` outranks a lone
+   class: it made the ring a flex row, which ignores place-items, and every
+   icon sat hard against the left of its ring, five pixels off centre. Both
+   axes are said again in flex's own terms so it centres either way. */
 .adjust-ring {
   position: relative;
   display: grid;
   place-items: center;
+  justify-content: center;
+  align-items: center;
   width: 32px;
   height: 32px;
   border-radius: 50%;
