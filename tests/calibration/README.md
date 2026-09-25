@@ -310,6 +310,28 @@ Measured in September 2026, Google Photos for Android and on the web.
     1.2 to 1.7 times what 81 and 0.38 read; with one strength for everything,
     that curve had been standing in for a strength that ought to vary.
 
+  - *And a soft edge does not ring.* On the blurred chart Google steepened
+    the sun's edge and its 20|235 edge with no ring at all (2 under at the
+    sun, none at the edge) while lifting its 12px grating ×3.11, which a
+    fixed filter cannot do; on the sharp chart, the same 100|170 edge rings
+    10 and 7. Sharpened as hard as the blurred chart reads soft, the app drew
+    a dark ring round the sun, 18 below the sky, and a line along every
+    cloud. The paper's guard leaves exactly that: beside a smooth edge it
+    catches the climb out of the dip, where the slope turns against the
+    photo's, and leaves the way down. So wherever the paper's test, made
+    against the copy itself, pulls back a pixel within two, the lift is held
+    to the range of the copy round it less 2 levels, save that a crest may
+    rise and a trough sink by four times their depth. A flat ground has no
+    slope to turn against, so a hard edge between flat grounds still rings;
+    a grating has no reversal, so it is not held. A bright disc on grey with
+    an edge soft as σ 3 now comes out steeper (25 levels a pixel from 13)
+    with no ring either side, where it had 18 under; test-adjust holds it to
+    5.
+  - *And never more than twice the polynomial.* The blurred chart, at 1.97,
+    is the softest thing measured; σ can read 3, which would be 3.5 times
+    over on nothing but extrapolation. The fox blurred by σ 2 reads 2.18
+    and 1.92, and is capped from 2.42.
+
   Fitted to the fox, the portrait and the charts together, and not to the
   forest, the forest then came out 0.067 from Google's transfer function at
   100 (RMS, 3 to 24px of the export), where the app fitted to the fox had it
@@ -352,18 +374,19 @@ to the charts before that.
 
 | | transfer at 25 / 52 / 100 | regions at 25 / 52 / 100 |
 | --- | --- | --- |
-| fox, now | 0.027 / 0.060 / 0.113 | 0.040 / 0.061 / 0.110 |
+| fox, now | 0.030 / 0.060 / 0.114 | 0.040 / 0.065 / 0.112 |
 | before | 0.034 / 0.076 / 0.155 | 0.050 / 0.084 / 0.129 |
 | earlier | 0.083 / 0.188 / 0.359 | 0.093 / 0.175 / 0.274 |
-| portrait, now | 0.026 / 0.044 / 0.069 | 0.033 / 0.052 / 0.088 |
+| portrait, now | 0.023 / 0.035 / 0.056 | 0.030 / 0.047 / 0.080 |
 | before | 0.031 / 0.047 / 0.069 | 0.036 / 0.071 / 0.097 |
 | earlier | 0.039 / 0.110 / 0.222 | 0.058 / 0.125 / 0.180 |
-| forest (54 for 52), now | 0.033 / 0.049 / 0.067 | 0.028 / 0.051 / 0.085 |
+| forest (54 for 52), now | 0.033 / 0.049 / 0.065 | 0.026 / 0.050 / 0.083 |
 | before | 0.074 / 0.124 / 0.177 | 0.054 / 0.109 / 0.195 |
 | earlier | 0.040 / 0.072 / 0.126 | 0.043 / 0.071 / 0.108 |
 
-The forest was not in the fit. Each region at 100, Google's / the app's now
-(before):
+The forest was not in the fit. Each region at 100, Google's / the app's
+(before), as first fitted; holding soft edges (below) moved none of these by
+more than 0.02:
 
 | fox at 100 | fine | mid | coarse |
 | --- | --- | --- | --- |
@@ -440,11 +463,11 @@ and in brackets the app fitted to the fox alone):
 
 | | 4px | 6px | 8px | 12px | 20\|235 edge, dip, rise | 100\|170 edge, dip, rise | 1px line peak | noise, ours raw → after q90 JPEG / Google's |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 25 | 1.12 / 1.16 (1.26) | 1.21 / 1.32 (1.35) | 1.17 / 1.22 (1.25) | 1.09 / 1.08 (1.11) | 4, 9 / 3, 2 (1, 8) | 1, 3 / 2, 1 (0, 2) | +6 / +5 (+12) | 3.09 → 2.67 / 2.60 (2.82) |
-| 52 | 1.26 / 1.33 (1.55) | 1.43 / 1.68 (1.73) | 1.36 / 1.47 (1.53) | 1.18 / 1.18 (1.23) | 8, 18 / 5, 4 (2, 16) | 3, 6 / 6, 3 (1, 5) | +12 / +11 (+24) | 3.27 → 2.90 / 2.74 (3.12) |
-| 77 | 1.38 / 1.48 (1.81) | 1.63 / 1.99 (2.08) | 1.53 / 1.68 (1.78) | 1.26 / 1.26 (1.34) | 12, 20 / 8, 7 (4, 20) | 4, 9 / 8, 4 (1, 7) | +18 / +17 (+33) | 3.42 → 3.08 / 2.89 (3.43) |
-| 100 | 1.50 / 1.63 (2.05) | 1.82 / 2.28 (2.40) | 1.68 / 1.88 (2.01) | 1.34 / 1.34 (1.44) | 16, 20 / 11, 9 (5, 20) | 5, 11 / 10, 7 (2, 9) | +24 / +22 (+38) | 3.56 → 3.25 / 3.01 (3.75) |
-| 100, blurred chart | — | — | 2.88 / 2.76 (2.94) | 3.19 / 3.11 (2.89) | 10, 20 / −1, 0 (5, 20) | 20, 20 / 4, 3 (2, 6) | −46 / −47 | 0.97 → 0.98 / 0.87 (0.86) |
+| 25 | 1.12 / 1.16 (1.26) | 1.21 / 1.32 (1.35) | 1.17 / 1.22 (1.25) | 1.09 / 1.08 (1.11) | 3, 9 / 3, 2 (1, 8) | 1, 3 / 2, 1 (0, 2) | +6 / +5 (+12) | 3.09 → 2.67 / 2.60 (2.82) |
+| 52 | 1.26 / 1.33 (1.55) | 1.43 / 1.68 (1.73) | 1.36 / 1.47 (1.53) | 1.18 / 1.18 (1.23) | 7, 18 / 5, 4 (2, 16) | 2, 6 / 6, 3 (1, 5) | +12 / +11 (+24) | 3.27 → 2.90 / 2.74 (3.12) |
+| 77 | 1.38 / 1.48 (1.81) | 1.63 / 1.99 (2.08) | 1.53 / 1.68 (1.78) | 1.26 / 1.26 (1.34) | 10, 20 / 8, 7 (4, 20) | 3, 9 / 8, 4 (1, 7) | +18 / +17 (+33) | 3.42 → 3.08 / 2.89 (3.43) |
+| 100 | 1.50 / 1.63 (2.05) | 1.82 / 2.28 (2.40) | 1.68 / 1.88 (2.01) | 1.34 / 1.34 (1.44) | 14, 20 / 11, 9 (5, 20) | 4, 11 / 10, 7 (2, 9) | +24 / +22 (+38) | 3.56 → 3.25 / 3.01 (3.75) |
+| 100, blurred chart | — | — | 2.88 / 2.76 (2.94) | 3.19 / 3.11 (2.89) | 3, 4 / −1, 0 (5, 20) | 2, 3 / 4, 3 (2, 6) | −46 / −47 | 0.97 → 0.98 / 0.87 (0.86) |
 | 100, clipped chart | 1.40 / 1.44 (1.74) | 1.46 / 1.69 (1.72) | 1.33 / 1.43 (1.47) | 1.15 / 1.17 (1.20) | 12, 20 / 8, 10 (4, 20) | 4, 10 / 7, 8 (1, 10) | +15 / +13 (+27) | 3.41 → 3.08 / 2.68 (3.63) |
 
 A rise of 20 at the 20|235 edge is as far as it can go: that is white. The 2
@@ -453,8 +476,11 @@ lifted less than Google lifts it from 4 to 8px, 0.46 short at 6px at 100,
 where it was within 0.13 from 6px up and over at 4px: the price of the
 forest. In return the 1px line, the noise patch and the 4px grating are
 nearer Google's than they have been, and the blurred chart is within 0.12.
-The blurred chart's 100|170 edge rings 20 each way against Google's 4 and 3,
-the one place the harder lift for a soft photo shows as a halo.
+Sharpened that hard, the blurred chart's edges first rang 20 each way at
+100|170 and 10 under and to white at 20|235, and drew a dark ring round the
+sun 18 levels below the sky; holding soft edges (see What was found) took
+them to what is in the table, and the sun to 2.3 under and 3.7 over against
+Google's 2 and 3.4.
 
 scale.mjs's patch at three sizes, each drawn into a 2160 export as the app
 draws it (`scale.mjs versus`), gain by period in the photo's own pixels; ours
@@ -485,6 +511,10 @@ do and nothing tried yet explains.
   out at slightly different points of the change, so a photo with a median
   near 128 is lifted up to six levels differently from Google at +100.
   Everything with a median below about 122 or above 130 matches to a level.
+- **How hard to sharpen a very soft photo.** Past the blurred chart's σ
+  nothing has been measured, so the strength stops there, at twice the
+  polynomial. A genuinely out-of-focus photo through the phone would say
+  whether Google goes on.
 - **What else sets how hard Google sharpens.** The strength follows σ on
   the three photos, the patches and the blurred chart, but the calibration
   chart reads about as soft as the forest and was sharpened twice as hard, so
@@ -544,11 +574,9 @@ do and nothing tried yet explains.
   scene — makes Google sharpen it harder, the same thing as the first item
   here.
 - **Sharpen's hard edges and single lines.** At 100 the chart's 20|235 edge
-  rings 16 under and to white over against Google's 11 and 9, the 100|170
-  edge 5 and 11 against 10 and 7, and the blurred chart's 20|235 edge rises
-  to white where Google's does not rise at all; its 100|170 edge, gentle
-  enough to get only the paper's guard and sharpened hardest because the
-  chart reads soft, rings 20 each way against Google's 4 and 3. The 1px line
+  rings 14 under and to white over against Google's 11 and 9, the 100|170
+  edge 4 and 11 against 10 and 7, and the blurred chart's 20|235 edge rings
+  3 and 4 where Google's does not ring at all. The 1px line
   peaks +24 against +22, with a dark lobe of 8 beside it where Google's dips
   9. Google's copy also softens a
   hard edge or not depending on where it falls against its grid — the

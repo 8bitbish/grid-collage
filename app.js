@@ -863,6 +863,12 @@
       // 0.067 from Google's transfer function at 100 (RMS, 3 to 24px),
       // where the lift at 1.55 throughout had been 0.177 off.
       //
+      // Never more than twice, though, which is what the blurred chart got,
+      // σ 1.54 and 1.81: the softest thing Google's Sharpen has been
+      // measured on. σ can read up to 3, and a photo that soft would be
+      // sharpened 3.5 times over on nothing but an extrapolation. The fox
+      // blurred by σ 2 reads 2.18 and 1.92, which would be 2.42.
+      //
       // The calibration chart itself does not agree. It reads about as soft
       // as the forest, σ 0.83 to the forest's 0.80, and Google lifted it
       // twice as hard, so it comes out under Google's at 100: 6px ×1.82
@@ -872,7 +878,7 @@
         const sigma = (f) => (f > 0 ? clamp(Math.sqrt(Math.max(0, (96.4 / f) ** 2 - 0.45 ** 2)), 0.6, 3) : 0.6);
         const x = sigma(slopes.x);
         const y = sigma(slopes.y);
-        return { x, y, strength: 1.18 * Math.sqrt(x * y) };
+        return { x, y, strength: Math.min(2, 1.18 * Math.sqrt(x * y)) };
       },
       passes: {
         // All of it once per photo and size, since the slider only scales
@@ -918,6 +924,33 @@
         // it has.
         // The slope is the steepest of the pixel and its four neighbours, so
         // the pixel beside an edge counts as at one.
+        //
+        // Neither guard stops a soft edge ringing. Beside a smooth bright edge
+        // the sharpened copy runs down into a dip and climbs out of it; the
+        // guard catches the climb, where the slope turns against the photo's,
+        // and leaves the way down, so a ring became a hard dark line.
+        // Sharpened as hard as the blurred chart reads soft, that drew a ring
+        // round its sun 18 levels below the sky and a line along every cloud,
+        // where Google's copy dips 2. So wherever the paper's test, made
+        // against the copy itself rather than through K, pulls back a pixel
+        // within two of it, the guarded lift is then held to the range of the
+        // copy round it, less 2 levels — except that a crest may rise past it
+        // and a trough sink, by four times their own depth. Against the copy
+        // itself because a hard edge between two flat grounds, whose flat
+        // sides have no slope to turn against, should ring as Google's does
+        // (10 under and 7 over at the chart's 100|170), and the copy through
+        // K has a slope everywhere near an edge. Crests and troughs because a
+        // texture's peaks and hollows, and a grating's, go further than the
+        // copy round them in Google's copies too; four times their depth,
+        // because a shallow hollow where a cloud meets the sun was sunk 27
+        // levels, to Google's 12, with no limit at all.
+        //
+        // The sun now dips 2.3 and rises 3.7 (Google 2 and 3.4); the blurred
+        // chart's 100|170 edge rings 2 and 3 (4 and 3), where it rang 20 and
+        // 20, and its 20|235 edge 3 and 4 (none), where it rang 10 and to
+        // white. Its gratings, the chart's edges and the three photos moved by
+        // no more than 0.01 of anything measured, bar the portrait, which came
+        // nearer Google's.
         //
         // On a photo the grain split does next to nothing — its neighbours
         // in the copy differ by far more than 2.9 levels — so it answers
@@ -986,6 +1019,64 @@
                 float against = -dot(slope, after);
                 return against > 0.0 ? against / (dot(slope, slope) + against) : 0.0;
               }`,
+          },
+          // How far past the copy round it the lift may take each pixel, and
+          // whether the paper's own test, against the copy itself, pulls it
+          // back. The first is nothing unless the copy is a crest there, for a
+          // lift up, or a trough, for one down — brighter (or darker) than
+          // both its neighbours along some line through it — and then four
+          // times by how much, less half a level. 'luma' is free by now to
+          // hold them.
+          {
+            out: 'luma', from: ['across', 'bands'],
+            glsl: `
+              float up = lifted(vec2(0.0)) >= 0.0 ? 1.0 : -1.0;
+              float room = extreme(vec2(0.0), up);
+              vec2 x = vec2(1.0, 0.0);
+              vec2 y = vec2(0.0, 1.0);
+              vec2 slope = vec2(base(x) - base(-x), base(y) - base(-y));
+              vec2 after = vec2(sharp(x) - sharp(-x), sharp(y) - sharp(-y));
+              float against = -dot(slope, after);
+              return vec2(room, against > 0.0 ? against / (dot(slope, slope) + against) : 0.0);`,
+            helpers: `
+              float lifted(vec2 px) { return read0(px).x; }
+              float base(vec2 px) { return read1(px).y; }
+              float sharp(vec2 px) { return base(px) + lifted(px); }
+              // Up for a crest, down (-1) for a trough.
+              float extreme(vec2 px, float up) {
+                float c = base(px);
+                float most = -1.0;
+                for (int k = 0; k < 4; k++) {
+                  vec2 d = k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(0.0, 1.0) : k == 2 ? vec2(1.0, 1.0) : vec2(1.0, -1.0);
+                  most = max(most, min(up * (c - base(px + d)), up * (c - base(px - d))));
+                }
+                return 4.0 * max(0.0, most - 0.5 / 255.0);
+              }`,
+          },
+          // The guarded lift held to the range of the copy round it, less 2
+          // levels, wherever the paper's test pulls back a pixel within two
+          // of it: the flat side of a soft edge. See the guard above.
+          {
+            out: 'first', from: ['across', 'bands', 'luma'],
+            glsl: `
+              float b = read1(vec2(0.0)).y;
+              float lo = b;
+              float hi = b;
+              for (int j = -1; j <= 1; j++) {
+                for (int i = -1; i <= 1; i++) {
+                  float v = read1(vec2(float(i), float(j))).y;
+                  lo = min(lo, v);
+                  hi = max(hi, v);
+                }
+              }
+              float tested = 0.0;
+              for (int j = -2; j <= 2; j++) {
+                for (int i = -2; i <= 2; i++) tested = max(tested, read2(vec2(float(i), float(j))).y);
+              }
+              float room = read2(vec2(0.0)).x;
+              float lift = read0(vec2(0.0)).x;
+              float held = clamp(b + lift, lo - 2.0 / 255.0 - room, hi + 2.0 / 255.0 + room) - b;
+              return vec2(mix(lift, held, min(1.0, 2.0 * tested)), 0.0);`,
           },
         ],
       },

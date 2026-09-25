@@ -529,6 +529,11 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
       }
       return (2 * Math.hypot(cs, sn)) / (w - 2 * from);
     };
+    if (kind === 'disc') {
+      // The row through the disc's centre, left to right.
+      const d = g.getImageData(0, bmp.height / 2, bmp.width, 1).data;
+      return { row: [...Array(bmp.width)].map((_, i) => d[i * 4 + 1]) };
+    }
     if (kind === 'patch') {
       const x = Math.round((bmp.width - P.w) / 2), y = Math.round((bmp.height - P.h) / 2);
       // From 16px in, as scale.mjs reads it, so its phase is counted the same.
@@ -664,6 +669,59 @@ else {
   const six = PATCH.periods.indexOf(6);
   check(bwPatch[six] > plainPatch[six] + 0.3,
     'the squares alone make the same gratings sharpen harder, as they did in Google Photos', `6px ${bwPatch[six].toFixed(2)} against ${plainPatch[six].toFixed(2)}`);
+}
+
+/* --------------------------------------- Sharpen on a soft, bright edge */
+
+// The softer a photo reads, the harder it is sharpened, and on the blurred
+// chart that once drew a dark ring round the sun and a dark line along every
+// cloud: 18 levels below the sky just outside the sun, where Google's copy
+// dips 2. Nothing above caught it, because the gratings have no flat ground
+// beside them to ring into. So: a bright disc on a mid grey, its edge soft as
+// a Gaussian of σ 3, exported at 2160 so it goes through at 1:1. The edge
+// should come out steeper and ring no more than Google rang at the sun, 2
+// under and 3 over, and a level or two for the JPEG it saved. With the ring
+// the app drew 18 under here; now 0 and 0, the edge 13 levels a pixel at its
+// steepest as it came and 25 sharpened.
+const discPng = Buffer.from(await p.evaluate(async () => {
+  const N = 2160, R = 300, SIGMA = 3, SKY = 150, SUN = 245;
+  // Abramowitz and Stegun 7.1.26, to within 1.5e-7.
+  const erf = (x) => {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y = 1 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-x * x);
+    return x < 0 ? -y : y;
+  };
+  const c = new OffscreenCanvas(N, N);
+  const g = c.getContext('2d');
+  const img = g.createImageData(N, N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const r = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2);
+      const v = Math.round(SKY + (SUN - SKY) * 0.5 * (1 - erf((r - R) / (SIGMA * Math.SQRT2))));
+      const i = (y * N + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return [...new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer())];
+}));
+const disc = await sharpenedChart('disc.png', discPng, 100, 'disc');
+if (!disc) check(false, 'the sharpened disc arrives');
+else {
+  // Both edges of the row: the sky from 20 to 60px outside the disc, the
+  // disc from 20 to 60px inside it.
+  const outside = [...disc.row.slice(1080 - 360, 1080 - 320), ...disc.row.slice(1080 + 320, 1080 + 360)];
+  const inside = [...disc.row.slice(1080 - 280, 1080 - 240), ...disc.row.slice(1080 + 240, 1080 + 280)];
+  const under = 150 - Math.min(...outside);
+  const over = Math.max(...inside) - 245;
+  const edge = disc.row.slice(1080 + 280, 1080 + 320);
+  const steepest = Math.max(...edge.slice(1).map((v, i) => Math.abs(v - edge[i])));
+  // The disc as it came climbs 13 levels a pixel at its steepest.
+  check(steepest >= 18, 'Sharpen 100 steepens a soft edge', `${steepest} levels a pixel at its steepest, against 13 as it came`);
+  check(under <= 5 && over <= 5,
+    'and a bright disc on grey rings no more than 5 levels either side of it, where Google rang the blurred chart\'s sun 2 and 3',
+    `${under} under, ${over} over`);
 }
 
 /* ------------------------------------- Sharpen on a photograph's texture */
