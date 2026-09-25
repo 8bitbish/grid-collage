@@ -1,0 +1,187 @@
+{
+ "fox": {
+  "source": "a red fox on gravel, US Fish and Wildlife Service, from Wikimedia Commons",
+  "licence": "public domain",
+  "photo": [3872, 2592],
+  "crop": [4, 0, 3868, 2592],
+  "measured": [3864, 2592],
+  "frame": 2160,
+  "regions": {
+   "face fur": [930, 560, 240, 200],
+   "muzzle, whiskers": [640, 1180, 260, 200],
+   "body fur": [100, 560, 280, 240],
+   "gravel": [1700, 1720, 300, 260],
+   "soft background": [1620, 60, 400, 260],
+   "eye and ear edges": [770, 860, 240, 180]
+  },
+  "periods": [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48],
+  "original": {
+   "face fur": { "fine": 7.292, "mid": 7.89, "coarse": 6.336 },
+   "muzzle, whiskers": { "fine": 6.586, "mid": 9.091, "coarse": 8.185 },
+   "body fur": { "fine": 2.045, "mid": 2.779, "coarse": 4.885 },
+   "gravel": { "fine": 1.802, "mid": 1.44, "coarse": 2.368 },
+   "soft background": { "fine": 1.471, "mid": 1.228, "coarse": 1.004 },
+   "eye and ear edges": { "fine": 7.59, "mid": 8.869, "coarse": 8.104 }
+  },
+  "settings": {
+   "25": {
+    "transfer": [1.086, 1.07, 1.049, 1.083, 1.117, 1.146, 1.199, 1.241, 1.255, 1.21, 1.104, 1.052, 1.017],
+    "regions": {
+     "face fur": { "fine": 1.086, "mid": 1.148, "coarse": 1.185 },
+     "muzzle, whiskers": { "fine": 1.105, "mid": 1.182, "coarse": 1.189 },
+     "body fur": { "fine": 1.173, "mid": 1.232, "coarse": 1.211 },
+     "gravel": { "fine": 1.091, "mid": 1.1, "coarse": 1.09 },
+     "soft background": { "fine": 1.12, "mid": 1.138, "coarse": 1.169 },
+     "eye and ear edges": { "fine": 1.092, "mid": 1.155, "coarse": 1.16 }
+    }
+   },
+   "52": {
+    "transfer": [1.031, 1.076, 1.104, 1.196, 1.262, 1.319, 1.429, 1.516, 1.547, 1.451, 1.224, 1.112, 1.037],
+    "regions": {
+     "face fur": { "fine": 1.16, "mid": 1.333, "coarse": 1.401 },
+     "muzzle, whiskers": { "fine": 1.198, "mid": 1.391, "coarse": 1.408 },
+     "body fur": { "fine": 1.284, "mid": 1.497, "coarse": 1.453 },
+     "gravel": { "fine": 1.101, "mid": 1.231, "coarse": 1.212 },
+     "soft background": { "fine": 1.188, "mid": 1.335, "coarse": 1.409 },
+     "eye and ear edges": { "fine": 1.173, "mid": 1.34, "coarse": 1.349 }
+    }
+   },
+   "100": {
+    "transfer": [0.947, 1.086, 1.195, 1.379, 1.499, 1.606, 1.809, 1.971, 2.026, 1.844, 1.417, 1.206, 1.067],
+    "regions": {
+     "face fur": { "fine": 1.304, "mid": 1.648, "coarse": 1.77 },
+     "muzzle, whiskers": { "fine": 1.38, "mid": 1.746, "coarse": 1.777 },
+     "body fur": { "fine": 1.495, "mid": 1.946, "coarse": 1.864 },
+     "gravel": { "fine": 1.112, "mid": 1.415, "coarse": 1.383 },
+     "soft background": { "fine": 1.285, "mid": 1.581, "coarse": 1.702 },
+     "eye and ear edges": { "fine": 1.328, "mid": 1.656, "coarse": 1.673 }
+    }
+   }
+  }
+ },
+ "portrait": {
+  "source": "Wikimedia Commons, File:USFWS Director Martha Williams portrait, August 2023.jpg",
+  "licence": "public domain",
+  "photo": [3325, 4987],
+  "crop": [42, 0, 3282, 4986],
+  "measured": [3240, 4986],
+  "frame": 2160,
+  "regions": {
+   "cheek skin": [950, 250, 130, 130],
+   "other cheek": [1275, 215, 130, 130],
+   "hair": [1450, 80, 150, 200],
+   "eyes, brows": [1000, 70, 320, 110],
+   "shirt fabric": [1400, 900, 300, 200],
+   "badge": [1140, 1130, 180, 190],
+   "soft background": [120, 200, 480, 400]
+  },
+  "periods": [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48],
+  "original": {
+   "cheek skin": { "fine": 2.462, "mid": 3.048, "coarse": 4.543 },
+   "other cheek": { "fine": 1.984, "mid": 2.484, "coarse": 2.388 },
+   "hair": { "fine": 4.855, "mid": 6.288, "coarse": 6.095 },
+   "eyes, brows": { "fine": 3.099, "mid": 5.03, "coarse": 7.689 },
+   "shirt fabric": { "fine": 1.492, "mid": 2.111, "coarse": 3.348 },
+   "badge": { "fine": 6.48, "mid": 12.91, "coarse": 15.529 },
+   "soft background": { "fine": 1.403, "mid": 0.822, "coarse": 0.443 }
+  },
+  "settings": {
+   "25": {
+    "transfer": [0.887, 0.957, 0.999, 1.057, 1.093, 1.115, 1.142, 1.151, 1.149, 1.104, 1.049, 1.026, 1.009],
+    "regions": {
+     "cheek skin": { "fine": 1.06, "mid": 1.135, "coarse": 1.102 },
+     "other cheek": { "fine": 1.096, "mid": 1.185, "coarse": 1.199 },
+     "hair": { "fine": 1.106, "mid": 1.205, "coarse": 1.183 },
+     "eyes, brows": { "fine": 1.09, "mid": 1.157, "coarse": 1.142 },
+     "shirt fabric": { "fine": 1.023, "mid": 1.119, "coarse": 1.094 },
+     "badge": { "fine": 1.098, "mid": 1.126, "coarse": 1.102 },
+     "soft background": { "fine": 1.008, "mid": 1.083, "coarse": 1.117 }
+    }
+   },
+   "52": {
+    "transfer": [0.852, 0.943, 1.029, 1.155, 1.219, 1.26, 1.31, 1.328, 1.324, 1.226, 1.106, 1.055, 1.019],
+    "regions": {
+     "cheek skin": { "fine": 1.13, "mid": 1.299, "coarse": 1.226 },
+     "other cheek": { "fine": 1.208, "mid": 1.418, "coarse": 1.441 },
+     "hair": { "fine": 1.232, "mid": 1.44, "coarse": 1.396 },
+     "eyes, brows": { "fine": 1.196, "mid": 1.343, "coarse": 1.308 },
+     "shirt fabric": { "fine": 1.089, "mid": 1.276, "coarse": 1.213 },
+     "badge": { "fine": 1.223, "mid": 1.278, "coarse": 1.221 },
+     "soft background": { "fine": 1.038, "mid": 1.243, "coarse": 1.361 }
+    }
+   },
+   "100": {
+    "transfer": [0.786, 0.934, 1.088, 1.302, 1.412, 1.487, 1.582, 1.613, 1.604, 1.419, 1.197, 1.103, 1.036],
+    "regions": {
+     "cheek skin": { "fine": 1.265, "mid": 1.565, "coarse": 1.434 },
+     "other cheek": { "fine": 1.412, "mid": 1.788, "coarse": 1.824 },
+     "hair": { "fine": 1.462, "mid": 1.839, "coarse": 1.763 },
+     "eyes, brows": { "fine": 1.396, "mid": 1.662, "coarse": 1.594 },
+     "shirt fabric": { "fine": 1.211, "mid": 1.534, "coarse": 1.406 },
+     "badge": { "fine": 1.442, "mid": 1.536, "coarse": 1.425 },
+     "soft background": { "fine": 1.067, "mid": 1.369, "coarse": 1.514 }
+    }
+   }
+  }
+ },
+ "forest": {
+  "source": "Wikimedia Commons, File:Hoh rainforest tall tree leaves fall cbubar 2015 (23110130341).jpg",
+  "licence": "public domain",
+  "photo": [3672, 4896],
+  "crop": null,
+  "measured": [3672, 4896],
+  "frame": 2160,
+  "regions": {
+   "canopy": [310, 40, 400, 280],
+   "ferns": [620, 960, 300, 240],
+   "branches on sky": [90, 800, 400, 380],
+   "moss": [1030, 1500, 300, 260],
+   "hanging moss": [1690, 1400, 280, 380],
+   "leaf edges": [700, 1780, 400, 280]
+  },
+  "periods": [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48],
+  "original": {
+   "canopy": { "fine": 8.272, "mid": 14.461, "coarse": 17.714 },
+   "ferns": { "fine": 4.806, "mid": 7.298, "coarse": 9.004 },
+   "branches on sky": { "fine": 6.71, "mid": 10.848, "coarse": 13.379 },
+   "moss": { "fine": 4.133, "mid": 5.551, "coarse": 5.832 },
+   "hanging moss": { "fine": 3.371, "mid": 5.379, "coarse": 7.186 },
+   "leaf edges": { "fine": 3.686, "mid": 5.158, "coarse": 7.825 }
+  },
+  "settings": {
+   "25": {
+    "transfer": [0.966, 0.997, 1.012, 1.029, 1.045, 1.06, 1.08, 1.081, 1.069, 1.043, 1.013, 1.003, 0.997],
+    "regions": {
+     "canopy": { "fine": 1.041, "mid": 1.066, "coarse": 1.046 },
+     "ferns": { "fine": 1.091, "mid": 1.12, "coarse": 1.091 },
+     "branches on sky": { "fine": 1.036, "mid": 1.065, "coarse": 1.042 },
+     "moss": { "fine": 1.117, "mid": 1.15, "coarse": 1.112 },
+     "hanging moss": { "fine": 1.033, "mid": 1.05, "coarse": 1.034 },
+     "leaf edges": { "fine": 1.061, "mid": 1.086, "coarse": 1.057 }
+    }
+   },
+   "54": {
+    "transfer": [0.907, 0.999, 1.043, 1.087, 1.118, 1.145, 1.182, 1.183, 1.156, 1.097, 1.032, 1.008, 0.995],
+    "regions": {
+     "canopy": { "fine": 1.099, "mid": 1.156, "coarse": 1.106 },
+     "ferns": { "fine": 1.185, "mid": 1.271, "coarse": 1.201 },
+     "branches on sky": { "fine": 1.089, "mid": 1.154, "coarse": 1.097 },
+     "moss": { "fine": 1.23, "mid": 1.336, "coarse": 1.248 },
+     "hanging moss": { "fine": 1.058, "mid": 1.121, "coarse": 1.081 },
+     "leaf edges": { "fine": 1.101, "mid": 1.196, "coarse": 1.128 }
+    }
+   },
+   "100": {
+    "transfer": [0.844, 1.006, 1.091, 1.177, 1.232, 1.279, 1.343, 1.342, 1.29, 1.182, 1.061, 1.017, 0.991],
+    "regions": {
+     "canopy": { "fine": 1.201, "mid": 1.303, "coarse": 1.205 },
+     "ferns": { "fine": 1.344, "mid": 1.514, "coarse": 1.379 },
+     "branches on sky": { "fine": 1.187, "mid": 1.299, "coarse": 1.187 },
+     "moss": { "fine": 1.416, "mid": 1.632, "coarse": 1.464 },
+     "hanging moss": { "fine": 1.116, "mid": 1.235, "coarse": 1.155 },
+     "leaf edges": { "fine": 1.181, "mid": 1.373, "coarse": 1.239 }
+    }
+   }
+  }
+ }
+}

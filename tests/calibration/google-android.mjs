@@ -131,10 +131,12 @@ async function setSlider(target) {
     const moved = read() - now;
     if (moved && Math.sign(moved) === Math.sign(dx)) perPx = Math.abs(moved / dx);
   }
-  // The ruler only lands to within a unit or two on some phones, so near is
-  // accepted and the value it really landed on is what the file is named for.
+  // The ruler only lands near on some phones: on a Galaxy S23 Ultra it took
+  // thirty nudges and settled on 54 for 50. Sharpen's slider is linear, so a
+  // copy at 54 measures as well as one at 50 provided it is compared with the
+  // app at 54 — which is why the file is named for where it really landed.
   const got = read();
-  if (Math.abs(got - target) > 2) throw new Error(`slider settled on ${got}, not ${target}`);
+  if (Math.abs(got - target) > 5) throw new Error(`slider settled on ${got}, not ${target}`);
   return got;
 }
 
@@ -201,7 +203,12 @@ fs.mkdirSync(dir, { recursive: true });
 // Awake for the run, and back to the phone's own setting after it, however
 // the run ends: it was left on for good once, on someone's own phone.
 sh('svc power stayon true');
-process.on('exit', () => { try { sh('svc power stayon false'); } catch { /* device gone */ } });
+// The screen dumps land in shared storage and the media store indexes them,
+// so they go too: nothing of the run's should be left on somebody's phone.
+process.on('exit', () => {
+  try { sh('svc power stayon false'); } catch { /* device gone */ }
+  try { sh('rm -f /sdcard/ui.xml; content delete --uri content://media/external/file --where "_data=\'/storage/emulated/0/ui.xml\'"'); } catch { /* device gone */ }
+});
 for (const setting of settings) {
   const [, tool, value] = /^([a-zA-Z]+)([+-]\d+)$/.exec(setting) || [];
   if (!tool) throw new Error(`not a setting: ${setting}`);
