@@ -3,9 +3,9 @@
  *
  *   node lut-chart.mjs <dir> [n=9]
  *
- * Writes lut.png, with the grid filling the 2160 square, and lut-on-black.png
- * and lut-on-white.png, with the same grid in the middle half on a black or a
- * white surround. A tool that treats every pixel alike moves a patch the same
+ * Writes lut.png, with the grid filling the 2160 square, and lut-on-black.png,
+ * lut-on-white.png and lut-on-grey.png, with the same grid in the middle half
+ * on a black, a white or a mid-grey surround. A tool that treats every pixel alike moves a patch the same
  * way on all three; one that looks at the photo first does not. Also
  * lut.json: where each patch is and what colour it was, as a fraction of the
  * frame so it reads the same off a 1000px copy.
@@ -42,10 +42,14 @@ const out = await p.evaluate(async (n) => {
     full: await draw('rgb(128,128,128)', 0, S),
     black: await draw('rgb(0,0,0)', S / 4, S / 2),
     white: await draw('rgb(255,255,255)', S / 4, S / 2),
+    // The calibration chart's own surround. Shadows carried colour one way
+    // on that chart and another on the grid, on black and on white alike.
+    grey: await draw('rgb(128,128,128)', S / 4, S / 2),
   };
 }, n);
 fs.writeFileSync(path.join(dir, 'lut.png'), Buffer.from(out.full.b64, 'base64'));
 fs.writeFileSync(path.join(dir, 'lut-on-black.png'), Buffer.from(out.black.b64, 'base64'));
 fs.writeFileSync(path.join(dir, 'lut-on-white.png'), Buffer.from(out.white.b64, 'base64'));
-fs.writeFileSync(path.join(dir, 'lut.json'), JSON.stringify({ n, full: out.full.patches, black: out.black.patches, white: out.white.patches }));
+fs.writeFileSync(path.join(dir, 'lut-on-grey.png'), Buffer.from(out.grey.b64, 'base64'));
+fs.writeFileSync(path.join(dir, 'lut.json'), JSON.stringify({ n, full: out.full.patches, black: out.black.patches, white: out.white.patches, grey: out.grey.patches }));
 await b.close();
