@@ -1,0 +1,1236 @@
+{
+ "source": "Google Photos on the web (the same engine as the Android app), the 9x9x9 chart of lut-chart.mjs with two or three sliders set on one copy, fetched at 1000px; single-tool references from the 13x13x13 chart. September 2026.",
+ "measure": "RGB distance in levels over the 729 patches: mean / 90th percentile / worst.",
+ "order": [
+  "warmth",
+  "tint",
+  "whitePoint",
+  "highlights",
+  "shadows",
+  "blackPoint",
+  "contrast",
+  "brightness",
+  "saturation",
+  "skinTone",
+  "blueTone"
+ ],
+ "rules": {
+  "negativeBrightness": "Brightness below nought runs before Contrast rather than after it.",
+  "blueTone": "Blue tone acts at its setting times (1 - Saturation/100).",
+  "sharpen": "Not measurable on the web, which has no Sharpen; it stays first, on the photo as it arrived."
+ },
+ "overall": {
+  "offlinePanelOrder": 7.84,
+  "offlineChosen": 4.58,
+  "offlineBestOfAll": 4.49,
+  "appMain": 8.5,
+  "appNow": 5.2
+ },
+ "combinations": [
+  {
+   "setting": "brightness+50,whitePoint-50",
+   "googleMoved": 58.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 30.1,
+     "p90": 52.8,
+     "max": 66
+    },
+    "chosen": {
+     "mean": 5.4,
+     "p90": 8.9,
+     "max": 13
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 33.9,
+     "p90": 55,
+     "max": 65
+    },
+    "now": {
+     "mean": 6.8,
+     "p90": 11.3,
+     "max": 16
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,blackPoint+50",
+   "googleMoved": 46.7,
+   "offline": {
+    "panelOrder": {
+     "mean": 21.6,
+     "p90": 43.8,
+     "max": 116
+    },
+    "chosen": {
+     "mean": 8.4,
+     "p90": 18.5,
+     "max": 77
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 23.4,
+     "p90": 44,
+     "max": 101
+    },
+    "now": {
+     "mean": 8.5,
+     "p90": 14.7,
+     "max": 86
+    }
+   }
+  },
+  {
+   "setting": "saturation+100,warmth-100",
+   "googleMoved": 60.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 19.9,
+     "p90": 46.2,
+     "max": 76
+    },
+    "chosen": {
+     "mean": 7.9,
+     "p90": 15.8,
+     "max": 61
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 20,
+     "p90": 46.1,
+     "max": 76
+    },
+    "now": {
+     "mean": 7.9,
+     "p90": 16.2,
+     "max": 62
+    }
+   }
+  },
+  {
+   "setting": "warmth+50,contrast+50,brightness+50",
+   "googleMoved": 71.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 17.5,
+     "p90": 29.9,
+     "max": 45
+    },
+    "chosen": {
+     "mean": 6.1,
+     "p90": 10.9,
+     "max": 18
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 17.1,
+     "p90": 29.9,
+     "max": 45
+    },
+    "now": {
+     "mean": 6.3,
+     "p90": 11.1,
+     "max": 19
+    }
+   }
+  },
+  {
+   "setting": "saturation-50,blueTone+50",
+   "googleMoved": 52.2,
+   "offline": {
+    "panelOrder": {
+     "mean": 13.6,
+     "p90": 53.8,
+     "max": 96
+    },
+    "chosen": {
+     "mean": 13.6,
+     "p90": 53.8,
+     "max": 96
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 13.6,
+     "p90": 53.8,
+     "max": 95
+    },
+    "now": {
+     "mean": 11.3,
+     "p90": 43.7,
+     "max": 78
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,warmth+50",
+   "googleMoved": 66.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 12.1,
+     "p90": 24.2,
+     "max": 34
+    },
+    "chosen": {
+     "mean": 2.5,
+     "p90": 4.1,
+     "max": 9
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 11.9,
+     "p90": 24,
+     "max": 33
+    },
+    "now": {
+     "mean": 2.5,
+     "p90": 4.2,
+     "max": 9
+    }
+   }
+  },
+  {
+   "setting": "contrast+100,brightness-50",
+   "googleMoved": 30.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 11.4,
+     "p90": 21.4,
+     "max": 29
+    },
+    "chosen": {
+     "mean": 11.4,
+     "p90": 21.4,
+     "max": 29
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 11.6,
+     "p90": 21.5,
+     "max": 29
+    },
+    "now": {
+     "mean": 11.6,
+     "p90": 21.5,
+     "max": 29
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,shadows+50",
+   "googleMoved": 83.7,
+   "offline": {
+    "panelOrder": {
+     "mean": 11.7,
+     "p90": 26.7,
+     "max": 33
+    },
+    "chosen": {
+     "mean": 3.6,
+     "p90": 6.9,
+     "max": 14
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 10.8,
+     "p90": 22.8,
+     "max": 53
+    },
+    "now": {
+     "mean": 5,
+     "p90": 13,
+     "max": 51
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,highlights-50",
+   "googleMoved": 58.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 11.5,
+     "p90": 18.5,
+     "max": 25
+    },
+    "chosen": {
+     "mean": 4.7,
+     "p90": 10.2,
+     "max": 24
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 10.7,
+     "p90": 17.3,
+     "max": 22
+    },
+    "now": {
+     "mean": 4.3,
+     "p90": 9.7,
+     "max": 24
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,contrast+50",
+   "googleMoved": 72.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 10.4,
+     "p90": 21.7,
+     "max": 33
+    },
+    "chosen": {
+     "mean": 5.5,
+     "p90": 10.2,
+     "max": 18
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 10.2,
+     "p90": 21.3,
+     "max": 34
+    },
+    "now": {
+     "mean": 5.7,
+     "p90": 10,
+     "max": 18
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,contrast-50",
+   "googleMoved": 65,
+   "offline": {
+    "panelOrder": {
+     "mean": 9.6,
+     "p90": 17.1,
+     "max": 23
+    },
+    "chosen": {
+     "mean": 2.8,
+     "p90": 4.4,
+     "max": 8
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 9.2,
+     "p90": 16.4,
+     "max": 22
+    },
+    "now": {
+     "mean": 2.6,
+     "p90": 4.4,
+     "max": 8
+    }
+   }
+  },
+  {
+   "setting": "blackPoint+50,warmth+50",
+   "googleMoved": 39.1,
+   "offline": {
+    "panelOrder": {
+     "mean": 8,
+     "p90": 13.7,
+     "max": 25
+    },
+    "chosen": {
+     "mean": 3.1,
+     "p90": 5.4,
+     "max": 16
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 8.9,
+     "p90": 15.7,
+     "max": 25
+    },
+    "now": {
+     "mean": 6.6,
+     "p90": 13.2,
+     "max": 25
+    }
+   }
+  },
+  {
+   "setting": "tint+50,blackPoint+50",
+   "googleMoved": 26,
+   "offline": {
+    "panelOrder": {
+     "mean": 7.7,
+     "p90": 14.7,
+     "max": 25
+    },
+    "chosen": {
+     "mean": 3.2,
+     "p90": 5.2,
+     "max": 16
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 8.7,
+     "p90": 17,
+     "max": 29
+    },
+    "now": {
+     "mean": 6.5,
+     "p90": 12.8,
+     "max": 24
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,blackPoint+50",
+   "googleMoved": 29.9,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.7,
+     "p90": 11.8,
+     "max": 24
+    },
+    "chosen": {
+     "mean": 8.4,
+     "p90": 13.5,
+     "max": 20
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 8.5,
+     "p90": 16,
+     "max": 31
+    },
+    "now": {
+     "mean": 10.3,
+     "p90": 17.1,
+     "max": 27
+    }
+   }
+  },
+  {
+   "setting": "shadows+50,warmth+50",
+   "googleMoved": 30.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 5.2,
+     "p90": 10.9,
+     "max": 26
+    },
+    "chosen": {
+     "mean": 2.4,
+     "p90": 4,
+     "max": 7
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 8,
+     "p90": 21.5,
+     "max": 45
+    },
+    "now": {
+     "mean": 7.4,
+     "p90": 18.6,
+     "max": 51
+    }
+   }
+  },
+  {
+   "setting": "tint+50,shadows+50",
+   "googleMoved": 30.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.1,
+     "p90": 5.5,
+     "max": 10
+    },
+    "chosen": {
+     "mean": 2.4,
+     "p90": 3.9,
+     "max": 8
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.7,
+     "p90": 20.2,
+     "max": 48
+    },
+    "now": {
+     "mean": 7.4,
+     "p90": 19,
+     "max": 47
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,whitePoint+50",
+   "googleMoved": 37.7,
+   "offline": {
+    "panelOrder": {
+     "mean": 5.3,
+     "p90": 9.2,
+     "max": 14
+    },
+    "chosen": {
+     "mean": 3.1,
+     "p90": 5.3,
+     "max": 11
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.7,
+     "p90": 14,
+     "max": 29
+    },
+    "now": {
+     "mean": 4.6,
+     "p90": 12.6,
+     "max": 30
+    }
+   }
+  },
+  {
+   "setting": "whitePoint+50,warmth+50",
+   "googleMoved": 32.3,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.7,
+     "p90": 13.8,
+     "max": 36
+    },
+    "chosen": {
+     "mean": 2.7,
+     "p90": 5.1,
+     "max": 9
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.6,
+     "p90": 17.4,
+     "max": 31
+    },
+    "now": {
+     "mean": 4.3,
+     "p90": 10.3,
+     "max": 25
+    }
+   }
+  },
+  {
+   "setting": "saturation+100,blueTone+50",
+   "googleMoved": 36.2,
+   "offline": {
+    "panelOrder": {
+     "mean": 8,
+     "p90": 23.6,
+     "max": 74
+    },
+    "chosen": {
+     "mean": 8,
+     "p90": 23.6,
+     "max": 74
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.6,
+     "p90": 23.7,
+     "max": 71
+    },
+    "now": {
+     "mean": 3.9,
+     "p90": 9.7,
+     "max": 25
+    }
+   }
+  },
+  {
+   "setting": "blackPoint+50,saturation+50",
+   "googleMoved": 35.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 4.5,
+     "p90": 8.3,
+     "max": 17
+    },
+    "chosen": {
+     "mean": 4.5,
+     "p90": 8.3,
+     "max": 17
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.4,
+     "p90": 14.3,
+     "max": 25
+    },
+    "now": {
+     "mean": 7.4,
+     "p90": 14.3,
+     "max": 25
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,shadows+50",
+   "googleMoved": 28.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 4.6,
+     "p90": 8.5,
+     "max": 12
+    },
+    "chosen": {
+     "mean": 5.2,
+     "p90": 12.1,
+     "max": 21
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 7.2,
+     "p90": 20.3,
+     "max": 48
+    },
+    "now": {
+     "mean": 9.9,
+     "p90": 27,
+     "max": 54
+    }
+   }
+  },
+  {
+   "setting": "shadows+50,saturation+50",
+   "googleMoved": 23.3,
+   "offline": {
+    "panelOrder": {
+     "mean": 2.6,
+     "p90": 4.3,
+     "max": 7
+    },
+    "chosen": {
+     "mean": 2.6,
+     "p90": 4.3,
+     "max": 7
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.7,
+     "p90": 16.5,
+     "max": 39
+    },
+    "now": {
+     "mean": 6.7,
+     "p90": 16.5,
+     "max": 39
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,warmth+50",
+   "googleMoved": 26.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.9,
+     "p90": 13.8,
+     "max": 38
+    },
+    "chosen": {
+     "mean": 2.8,
+     "p90": 4.8,
+     "max": 10
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.7,
+     "p90": 13.2,
+     "max": 38
+    },
+    "now": {
+     "mean": 2.8,
+     "p90": 4.9,
+     "max": 10
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,tint+50",
+   "googleMoved": 76.7,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.6,
+     "p90": 12.2,
+     "max": 17
+    },
+    "chosen": {
+     "mean": 2.4,
+     "p90": 3.9,
+     "max": 7
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.4,
+     "p90": 12.2,
+     "max": 18
+    },
+    "now": {
+     "mean": 2.4,
+     "p90": 4.1,
+     "max": 7
+    }
+   }
+  },
+  {
+   "setting": "saturation+50,blueTone-50",
+   "googleMoved": 13.1,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.6,
+     "p90": 20.6,
+     "max": 40
+    },
+    "chosen": {
+     "mean": 6.6,
+     "p90": 20.6,
+     "max": 40
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.3,
+     "p90": 20.1,
+     "max": 41
+    },
+    "now": {
+     "mean": 3.2,
+     "p90": 6.8,
+     "max": 30
+    }
+   }
+  },
+  {
+   "setting": "blueTone+50,whitePoint-50",
+   "googleMoved": 33.7,
+   "offline": {
+    "panelOrder": {
+     "mean": 2.1,
+     "p90": 4,
+     "max": 13
+    },
+    "chosen": {
+     "mean": 2.1,
+     "p90": 4,
+     "max": 13
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.3,
+     "p90": 11.2,
+     "max": 16
+    },
+    "now": {
+     "mean": 6.3,
+     "p90": 11.2,
+     "max": 16
+    }
+   }
+  },
+  {
+   "setting": "saturation+50,blueTone+50",
+   "googleMoved": 15.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.5,
+     "p90": 21.8,
+     "max": 48
+    },
+    "chosen": {
+     "mean": 6.5,
+     "p90": 21.8,
+     "max": 48
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.2,
+     "p90": 20.2,
+     "max": 49
+    },
+    "now": {
+     "mean": 3.3,
+     "p90": 7.3,
+     "max": 20
+    }
+   }
+  },
+  {
+   "setting": "brightness-50,contrast+50",
+   "googleMoved": 42.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 6.1,
+     "p90": 10.7,
+     "max": 15
+    },
+    "chosen": {
+     "mean": 6.1,
+     "p90": 10.7,
+     "max": 15
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 6.1,
+     "p90": 10.7,
+     "max": 15
+    },
+    "now": {
+     "mean": 6.1,
+     "p90": 10.7,
+     "max": 15
+    }
+   }
+  },
+  {
+   "setting": "saturation+50,warmth+50",
+   "googleMoved": 28.1,
+   "offline": {
+    "panelOrder": {
+     "mean": 5.9,
+     "p90": 11.9,
+     "max": 23
+    },
+    "chosen": {
+     "mean": 3.3,
+     "p90": 5.7,
+     "max": 12
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 5.9,
+     "p90": 11.8,
+     "max": 24
+    },
+    "now": {
+     "mean": 3.2,
+     "p90": 5.6,
+     "max": 12
+    }
+   }
+  },
+  {
+   "setting": "tint+50,saturation+50",
+   "googleMoved": 20.4,
+   "offline": {
+    "panelOrder": {
+     "mean": 5.5,
+     "p90": 10.7,
+     "max": 21
+    },
+    "chosen": {
+     "mean": 3.5,
+     "p90": 5.9,
+     "max": 12
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 5.6,
+     "p90": 10.7,
+     "max": 21
+    },
+    "now": {
+     "mean": 3.3,
+     "p90": 5.8,
+     "max": 12
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,highlights-50",
+   "googleMoved": 11.9,
+   "offline": {
+    "panelOrder": {
+     "mean": 6,
+     "p90": 14.7,
+     "max": 23
+    },
+    "chosen": {
+     "mean": 3.6,
+     "p90": 7.1,
+     "max": 13
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 5.3,
+     "p90": 13.2,
+     "max": 21
+    },
+    "now": {
+     "mean": 3.4,
+     "p90": 6.5,
+     "max": 13
+    }
+   }
+  },
+  {
+   "setting": "brightness+50,saturation+50",
+   "googleMoved": 63,
+   "offline": {
+    "panelOrder": {
+     "mean": 4.4,
+     "p90": 8,
+     "max": 18
+    },
+    "chosen": {
+     "mean": 4.4,
+     "p90": 8,
+     "max": 18
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 4.1,
+     "p90": 8,
+     "max": 18
+    },
+    "now": {
+     "mean": 4.2,
+     "p90": 8.2,
+     "max": 18
+    }
+   }
+  },
+  {
+   "setting": "warmth+50,tint+50",
+   "googleMoved": 26.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.5,
+     "p90": 7.1,
+     "max": 19
+    },
+    "chosen": {
+     "mean": 3.5,
+     "p90": 7.1,
+     "max": 19
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 3.6,
+     "p90": 7.4,
+     "max": 19
+    },
+    "now": {
+     "mean": 3.6,
+     "p90": 7.4,
+     "max": 19
+    }
+   }
+  },
+  {
+   "setting": "contrast+50,saturation+50",
+   "googleMoved": 23,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.6,
+     "p90": 6.7,
+     "max": 17
+    },
+    "chosen": {
+     "mean": 3.6,
+     "p90": 6.7,
+     "max": 17
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 3.4,
+     "p90": 6.5,
+     "max": 16
+    },
+    "now": {
+     "mean": 3.7,
+     "p90": 7.8,
+     "max": 16
+    }
+   }
+  },
+  {
+   "setting": "skinTone+100,brightness+50",
+   "googleMoved": 66.5,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.5,
+     "p90": 5.1,
+     "max": 41
+    },
+    "chosen": {
+     "mean": 3.5,
+     "p90": 5.1,
+     "max": 41
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 3.1,
+     "p90": 4.8,
+     "max": 41
+    },
+    "now": {
+     "mean": 3,
+     "p90": 5.6,
+     "max": 32
+    }
+   }
+  },
+  {
+   "setting": "blueTone+50,contrast+50",
+   "googleMoved": 20.8,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.2,
+     "p90": 6,
+     "max": 20
+    },
+    "chosen": {
+     "mean": 3.2,
+     "p90": 6,
+     "max": 20
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 3,
+     "p90": 5.4,
+     "max": 20
+    },
+    "now": {
+     "mean": 3,
+     "p90": 5.6,
+     "max": 22
+    }
+   }
+  },
+  {
+   "setting": "skinTone+100,saturation+50",
+   "googleMoved": 15.9,
+   "offline": {
+    "panelOrder": {
+     "mean": 3,
+     "p90": 4.1,
+     "max": 51
+    },
+    "chosen": {
+     "mean": 3,
+     "p90": 4.1,
+     "max": 51
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 2.9,
+     "p90": 4.2,
+     "max": 52
+    },
+    "now": {
+     "mean": 2.9,
+     "p90": 4.2,
+     "max": 52
+    }
+   }
+  },
+  {
+   "setting": "highlights-50,warmth+50",
+   "googleMoved": 28,
+   "offline": {
+    "panelOrder": {
+     "mean": 3.1,
+     "p90": 5.3,
+     "max": 16
+    },
+    "chosen": {
+     "mean": 2.8,
+     "p90": 5,
+     "max": 16
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 2.8,
+     "p90": 5.1,
+     "max": 15
+    },
+    "now": {
+     "mean": 2.3,
+     "p90": 3.7,
+     "max": 16
+    }
+   }
+  },
+  {
+   "setting": "skinTone+100,warmth+50",
+   "googleMoved": 26.1,
+   "offline": {
+    "panelOrder": {
+     "mean": 2.8,
+     "p90": 5,
+     "max": 24
+    },
+    "chosen": {
+     "mean": 2.8,
+     "p90": 5,
+     "max": 24
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 2.8,
+     "p90": 5.3,
+     "max": 27
+    },
+    "now": {
+     "mean": 2.7,
+     "p90": 4.6,
+     "max": 25
+    }
+   }
+  },
+  {
+   "setting": "saturation+50,skinTone+50",
+   "googleMoved": 14.6,
+   "offline": {
+    "panelOrder": {
+     "mean": 2.6,
+     "p90": 3.9,
+     "max": 33
+    },
+    "chosen": {
+     "mean": 2.6,
+     "p90": 3.9,
+     "max": 33
+    }
+   },
+   "app": {
+    "main": {
+     "mean": 2.5,
+     "p90": 4,
+     "max": 33
+    },
+    "now": {
+     "mean": 2.5,
+     "p90": 4,
+     "max": 33
+    }
+   }
+  }
+ ],
+ "toneToolsOnColours": {
+  "note": "The app's own tone tools alone, exported on the 13x13x13 chart, against Google's copies of it: median / 90th / worst. Fitted to greys, they are a few levels off on colours, and that carries into every combination with them.",
+  "whitePoint-50": [
+   5.6,
+   10.6,
+   16.1
+  ],
+  "whitePoint+50": [
+   2,
+   10.6,
+   27.9
+  ],
+  "highlights-50": [
+   1.3,
+   2.3,
+   4.8
+  ],
+  "highlights+50": [
+   1.3,
+   3.2,
+   12.6
+  ],
+  "shadows-50": [
+   2.5,
+   14.7,
+   53
+  ],
+  "shadows+50": [
+   3,
+   18.7,
+   54.6
+  ],
+  "blackPoint-50": [
+   4.4,
+   10.4,
+   20.4
+  ],
+  "blackPoint+50": [
+   5.3,
+   10.8,
+   22.3
+  ]
+ },
+ "greys": {
+  "note": "On the calibration chart's 256-level ramp, RMS levels: Google's combined curve against each order of the two tools' own curves, and against their changes added.",
+  "brightness+50,blackPoint+50": {
+   "blackPointFirst": 2,
+   "brightnessFirst": 15.8
+  },
+  "brightness+50,whitePoint-50": {
+   "whitePointFirst": 3.7,
+   "brightnessFirst": 17.8
+  },
+  "brightness+50,contrast+50": {
+   "contrastFirst": 5.3,
+   "brightnessFirst": 8.8,
+   "added": 1.7
+  },
+  "brightness+50,contrast-50": {
+   "contrastFirst": 1.7,
+   "brightnessFirst": 3.7,
+   "added": 1.1
+  },
+  "brightness-50,contrast+50": {
+   "contrastFirst": 3.7,
+   "brightnessFirst": 3.5,
+   "added": 3.7
+  },
+  "contrast+50,shadows+50": {
+   "contrastFirst": 1.6,
+   "shadowsFirst": 3.5
+  },
+  "contrast+50,highlights-50": {
+   "contrastFirst": 1.4,
+   "highlightsFirst": 1.4
+  },
+  "highlights-50,shadows+50": {
+   "highlightsFirst": 1.6,
+   "shadowsFirst": 0.9
+  },
+  "whitePoint+50,blackPoint+50": {
+   "whitePointFirst": 3,
+   "blackPointFirst": 2.1
+  }
+ }
+}
