@@ -197,8 +197,8 @@
   document.addEventListener('touchstart', () => {}, { passive: true });
 
   let pendingCell = null;
-  // The compare button is held down: the preview shows the photos as they
-  // came, without their edits, until it is let go.
+  // Compare is on: the chosen tile shows its photo as it came, until it is
+  // turned off again or the tool it was turned on in is left.
   let comparing = false;
   // Pop out's Subjects button is on: a tap on the selected tile chooses what
   // counts as its subject, and the chosen ones are tinted.
@@ -415,8 +415,8 @@
         const still = cell.frame || cell.poster || photo.bitmap;
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
-        // the preview's compare button, held down.
-        drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh);
+        // the tile Compare is showing as it came.
+        drawn = photo.kind === 'video' || opts.original === i ? still : lookOf(cell, photo, still, p.dw, p.dh);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
         if (opts.picking === i && photo.subject) g.drawImage(tintOf(photo.subject), -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
@@ -490,13 +490,13 @@
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
     const tinted = picking || performance.now() < tintUntil;
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing, picking: tinted ? state.selected : -1 });
+    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing ? state.selected : -1, picking: tinted ? state.selected : -1 });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
     page().rev = (page().rev || 0) + 1;
     placePageX();
-    placeTileActions();
+    placeTileOverlays();
   }
 
   // The delete-page button rides the top-right corner of the page itself. The
@@ -6719,6 +6719,8 @@
       return;
     }
     if (drawer !== 'tile') openDrawer('tile');
+    // An undo can put back or take away the change the pill is there for.
+    syncFloat();
 
     const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
     const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
@@ -6735,6 +6737,7 @@
 
   function select(i) {
     if (picking && i !== state.selected) { picking = false; pickPress = null; }
+    if (comparing && i !== state.selected) setCompare(false);
     state.selected = i;
     render();
     syncPanel();
@@ -6995,7 +6998,7 @@
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
-    placeTileActions();
+    placeTileOverlays();
   });
 
   stageInput.addEventListener('pointermove', (e) => {
@@ -7977,7 +7980,7 @@
     let lastCentre = null;
     let settleTimer = 0;
 
-    const nodes = () => [...scroller.querySelectorAll('.reel-echo, :scope > .layouts > *, :scope > .segmented > *, :scope > .swatches > *')];
+    const nodes = () => [...scroller.querySelectorAll('.reel-echo, :scope > .reel-list > *')];
     const realOf = (el) => (el.classList.contains('reel-echo') ? list.children[Number(el.dataset.of)] : el);
     const centreOf = (el) => el.offsetLeft + el.offsetWidth / 2;
 
@@ -8116,6 +8119,11 @@
   function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity }) {
     const ruler = track.querySelector('.dial-ruler');
     let press = null;
+    // A range can move under a dial: Adjust's goes from -100 to 0 when the
+    // tool changes, and Zoom's floor rises as the photo is turned. So either
+    // end may be a function, read at the moment it is needed.
+    const lo = () => (typeof min === 'function' ? min() : min);
+    const hi = () => (typeof max === 'function' ? max() : max);
 
     function draw() {
       const w = track.clientWidth, h = track.clientHeight;
@@ -8154,7 +8162,7 @@
     });
     track.addEventListener('pointermove', (e) => {
       if (!press || e.pointerId !== press.id) return;
-      const v = clamp(press.from - (e.clientX - press.x) / unitPx, min, max);
+      const v = clamp(press.from - (e.clientX - press.x) / unitPx, lo(), hi());
       set(v);
       draw();
     });
@@ -8170,7 +8178,7 @@
 
     return {
       draw,
-      nudge: (d) => { set(clamp(get() + d, min, max)); draw(); },
+      nudge: (d) => { set(clamp(get() + d, lo(), hi())); draw(); },
     };
   }
 
@@ -8180,7 +8188,10 @@
   // through exactly the code they always did.
   const DIAL_PX = 3;
   const dials = {};
-  function valueDial(id) {
+  // `fromNought` is the ruler for a setting that goes either way: nought is
+  // the longest tick, and the stretch between it and the value is lit, so how
+  // far a setting has moved can be read at a glance without the number.
+  function valueDial(id, { fromNought = false } = {}) {
     const input = $(id);
     const panel = input.closest('.dial');
     const step = Number(input.step) || 1;
@@ -8189,8 +8200,8 @@
       : new Event(type, { bubbles: true }));
     dials[id] = dialRuler(panel.querySelector('.dial-track'), {
       unitPx: DIAL_PX,
-      min: Number(input.min),
-      max: Number(input.max),
+      min: () => Number(input.min),
+      max: () => Number(input.max),
       get: () => Number(input.value),
       set: (v) => {
         const snapped = clamp(Math.round(v / step) * step, Number(input.min), Number(input.max));
@@ -8206,10 +8217,19 @@
         const out = [];
         const lo = Math.max(Number(input.min), Math.ceil(from / 2) * 2);
         const hi = Math.min(Number(input.max), to);
-        const secondary = getComputedStyle(document.documentElement).getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+        const style = getComputedStyle(document.documentElement);
+        const secondary = style.getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+        const primary = style.getPropertyValue('--content-primary').trim() || '#f5f5f5';
+        const value = Number(input.value);
+        const [litFrom, litTo] = value < 0 ? [value, 0] : [0, value];
         for (let u = lo; u <= hi; u += 2) {
           const major = u % 10 === 0;
-          out.push({ at: u, colour: secondary, width: 1.5, height: major ? 18 : 10, bottom: true, alpha: major ? 1 : 0.5 });
+          if (fromNought && u === 0) {
+            out.push({ at: 0, colour: primary, width: 2, height: 24, bottom: true });
+            continue;
+          }
+          const lit = fromNought && value !== 0 && u >= litFrom && u <= litTo;
+          out.push({ at: u, colour: lit ? primary : secondary, width: 1.5, height: major ? 18 : 10, bottom: true, alpha: lit || major ? 1 : 0.5 });
         }
         return out;
       },
@@ -8424,11 +8444,9 @@
     if (name === 'effects') syncEffects();
     else if (picking) setPicking(false);
     if (name !== 'effects') edgeMode = false;
-    if (name === 'adjust') syncAdjust();
-    // Letting go of the panel lets go of the compare button with it: a hold
-    // that ends somewhere the pointerup never reaches must not leave the
-    // preview showing the unedited photo.
-    else if (comparing) { comparing = false; render(); }
+    // Compare belongs to the tool it was turned on in.
+    if (comparing) setCompare(false);
+    if (name === 'adjust') { syncAdjust(); if (adjustReel) adjustReel.sync(); }
 
     // Choosing a photo wants room: the pages bar steps aside and the dock
     // takes two rows, so the options are large enough to judge at a glance.
@@ -8453,7 +8471,8 @@
     setBackIcon();
     syncSheet();
     syncFades();
-    placeTileActions();
+    placeTileOverlays();
+    syncFloat();
   }
 
   // The photos already imported, run past a fixed marker: whichever sits in
@@ -8596,7 +8615,7 @@
     if (action === 'swap') {
       swapFrom = i;
       $('canvas-wrap').classList.add('is-swapping');
-      placeTileActions();
+      placeTileOverlays();
       toast('Tap another tile to swap them over');
       return;
     }
@@ -8631,17 +8650,104 @@
     const k = canvas.clientWidth / canvas.width;
     return { x: canvas.offsetLeft + r.x * k, y: canvas.offsetTop + r.y * k, w: r.w * k, h: r.h * k };
   }
-  function placeTileActions() {
+  function placeTileOverlays() {
     const pill = $('tile-actions');
     const i = state.selected;
     const box = i === -1 ? null : tileBox(i);
     pill.hidden = !box || drawer !== 'tile' || tileSub === 'replace' || pointers.size > 0
       || swapFrom !== null || !photoFor(page().cells[i]);
-    if (pill.hidden) return;
-    const room = $('track').clientWidth;
-    const left = clamp(box.x + box.w / 2 - pill.offsetWidth / 2, 4, Math.max(4, room - pill.offsetWidth - 4));
-    pill.style.left = `${Math.round(left)}px`;
-    pill.style.top = `${Math.round(box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight)}px`;
+    if (!pill.hidden) {
+      const room = $('track').clientWidth;
+      const left = clamp(box.x + box.w / 2 - pill.offsetWidth / 2, 4, Math.max(4, room - pill.offsetWidth - 4));
+      pill.style.left = `${Math.round(left)}px`;
+      pill.style.top = `${Math.round(box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight)}px`;
+    }
+    // Whatever the tile is showing that it would not otherwise, said on the
+    // tile itself, 12 in from its corner.
+    const original = $('tile-original');
+    original.hidden = !box || !comparing;
+    if (!original.hidden) {
+      original.style.left = `${Math.round(box.x + TILE_CHIP_INSET)}px`;
+      original.style.top = `${Math.round(box.y + TILE_CHIP_INSET)}px`;
+    }
+  }
+  const TILE_CHIP_INSET = 12;
+
+  /* -------------------------------------------------- floating actions */
+  //
+  // Compare and Reset belong to the photo rather than to the controls, so they
+  // float above the sheet's top right instead of sitting in it. Which of them
+  // are there, and whether at all, depends on the tool:
+  //
+  // - Adjust: both, but only once something has changed. There is nothing to
+  //   compare with or reset until then, and the page keeps that room.
+  // - Crop: both, always — at 40% and inert until something changes. A pinch
+  //   is how most crops start, and a pill arriving under the fingers halfway
+  //   through one would move the page they are pinching.
+  // - Trim: Reset alone, once the clip has been cut. A clip is always playing,
+  //   so there is nothing to compare it with.
+  //
+  // It arrives fading in and rising 6pt over 180ms, and leaves the same way.
+  const FLOAT_MS = 180;
+  const FLOAT_RISE = 6;
+
+  function floatWanted() {
+    if (drawer !== 'tile') return null;
+    const cell = page().cells[state.selected];
+    if (!cell || !photoFor(cell)) return null;
+    if (tileSub === 'adjust') return plainLook(cell.adjust) ? null : { compare: true, resting: false };
+    return null;
+  }
+
+  function syncFloat() {
+    const row = $('sheet-float');
+    const want = floatWanted();
+    const was = !row.hidden;
+    const apply = () => {
+      row.hidden = !want;
+      if (!want) return;
+      $('btn-compare').hidden = !want.compare;
+      row.classList.toggle('is-resting', want.resting);
+      $('btn-reset').disabled = want.resting;
+      $('btn-compare').disabled = want.resting;
+    };
+    // Nothing left to compare with, so nothing is being compared.
+    if ((!want || !want.compare || want.resting) && comparing) setCompare(false);
+    if (!!want === was) { apply(); return; }
+    // Leaving, a picture of it goes the way it came while the page grows back
+    // into the room: the row itself has to leave the layout at once, or the
+    // page would wait 180ms and then jump.
+    if (was && !calmMotion.matches && row.getClientRects().length) {
+      const r = row.getBoundingClientRect();
+      const { copy } = lookalike(row);
+      const host = $('dock').getBoundingClientRect();
+      Object.assign(copy.style, { position: 'absolute', left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${r.width}px`, margin: '0', pointerEvents: 'none' });
+      $('dock').appendChild(copy);
+      const out = copy.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }],
+        { duration: FLOAT_MS, easing: 'ease-in', fill: 'forwards' });
+      out.addEventListener('finish', () => copy.remove());
+    }
+    morph(apply);
+    if (want && !was && !calmMotion.matches) {
+      row.animate([{ opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }, { opacity: 1, transform: 'none' }],
+        { duration: FLOAT_MS, easing: 'ease-out' });
+    }
+  }
+
+  // Compare shows the chosen tile as it came, and says so on the tile. It
+  // stays on until it is tapped again, or until anything is changed: an edit
+  // made while the original is on screen would be an edit made blind.
+  function setCompare(on) {
+    if (comparing === on) return;
+    comparing = on;
+    $('btn-compare').setAttribute('aria-pressed', String(on));
+    $('btn-compare').setAttribute('aria-label', on ? 'Show the edit' : 'Show the original');
+    render();
+  }
+
+  function resetTool() {
+    if (state.selected === -1) return;
+    if (tileSub === 'adjust') resetAdjust();
   }
 
   /* ------------------------------------------------------------- trimming */
@@ -8752,27 +8858,48 @@
 
   /* ------------------------------------------------------------ adjusting */
 
-  // Which tool the slider is set to. Kept across tiles and across visits to
+  // Which setting the dial is turning. Kept across tiles and across visits to
   // the panel: moving from one photo to the next wanting the same correction
-  // is the usual case, and the slider already being on it is the point.
+  // is the usual case, and the dial already being on it is the point.
   let adjustTool = ADJUSTMENTS[0].id;
+  let adjustReel = null;
 
+  // A setting is a pill: its icon inside a ring, and its name. The ring is two
+  // circles, the track and what fills it, drawn from the top: clockwise for
+  // more, and — mirrored — back the other way for less.
   function buildAdjustTools() {
     const row = $('adjust-tools');
     row.innerHTML = '';
     ADJUSTMENTS.forEach((a) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'dock-item adjust-tool';
+      btn.className = 'setting';
       btn.dataset.adjust = a.id;
       btn.setAttribute('aria-pressed', 'false');
-      // The ring round the icon is how Photos says a tool is in use and by
-      // how much, which lets the row double as a summary of the edit.
-      btn.innerHTML = `<span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span><span>${a.label}</span>`;
+      btn.innerHTML = '<span class="setting-ring">'
+        + '<svg class="ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="ring-track" cx="16" cy="16" r="14.75"/><circle class="ring-fill" cx="16" cy="16" r="14.75" pathLength="100"/></svg>'
+        + `<svg class="setting-icon" viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span>`
+        + `<span class="setting-name">${a.label}</span>`;
       btn.addEventListener('click', () => { adjustTool = a.id; syncAdjust(); });
       row.appendChild(btn);
     });
+    adjustReel = reel($('adjust-reel'), row, { chosen: () => row.querySelector('.is-active') });
   }
+
+  // How far a setting has moved, on its ring. The copies either side of the
+  // reel are pictures of the buttons taken when it was last built, so they are
+  // brought up to date alongside — a setting scrolled round to its echo must
+  // not show the value it had before.
+  function paintRing(el, a, v) {
+    const amount = Math.abs(v) / Math.max(Math.abs(a.min), a.max);
+    el.classList.toggle('is-set', !!v);
+    el.classList.toggle('is-less', v < 0);
+    el.querySelector('.ring-fill').style.strokeDasharray = `${(amount * 100).toFixed(2)} 100`;
+  }
+
+  // Signed, as a dial either side of nought reads: the minus is the real one,
+  // so the number is the width it will be whichever way it goes.
+  const signed = (v) => (v > 0 ? `+${v}` : v < 0 ? `\u2212${-v}` : '0');
 
   function syncAdjust() {
     const cell = page().cells[state.selected];
@@ -8780,31 +8907,28 @@
     const tool = adjustment(adjustTool) || ADJUSTMENTS[0];
     const value = (cell.adjust && cell.adjust[tool.id]) || 0;
     // Choosing a colour tool fetches its table, so it is here by the time
-    // the slider first moves.
+    // the dial first moves.
     if (tool.table) loadColourTables();
 
-    [...$('adjust-tools').children].forEach((btn) => {
+    const row = $('adjust-tools');
+    [...row.children].forEach((btn, i) => {
       const a = adjustment(btn.dataset.adjust);
       const v = (cell.adjust && cell.adjust[a.id]) || 0;
       const on = a.id === tool.id;
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', String(on));
-      btn.classList.toggle('is-set', !!v);
-      btn.style.setProperty('--amount', Math.abs(v) / Math.max(Math.abs(a.min), a.max));
+      paintRing(btn, a, v);
+      $('adjust-reel').querySelectorAll(`.reel-echo[data-of="${i}"]`).forEach((echo) => paintRing(echo, a, v));
     });
 
     const input = $('adjust');
     input.min = String(tool.min);
     input.max = String(tool.max);
     input.value = String(value);
-    // A tool that works both ways fills from the middle, like the angle
-    // slider: nought is untouched, and a bar growing from the left end would
-    // say -100 was.
-    $('adjust-slide').classList.toggle('from-centre', tool.min < 0);
     $('adjust-name').textContent = tool.label;
-    $('adjust-val').textContent = String(value);
+    $('adjust-val').textContent = signed(value);
     paintSlider(input);
-    $('adjust-reset').disabled = plainLook(cell.adjust);
+    syncFloat();
   }
 
   function dragAdjust() {
@@ -8814,7 +8938,7 @@
     const input = $('adjust');
     let value = Number(input.value);
     // Nought is caught on the way past, for a tool that has one in the
-    // middle. Getting a slider back to exactly nought by eye is otherwise a
+    // middle. Getting a dial back to exactly nought by eye is otherwise a
     // matter of luck, and nought is the one value that means "leave it".
     if (tool.min < 0 && Math.abs(value) <= 2 && value !== 0) {
       value = 0;
@@ -8823,6 +8947,7 @@
       buzz('snap');
     }
     if (((cell.adjust && cell.adjust[tool.id]) || 0) === value) return;
+    if (comparing) setCompare(false);
     snapshot(`adjust:${tool.id}`);
     setAdjust(cell, tool.id, value);
     syncAdjust();
@@ -8836,13 +8961,6 @@
     cell.adjust = undefined;
     syncAdjust();
     refresh();
-  }
-
-  function holdCompare(on) {
-    if (comparing === on) return;
-    comparing = on;
-    $('adjust-compare').classList.toggle('is-held', on);
-    render();
   }
 
   /* ------------------------------------------------------------ effects */
@@ -9508,6 +9626,7 @@
     // was hidden, so the reels and rulers find their places once it is laid out.
     if (name === 'layout') layoutReel.sync();
     if (name === 'shape') ratioReel.sync();
+    if (name === 'tile' && tileSub === 'adjust') adjustReel.sync();
     if (name === 'background') { buildSwatches(); requestAnimationFrame(() => colourReel.sync()); }
     if (['gap', 'padding', 'corners'].includes(name)) paintSlider($(name === 'corners' ? 'radius' : name));
     if (fromBar) focusSheet(name);
@@ -9523,7 +9642,8 @@
     tileSub = null;
     $('dock').classList.remove('is-adjusting', 'is-effecting');
     if (picking) setPicking(false);
-    if (comparing) { comparing = false; render(); }
+    if (comparing) setCompare(false);
+    syncFloat();
     document.querySelector('.app').classList.remove('is-choosing');
     $('dock').classList.remove('is-choosing');
     cancelSwap();
@@ -9532,7 +9652,7 @@
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
     $('dock').classList.remove('is-open');
-    placeTileActions();
+    placeTileOverlays();
     if (sheetHadFocus) (sheetOpener && sheetOpener.isConnected ? sheetOpener : $('btn-add')).focus({ preventScroll: true });
     sheetOpener = null;
     popSheet();
@@ -9642,7 +9762,7 @@
     // nothing would say there was more. The reels are not here: they run round
     // without an end, so there is always more, and they fade both edges in the
     // stylesheet for good.
-    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'export-settings', 'adjust-tools', 'effect-list'].map($),
+    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'export-settings', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -11312,25 +11432,15 @@
 
   buildAdjustTools();
   feedback('adjust');
+  valueDial('adjust', { fromNought: true });
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not
   // on every step of the drag: the preview is the only thing being watched.
   $('adjust').addEventListener('change', () => { endRun(); refresh(); });
-  $('adjust-reset').addEventListener('click', resetAdjust);
-  const compare = $('adjust-compare');
-  compare.addEventListener('pointerdown', (e) => {
-    try { compare.setPointerCapture(e.pointerId); } catch { /* already gone */ }
-    holdCompare(true);
-  });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => {
-    compare.addEventListener(type, () => holdCompare(false));
-  });
-  // A keyboard has no hold, so Space and Enter hold it for as long as the
-  // key is down, the way they press a button.
-  compare.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); holdCompare(true); } });
-  compare.addEventListener('keyup', () => holdCompare(false));
-  compare.addEventListener('blur', () => holdCompare(false));
+  $('btn-compare').addEventListener('click', () => setCompare(!comparing));
+  $('btn-reset').addEventListener('click', resetTool);
+  buzzTaps($('sheet-float'));
 
   buildEffects();
   $('pop-pick').addEventListener('click', () => setPicking(!picking));

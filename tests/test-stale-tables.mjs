@@ -100,7 +100,7 @@ async function run(how, staleEverywhere) {
   await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
   const slide = async (id, v) => {
-    await p.click(`.adjust-tool[data-adjust="${id}"]`);
+    await p.click(`.setting[data-adjust="${id}"]`);
     await p.evaluate((v) => {
       const el = document.getElementById('adjust');
       el.value = String(v);

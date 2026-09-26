@@ -129,7 +129,7 @@ const blackPoint = async (value) => {
   await selectTile();
   await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
-  await p.click('.adjust-tool[data-adjust="blackPoint"]');
+  await p.click('.setting[data-adjust="blackPoint"]');
   await p.evaluate((v) => {
     const el = document.getElementById('adjust');
     el.value = String(v);

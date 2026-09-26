@@ -2087,9 +2087,7 @@ input[type="range"]::-moz-range-thumb {
 }
 .reel::-webkit-scrollbar { display: none; }
 .reel-echoes,
-.reel .layouts,
-.reel .segmented,
-.reel .swatches { display: contents; }
+.reel .reel-list { display: contents; }
 
 /* The dot under the chosen mark. It belongs to the centre, not to any mark,
    so it stays put while the reel turns. */
@@ -2813,16 +2811,95 @@ body.is-library .toast {
 }
 
 /* ----------------------------------------------------------- adjusting */
-/* Two rows: the tools, then the slider for whichever one is chosen, the way
-   the Adjust tab in Google Photos stacks them. The sheet grows to hold both,
-   and the pages bar stays, because which page is being edited still matters. */
+/* The settings across the top, turned under the centre like the other reels,
+   and the dial for the chosen one under them, 8 apart: the sheet's own inset,
+   since the row of buttons sits 8 from its top as well. */
 .tile-adjust {
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 0;
+  justify-content: flex-start;
+  gap: var(--space-inset-sheet);
+  padding: 0;
 }
+/* 56 of fade either side, where the page's reels take 72: a setting is a
+   word as well as a drawing, and the next one's name should still be half
+   readable through the edge. */
+/* A dial here is not a panel of its own, so it says display: flex itself —
+   laid out as a block, the number's negative margins collapsed and took the
+   dial to 74 of its 76. And not .tile-sub's flex: 1, which lets it shrink. */
+.tile-sub .dial { display: flex; flex: none; }
+.settings-reel {
+  height: 40px;
+  gap: 6px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+}
+/* A setting is a pill, 40 tall and concentric with the 32 ring inside it:
+   4 before the ring, 14 after the name. The chosen one is filled. */
+.settings-reel .setting,
+.settings-reel .reel-echo {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 4px;
+  appearance: none;
+  border: none;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--content-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.settings-reel .setting.is-active { background: var(--background-control); color: var(--content-primary); }
+.setting-ring {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+}
+/* How far the setting has moved, on a ring drawn from the top: turned a
+   quarter back so the circle starts at twelve rather than three, and mirrored
+   for a setting taken below nought so it fills the other way round. app.js
+   writes the dash; nought draws nothing, an empty track. */
+.ring {
+  position: absolute;
+  inset: 0;
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke-width: 2.5;
+  transform: rotate(-90deg);
+}
+.is-less .ring { transform: scaleX(-1) rotate(-90deg); }
+.ring-track { stroke: var(--background-control); }
+/* On the chosen pill the track would vanish into the pill's own grey, so it
+   is the secondary colour at 35% there, written out because rgba() cannot
+   read a variable. */
+.setting.is-active .ring-track { stroke: rgba(142, 142, 142, 0.35); }
+.ring-fill { stroke: var(--content-primary); stroke-dasharray: 0 100; }
+/* 16 across, so 2.2 in the viewBox draws the 1.5 every icon here lands on. */
+.setting-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.setting-icon .solid { fill: currentColor; stroke: none; }
+
+/* Effects still lay their row out the way Adjust used to: an icon over its
+   word, the ring round it filled while the effect is on. */
 .adjust-tools {
   display: flex;
   gap: 2px;
@@ -2834,14 +2911,8 @@ body.is-library .toast {
 .adjust-tools::-webkit-scrollbar { display: none; }
 .adjust-tool { min-width: 72px; padding: 4px 6px; gap: 4px; }
 .adjust-tool.is-active { color: var(--content-primary); }
-.adjust-tool .solid, .tile-adjust .btn-icon .solid { fill: currentColor; stroke: none; }
-/* The ring says how far a tool has been moved, and in which direction does
-   not matter to it — Photos draws it the same for -40 as for +40. It is a
-   conic fill behind a disc the colour of the dock, so the icon sits inside a
-   ring rather than on a pie. --amount is 0..1, written by app.js on the
-   button and inherited from there — declaring a default on the ring itself
-   would shadow it, and did: every ring drew empty.
-   The ring is a span in a dock item, and `.dock-item span` outranks a lone
+.adjust-tool .solid { fill: currentColor; stroke: none; }
+/* The ring is a span in a dock item, and `.dock-item span` outranks a lone
    class: it made the ring a flex row, which ignores place-items, and every
    icon sat hard against the left of its ring, five pixels off centre. Both
    axes are said again in flex's own terms so it centres either way. */
@@ -2855,6 +2926,12 @@ body.is-library .toast {
   height: 32px;
   border-radius: 50%;
 }
+/* The ring says how far a tool has been moved, and in which direction does
+   not matter to it. It is a conic fill behind a disc the colour of the dock,
+   so the icon sits inside a ring rather than on a pie. --amount is 0..1,
+   written by app.js on the button and inherited from there — declaring a
+   default on the ring itself would shadow it, and did: every ring drew
+   empty. */
 .adjust-tool.is-set .adjust-ring {
   background: conic-gradient(var(--content-primary) calc(var(--amount) * 360deg), var(--background-control) 0);
 }
@@ -2876,21 +2953,87 @@ body.is-library .toast {
 }
 .adjust-row .dock-slider { flex: 1; min-width: 0; }
 .adjust-row .btn { flex: none; }
-.tile-adjust .btn-icon svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linejoin: round;
-}
-/* Brightens rather than scales while held. The hold can last as long as the
-   comparing does, and a button sitting shrunk for seconds reads as stuck. */
-#adjust-compare.is-held { background: var(--background-control); color: var(--content-primary); }
 
 @media (max-height: 520px) and (orientation: landscape) {
   .adjust-ring { width: 26px; height: 26px; }
+}
+
+/* ----------------------------------------------------- floating actions */
+/* A row of its own at the top of the dock, so the stage gives up the room
+   and the pill never sits on the photo: 52 tall and 8 above the sheet, its
+   right edge in line with the sheet's inner one. Built like the bar's pills,
+   4 inside and 2 between, and lifted off the page by the same shadow as the
+   tile's own actions. */
+.sheet-float {
+  max-width: 520px;
+  margin: 0 auto var(--space-inset-sheet);
+  padding: 0 var(--space-inset-sheet);
+  display: flex;
+  justify-content: flex-end;
+}
+.float-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-between);
+  height: 52px;
+  padding: 0 var(--space-inset-pill);
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--background-raised);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.5);
+}
+.float-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--content-primary);
+  cursor: pointer;
+  transition: background-color 140ms, color 140ms, opacity 140ms;
+}
+.float-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.float-btn .solid { display: none; fill: currentColor; stroke: none; }
+/* On, Compare is the one white thing in the pill, with the after panel of
+   its drawing filled in: what is on screen is the original, and the button
+   says which half of the comparison that is. */
+.float-btn[aria-pressed="true"] { background: var(--background-inverse); color: var(--content-inverse); }
+.float-btn[aria-pressed="true"] .solid { display: block; }
+.float-btn:active:not(:disabled) { background: var(--background-control); transition-duration: 0s; }
+.float-btn[aria-pressed="true"]:active { background: var(--background-inverse); filter: brightness(0.9); }
+/* Crop before anything has changed: there, so nothing jumps in under a
+   pinch, but at 40% and not yet anything to press. */
+.sheet-float.is-resting .float-btn { opacity: 0.4; }
+.float-btn:disabled { cursor: default; }
+
+/* What the chosen tile is showing that it would not otherwise — its original
+   while Compare is on, the time under a trim handle — written on the tile
+   itself, white on black at 60%. */
+.tile-chip {
+  position: absolute;
+  z-index: 5;
+  padding: 4.5px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--content-primary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* ------------------------------------------------------------- effects */

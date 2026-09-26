@@ -113,12 +113,12 @@ await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
 await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
-const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
+const tools = await p.$$eval('.setting[data-adjust]', (els) => els.map((e) => e.dataset.adjust));
 const WANT = ['brightness', 'contrast', 'whitePoint', 'highlights', 'shadows', 'blackPoint', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone'];
 check(WANT.every((id, i) => tools.indexOf(id) >= 0 && (i === 0 || tools.indexOf(id) > tools.indexOf(WANT[i - 1]))),
   'the panel lists them in Google\'s order, among the tone tools', tools.join(', '));
 
-const choose = (id) => p.click(`.adjust-tool[data-adjust="${id}"]`);
+const choose = (id) => p.click(`.setting[data-adjust="${id}"]`);
 const slide = async (value) => {
   await p.evaluate((v) => {
     const el = document.getElementById('adjust');

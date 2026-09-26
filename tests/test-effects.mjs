@@ -244,6 +244,9 @@ await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.84);
 await p.waitForTimeout(300);
 check(await p.locator('#tile-tabs [data-tile="trim"]').isVisible() && !(await p.locator('#tile-tabs [data-tile="effects"]').isVisible()), 'a clip does not offer Effects');
 await p.click('#dock-back');
+// The page is still growing back into the room the sheet gave up, and a tap
+// mid-flight lands wherever the animation has got to.
+await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.5);
 await p.waitForTimeout(300);
 check(await p.locator('#tile-tabs [data-tile="effects"]').isVisible(), 'the photo above it still does');

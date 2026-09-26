@@ -56,7 +56,13 @@ function png(w, h, bottom = RED) {
 // A headless Chromium on a machine with no GPU only offers WebGL through
 // SwiftShader, and recent builds no longer fall back to it unasked.
 const b = await chromium.launch({ executablePath: CHROME, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
-const ctx = await b.newContext({ viewport: { width: 1000, height: 900 }, hasTouch: true, acceptDownloads: true });
+// 960 tall, where it was 900: an edit brings Compare and Reset up over the
+// sheet in a row of their own, which takes 60 from the stage. The Sharpen
+// checks read pixels either side of an edge in the preview, and how far its
+// ring ripples depends on the preview's scale — at 900 the ring moved a pixel
+// and a ripple of 3 became 4. At 960 the preview is the size those numbers
+// were measured at whenever an edit is on screen.
+const ctx = await b.newContext({ viewport: { width: 1000, height: 960 }, hasTouch: true, acceptDownloads: true });
 const p = await ctx.newPage();
 await autoEnter(p);
 const errs = [];
@@ -103,18 +109,18 @@ await p.waitForTimeout(200);
 check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'a photo tile offers Adjust');
 await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
-const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
+const tools = await p.$$eval('.setting[data-adjust]', (els) => els.map((e) => e.dataset.adjust));
 check(await p.locator('#tile-adjust').isVisible() && tools.length >= 2, 'the panel opens with a tool per adjustment', tools.join(', '));
-check(await p.locator('#adjust-reset').isDisabled(), 'Reset has nothing to put back on an unedited tile');
+check(await p.locator('#sheet-float').isHidden(), 'nothing floats over the sheet on an unedited tile: no Compare, no Reset');
 // Each icon in the middle of its ring. `.dock-item span` once outranked the
 // ring's own centring and put every icon five pixels left of it.
-const offCentre = await p.$$eval('.adjust-tool .adjust-ring', (rings) => Math.max(...rings.map((r) => {
-  const a = r.getBoundingClientRect(), b = r.querySelector('svg').getBoundingClientRect();
+const offCentre = await p.$$eval('.setting[data-adjust] .setting-ring', (rings) => Math.max(...rings.map((r) => {
+  const a = r.getBoundingClientRect(), b = r.querySelector('.setting-icon').getBoundingClientRect();
   return Math.max(Math.abs(a.x + a.width / 2 - b.x - b.width / 2), Math.abs(a.y + a.height / 2 - b.y - b.height / 2));
 })));
 check(offCentre <= 0.5, 'every tool\'s icon sits in the middle of its ring', `worst ${offCentre.toFixed(2)}px off`);
 
-const choose = (id) => p.click(`.adjust-tool[data-adjust="${id}"]`);
+const choose = (id) => p.click(`.setting[data-adjust="${id}"]`);
 // A drag, as far as the app can tell: input while moving, change on letting go.
 const slide = async (value) => {
   await p.evaluate((v) => {
@@ -138,7 +144,7 @@ await choose('whitePoint');
 await slide(3);
 const tiny = await read();
 check(near(tiny.bands, [30, 101, 171, 232], 1) && near(tiny.red, [222, 40, 40], 1), 'the GPU round trip is lossless', show(tiny));
-check(await p.locator('#adjust-reset').isEnabled(), 'Reset wakes once there is an edit');
+check(await p.locator('#btn-reset').isVisible() && await p.locator('#btn-compare').isVisible(), 'Compare and Reset arrive with the first edit');
 
 // What Google Photos made of the bands and the red, read off its own copies of
 // the calibration chart. The grey is what the curves are built from, so it has
@@ -179,19 +185,19 @@ await slide(100);
 const wpUp = await read();
 likeGoogle(wpUp, 'whitePoint+100', 'White point +100 is a straight gain of a third, white from 192 up');
 check(wpUp.red[0] > 250 && wpUp.red[1] < 80, 'the bottom of the photo is still the bottom', `red ${wpUp.red.join(',')}`);
-check(await p.$eval('.adjust-tool[data-adjust="whitePoint"]', (e) => e.classList.contains('is-set')), 'the tool shows it is in use');
+check(await p.$eval('.setting[data-adjust="whitePoint"]', (e) => e.classList.contains('is-set')), 'the tool shows it is in use');
 
-// Compare: held, the preview shows the photo as it came; let go, the edit.
-const cmp = await p.locator('#adjust-compare').boundingBox();
-await p.mouse.move(cmp.x + cmp.width / 2, cmp.y + cmp.height / 2);
-await p.mouse.down();
+// Compare: on, the tile shows the photo as it came and says so; off, the edit.
+await p.click('#btn-compare');
 await p.waitForTimeout(150);
 const held = await read();
-await p.mouse.up();
+check(await p.locator('#tile-original').isVisible(), 'the tile says it is showing the original');
+await p.click('#btn-compare');
 await p.waitForTimeout(150);
 const released = await read();
-check(near(held.bands, BANDS, 1), 'holding Compare shows the original', show(held));
-check(near(released.bands, wpUp.bands, 1), 'letting go brings the edit back', show(released));
+check(near(held.bands, BANDS, 1), 'Compare shows the original', show(held));
+check(near(released.bands, wpUp.bands, 1), 'and tapped again brings the edit back', show(released));
+check(await p.locator('#tile-original').isHidden(), 'and the tile stops saying so');
 
 // The filmstrip is redrawn on letting go of the slider, so it has the edit too.
 const film = await p.evaluate(() => {
@@ -209,7 +215,7 @@ likeGoogle(wpDown, 'whitePoint-100', 'White point -100 bends the top over, white
 await slide(2);
 check(await p.$eval('#adjust', (e) => e.value) === '0', 'the slider catches nought on the way past');
 const zero = await read();
-check(near(zero.bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'nought is the photo again, with nothing left to reset', show(zero));
+check(near(zero.bands, BANDS, 1) && await p.locator('#sheet-float').isHidden(), 'nought is the photo again, with nothing left to reset', show(zero));
 
 /* ------------------------------------------------------------- Black point */
 
@@ -265,7 +271,7 @@ await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
 await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
-await p.click('#adjust-reset');
+await p.click('#btn-reset');
 await p.waitForTimeout(300);
 check(near((await read()).bands, BANDS, 1), 'Reset puts the photo back as it came');
 await p.click('#btn-undo');
@@ -284,7 +290,7 @@ if (!(await p.locator('#tile-adjust').isVisible())) {
   await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
 }
-await p.click('#adjust-reset');
+await p.click('#btn-reset');
 await p.waitForTimeout(300);
 const plain = await read();
 check(near(plain.bands, BANDS, 1) && near(plain.red, RED, 1), 'back to the photo as it came before the tone curves', show(plain));
@@ -317,7 +323,7 @@ likeGoogle(shDown, 'shadows-100', 'Shadows -100 crushes everything below 32');
 check(Math.abs(shDown.bands[3] - 230) <= 2, 'and leaves the bright tones alone', `230 -> ${shDown.bands[3]}`);
 
 await slide(0);
-check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'Shadows back at nought is the photo again, with nothing to reset');
+check(near((await read()).bands, BANDS, 1) && await p.locator('#sheet-float').isHidden(), 'Shadows back at nought is the photo again, with nothing to reset');
 
 /* ----------------------------------------------------------------- Sharpen */
 
@@ -333,7 +339,7 @@ await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 // Only if there is something to reset: after the tone curves there is not, and
 // a disabled button is one Playwright waits on until it gives up.
-if (await p.locator('#adjust-reset').isEnabled()) await p.click('#adjust-reset');
+if (await p.locator('#btn-reset').isVisible()) await p.click('#btn-reset');
 await p.waitForTimeout(300);
 await choose('sharpen');
 check(await p.$eval('#adjust', (e) => e.min) === '0', 'Sharpen only goes one way');
@@ -414,7 +420,7 @@ await p.waitForTimeout(200);
 await choose('sharpen');
 await slide(0);
 const unsharp = await across();
-check(unsharp.every((v, i) => Math.abs(v - plainRun[i]) <= 1) && await p.locator('#adjust-reset').isDisabled(),
+check(unsharp.every((v, i) => Math.abs(v - plainRun[i]) <= 1) && await p.locator('#sheet-float').isHidden(),
   'Sharpen back at nought is the photo as it came', unsharp.join(' '));
 
 /* ------------------------------------------------------------ clips opt out */
