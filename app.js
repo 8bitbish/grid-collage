@@ -8615,7 +8615,9 @@
     if (name === 'crop') syncCrop();
 
     const choosing = name === 'replace';
-    if (!choosing) trayOpen = false;
+    // Leaving Replace from the open tray folds it: the next tool has a foot,
+    // and the tray's classes are what hide it.
+    if (!choosing && trayOpen) { trayOpen = false; syncTray(); }
     // Trimming wants the same room for a different reason: it is the one panel
     // with three rows to fit, and in the 62px a drawer normally gives they came
     // to 4px of bar apiece. The pages bar stays up for this one, unlike the

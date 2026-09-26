@@ -290,6 +290,15 @@ console.log('\n== the whole tray ==');
   await rest();
   ok('a pull down on the grabber folds it back to the reel', await p.locator('#choose-tray').isHidden() && await p.locator('#choose-reel').isVisible());
   ok('with the new photo under the centre', await p.evaluate(() => document.querySelector('#choose-strip .is-current')?.getAttribute('aria-label') === 'blue.png'));
+  // Back from the open tray, rather than folding it first: the tool it goes
+  // back to has its foot. It once came back with the tray's classes still on
+  // the sheet, and no foot, so no way to let go of the tile.
+  await p.click('#choose-open');
+  await rest();
+  await p.click('#tray-back');
+  await rest();
+  ok('Back from the open tray goes back to the tool, foot and all', await p.locator('#tile-crop').isVisible()
+    && await p.locator('#dock-back').isVisible() && await p.locator('#tile-tabs').isVisible() && await p.locator('#choose-tray').isHidden());
   await p.click('#dock-back');
   await rest();
   await p.click('#btn-undo');
