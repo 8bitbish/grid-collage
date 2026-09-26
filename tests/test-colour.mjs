@@ -243,20 +243,20 @@ await p.route('**/colour-tables.png*', async (route) => {
 await p.reload();
 await p.waitForTimeout(500);
 fetched = 0;
-for (let k = 0; k < 3 && !(await p.locator('.dock-item[data-drawer="export"]').isVisible()); k++) {
+for (let k = 0; k < 3 && !(await p.locator('#btn-export-open').isVisible()); k++) {
   await p.click('#dock-back').catch(() => {});
   await p.waitForTimeout(250);
 }
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const grey = await p.evaluate(async (b64) => {
-    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);

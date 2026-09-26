@@ -88,7 +88,7 @@ await frame.waitForFunction(() => document.getElementById('photos-count').textCo
 
 let downloaded = false;
 page.on('download', () => { downloaded = true; });
-await frame.click('.dock-item[data-drawer="export"]');
+await frame.click('#btn-export-open');
 // Export stays disabled until a photo is actually in the tray, and a film
 // thumbnail appears a beat before that.
 const enabled = await frame.waitForFunction(() => {
@@ -96,7 +96,12 @@ const enabled = await frame.waitForFunction(() => {
   return b && !b.disabled;
 }, null, { timeout: 15000 }).then(() => true).catch(() => false);
 ok('Export is enabled', enabled);
-if (enabled) await frame.click('#btn-export');
+if (enabled) {
+  await frame.click('#btn-export');
+  // Done, the export waits for a tap of its own; embedded, with no share
+  // sheet, that tap saves.
+  await frame.click('#export-share', { timeout: 30000 });
+}
 await page.waitForTimeout(2500);
 
 // A sandbox without allow-downloads swallows a download without a word, so the

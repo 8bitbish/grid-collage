@@ -212,9 +212,10 @@ page.on('download', (d) => downloads.push(d.suggestedFilename()));
 // The shape drawer is still open from the ratio check; step back out first.
 await page.click('#dock-back');
 await page.waitForTimeout(250);
-await _openDrawer(page, 'export');
+await page.click('#btn-export-open');
 await page.waitForTimeout(300);
 await page.click('#btn-export');
+await page.click('#export-share', { timeout: 120000 });
 // The app says how many it is saving, and hands them over a quarter of a
 // second apart; wait for that many rather than six seconds. This used to print
 // a tick beside however many arrived, and check their names with every(),

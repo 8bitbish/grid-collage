@@ -50,10 +50,11 @@ console.log('  preview:', j(shown));
 ok('the preview is red over blue', red(shown.top) && blue(shown.bottom), j(shown));
 
 console.log('\n== and leaves the same way ==');
-await p.click('.dock-item[data-drawer="export"]');
+await p.click('#btn-export-open');
 await p.waitForTimeout(300);
 const dl=p.waitForEvent('download',{timeout:120000});
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'rotated-')),'01.mp4');
 await (await dl).saveAs(file);
 

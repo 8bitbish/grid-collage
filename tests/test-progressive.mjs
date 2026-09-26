@@ -70,19 +70,17 @@ console.log('  after the dwell:', shot2.length, 'bytes |', same ? 'identical on 
 console.log('\n== export is never a proxy ==');
 const sizes={};
 for (const q of ['1080','2160']) {
-  await p.evaluate((q)=>{const s=document.getElementById('quality');s.value=q;
-    s.dispatchEvent(new Event('change',{bubbles:true}));}, q);
-  await p.waitForTimeout(300);
   const dl=p.waitForEvent('download',{timeout:120000});
-  await p.click('.dock-item[data-drawer="export"]').catch(()=>{});
+  await p.click('#btn-export-open').catch(()=>{});
   await p.waitForTimeout(250);
+  await p.click(`#export-card [data-quality="${q}"]`);
+  await p.waitForTimeout(300);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const d=await dl;
   sizes[q]=fs.statSync(await d.path()).size;
   console.log(`  @${q}: ${(sizes[q]/1024).toFixed(0)} KB/page`);
   await p.waitForTimeout(N*350);
-  await p.click('#dock-back').catch(()=>{});
-  await p.waitForTimeout(300);
 }
 
 ok('a bigger export is a bigger file', sizes['2160'] > sizes['1080']*2, `${sizes['1080']} → ${sizes['2160']}`);
@@ -92,9 +90,10 @@ await p.reload();
 await p.waitForFunction((n)=>document.querySelectorAll('.film').length===n, N, {timeout:180000});
 {
   const dl=p.waitForEvent('download',{timeout:120000});
-  await p.click('.dock-item[data-drawer="export"]').catch(()=>{});
+  await p.click('#btn-export-open').catch(()=>{});
   await p.waitForTimeout(200);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const d=await dl;
   const straight=fs.statSync(await d.path()).size;
   console.log(`  straight to export @2160: ${(straight/1024).toFixed(0)} KB/page`);

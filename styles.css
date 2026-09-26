@@ -1578,9 +1578,6 @@ body.is-picking .tile::after {
 .sheet-balance { flex: none; width: 44px; display: none; }
 .has-value .sheet-balance { display: block; }
 
-/* The button a sheet exists for takes the rest of the foot. */
-.sheet-go { display: none; flex: 1; min-height: 44px; border-radius: var(--radius-control); font-size: 15px; }
-.has-go .sheet-go { display: block; }
 
 /* A panel is a control, centred in the space above the foot. Nothing in one
    scrolls whole: rows that scroll are inside it, and carry their own fades. */
@@ -1602,19 +1599,6 @@ body.is-picking .tile::after {
 .dock-actions { gap: 10px; padding: 0 8px; }
 .dock-actions .btn { flex: 1; min-width: 0; max-width: 220px; border-radius: var(--radius-control); }
 
-.dock-export { overflow: visible; }
-.export-settings {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.export-settings::-webkit-scrollbar { display: none; }
-.export-settings .select { flex: none; }
 
 /* The icons along a tile's tools: an icon over its word, grey until chosen. */
 .dock-item {
@@ -2052,26 +2036,6 @@ body.is-picking .tile::after {
   color: var(--content-inverse);
 }
 .btn-primary:hover { filter: brightness(0.92); background: var(--background-inverse); }
-
-/* The export settings are pills on the sheet like Presets and the hex field
-   beside the colours, not boxes. The chevron is --content-secondary written
-   out, because a data URI cannot read a variable. */
-.select {
-  appearance: none;
-  background: var(--background-control) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238e8e8e' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;
-  border: none;
-  color: var(--content-primary);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 0 32px 0 16px;
-  border-radius: var(--radius-control);
-  cursor: pointer;
-  /* The same 44 as everything else it stands next to. A select opens a picker
-     rather than acting on the tap, so a miss here costs a wheel that has to be
-     dismissed as well as the tap that missed. */
-  min-height: 44px;
-}
 
 /* The trim pair keeps the thin bars: they are stacked two deep over one clip,
    and each has to span the full width so start and end are measured on the same
@@ -2803,7 +2767,6 @@ body.is-library .toast {
   .sheet-body { min-height: 56px; }
   .dock-back { width: 38px; height: 38px; }
   .dock-tab { height: 38px; }
-  .sheet-go { min-height: 38px; }
   .dock-panel.has-reel { height: 58px; }
   .reel-layouts .layout-btn, .reel-layouts .reel-echo,
   .reel-ratios .segmented button, .reel-ratios .reel-echo { height: 54px; }
@@ -2821,7 +2784,6 @@ body.is-library .toast {
   .dock-item { min-width: 58px; font-size: 10px; gap: 2px; padding: 4px 6px; }
   .dock-item svg { width: 18px; height: 18px; }
   .dock .btn { min-height: 38px; }
-  .select { min-height: 38px; }
   .dock-slider { gap: 2px; }
   .dock-label { font-size: 10.5px; }
 }
@@ -3151,6 +3113,95 @@ body.is-library .toast {
    pinch, but at 40% and not yet anything to press. */
 .sheet-float.is-resting .float-btn { opacity: 0.4; }
 .float-btn:disabled { cursor: default; }
+
+/* --------------------------------------------------------------- export */
+/* Export turns into the card's close while the card is open. */
+.export-open .export-cross,
+.export-open.is-open .export-arrow { display: none; }
+.export-open.is-open .export-cross { display: block; }
+
+/* The card rises off the button, anchored to its right and 8 above the bar,
+   and is as wide as the sizes: the sizes are tabs, 44 tall with 16 either
+   side of each number, and the button to go takes that width beneath them.
+   8 inside and 4 between, so its corners nest, 30 on the card less 8. */
+.export-card {
+  position: absolute;
+  z-index: 8;
+  right: var(--space-screen-edge);
+  bottom: calc(100% - var(--space-dock-top) + var(--space-inset-sheet));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-inset-sheet);
+  border-radius: var(--radius-sheet);
+  background: var(--background-raised);
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.55);
+  transform-origin: 100% 100%;
+}
+.export-sizes { display: flex; }
+.export-card .action { width: 100%; }
+
+/* The one thing a card or a screen is for, as a word on a 44 pill. Primary
+   is white, and there is at most one on screen; quiet stands beside it. */
+.action {
+  height: 44px;
+  padding: 0 var(--space-inset-tab);
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 140ms, filter 140ms;
+}
+.action-primary { background: var(--background-inverse); color: var(--content-inverse); }
+.action-quiet { background: var(--background-control); color: var(--content-primary); }
+.action:active:not(:disabled) { transform: translateY(1px) scale(0.97); transition-duration: 0s; }
+.action:disabled { opacity: 0.4; cursor: default; }
+
+/* The export's screen: held black at 90%, taking every touch, with one ring
+   for the whole deck, what is happening under it, and what to do next. */
+.export-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: var(--space-screen-edge);
+  background: rgba(0, 0, 0, 0.9);
+  touch-action: none;
+}
+.export-state { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 240px; }
+.export-ring { position: relative; width: 72px; height: 72px; display: grid; place-items: center; }
+.export-ring > svg:first-child { position: absolute; inset: 0; width: 72px; height: 72px; fill: none; stroke-width: 3.6; transform: rotate(-90deg); }
+.export-track { stroke: var(--background-control); }
+.export-fill { stroke: var(--content-primary); stroke-dasharray: 0 100; transition: stroke-dasharray 200ms linear; }
+.export-count { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.export-tick { display: none; width: 28px; height: 28px; fill: none; stroke: var(--content-primary); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.export-screen:not([data-state="exporting"]) .export-count { display: none; }
+.export-screen:not([data-state="exporting"]) .export-tick { display: block; }
+.export-words { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; text-align: center; line-height: normal; }
+.export-words strong { font-size: 15px; font-weight: 500; }
+.export-words span { font-size: 12px; color: var(--content-secondary); }
+.export-words span:empty { display: none; }
+.export-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+.export-actions .action { width: 100%; }
+.export-actions .export-cancel { width: 120px; }
+.export-actions .action { display: none; }
+.export-screen[data-state="exporting"] #export-cancel,
+.export-screen[data-state="ready"] #export-share,
+.export-screen[data-state="ready"] #export-later,
+.export-screen[data-state="shared"] #export-done,
+.export-screen[data-state="shared"] #export-again { display: block; }
+/* The toast has something to say while the screen is up — how many empty
+   pages were skipped — so it comes out over the black, as it does over the
+   library. */
+body.is-exporting .toast {
+  position: fixed;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+}
 
 /* What the chosen tile is showing that it would not otherwise — its original
    while Compare is on, the time under a trim handle — written on the tile

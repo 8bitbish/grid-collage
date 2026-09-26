@@ -120,7 +120,6 @@
     radius: 0,
     bg: '#ffffff',
     quality: 1080,
-    format: 'image/jpeg',
     // contents
     photos: [],
     pages: [],
@@ -7279,7 +7278,11 @@
 
   /* ---------------------------------------------------------------- export */
 
-  function renderToBlob(pg, type) {
+  // A photo page goes out as a JPEG at 0.92, whatever it is. Instagram
+  // re-encodes everything it is sent as JPEG, so a PNG's losslessness never
+  // reached a post, and the choice went. The clipboard is the one thing that
+  // still asks for a PNG.
+  function renderToBlob(pg, type = 'image/jpeg') {
     const { w, h } = outputSize();
     const off = document.createElement('canvas');
     off.width = w;
@@ -7321,7 +7324,7 @@
   // both, in the background behind the tiles.
   const bitrateFor = (w, h) => Math.round(Math.min(24e6, Math.max(2e6, w * h * EXPORT_FPS * 0.1)));
 
-  async function renderVideoPage(pg, onProgress) {
+  async function renderVideoPage(pg, onProgress, job = null) {
     const MB = await loadMediabunny();
     const { w: W, h: H } = outputSize();
 
@@ -7372,7 +7375,7 @@
     });
 
     try {
-      return await composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress);
+      return await composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress, job);
     } finally {
       // Whatever happened, nothing is left holding a decoder open or a frame
       // undrained — abandoning an iterator mid-flight leaves both.
@@ -7382,8 +7385,14 @@
     }
   }
 
-  async function composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress) {
+  async function composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress, job) {
     for (let i = 0; i < frames; i += 1) {
+      // Cancel stops between frames, not at the end of a clip that could be
+      // a minute long. What was written so far is thrown away with the file.
+      if (job && job.cancelled) {
+        try { await output.cancel(); } catch { /* nothing to undo */ }
+        throw new DOMException('Export cancelled', 'AbortError');
+      }
       const open = [];
       for (const clip of clips) {
         const { value: sample } = await clip.reader.next();
@@ -7482,98 +7491,209 @@
     }
   }
 
+  /* ------------------------------------------------------ the export card */
+
+  // The sizes, and the button that goes, on a card off the Export button. The
+  // bar stays: the card sits over the stage rather than taking its place.
+  function syncSizes() {
+    $('export-card').querySelectorAll('[data-quality]').forEach((btn) => {
+      const on = Number(btn.dataset.quality) === state.quality;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-checked', String(on));
+    });
+  }
+
+  function openExportCard() {
+    const card = $('export-card');
+    if (!card.hidden) return;
+    syncSizes();
+    card.hidden = false;
+    $('btn-export-open').classList.add('is-open');
+    $('btn-export-open').setAttribute('aria-expanded', 'true');
+    $('btn-export-open').setAttribute('aria-label', 'Close');
+    if (!calmMotion.matches) {
+      card.animate([{ opacity: 0, transform: 'translateY(8px) scale(0.96)' }, { opacity: 1, transform: 'none' }],
+        { duration: FLOAT_MS, easing: 'ease-out' });
+    }
+  }
+
+  function closeExportCard() {
+    const card = $('export-card');
+    if (card.hidden) return;
+    card.hidden = true;
+    $('btn-export-open').classList.remove('is-open');
+    $('btn-export-open').setAttribute('aria-expanded', 'false');
+    $('btn-export-open').setAttribute('aria-label', 'Export');
+  }
+
+  function chooseSize(q) {
+    if (q === state.quality) return;
+    snapshot();
+    state.quality = q;
+    restyle();
+    refresh();
+    saveDeck();
+    syncSizes();
+  }
+
+  /* ------------------------------------------------------- the export run */
+  //
+  // One run at a time, held while its screen is up: what it made, how many
+  // video slides had to go out as stills, and whether Cancel was tapped.
+  let exportJob = null;
+
   // Nothing plays while an export is running. The preview and the export
   // both hand a frame to the same cell and both want the decoder, and the
-  // preview is the one nobody is watching once the overlay is up.
+  // preview is the one nobody is watching once the screen is up.
   async function exportDeck() {
+    closeExportCard();
     stopPlayers();
     try { await runExport(); } finally { syncPlayback(); }
   }
 
+  const slideName = (i, ext) => `${String(i + 1).padStart(2, '0')}.${ext}`;
+  const shareable = (files) => !!(navigator.canShare && navigator.canShare({ files }));
+
   async function runExport() {
     const filled = state.pages.filter((pg) => pg.cells.some(Boolean));
     if (!filled.length) { toast('Add a photo first'); return; }
-
-    const ext = state.format === 'image/png' ? 'png' : 'jpg';
-    const out = outputSize();
+    const job = { cancelled: false, files: [], failed: 0, total: filled.length };
+    exportJob = job;
+    showExportScreen();
     const skipped = state.pages.length - filled.length;
-    const moving = filled.filter(hasVideo).length;
-    toast(skipped
-      ? `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''} — skipping ${skipped} empty`
-      : `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''}…`);
-
-    // A page of video is the one thing here that takes long enough to need
-    // saying so: every frame has to be decoded, composed and encoded again.
-    if (moving) showOpening('Rendering', 'Reading the video…');
+    if (skipped) toast(`Skipping ${plural(skipped, 'empty page')}`);
     // Every page's, before any is drawn, video pages' stills included.
     await tablesForPages(filled);
-    let failed = 0;
 
-    const files = [];
-    for (let i = 0; i < filled.length; i++) {
-      const page = filled[i];
-      if (hasVideo(page)) {
-        if (moving) {
-          $('op-name').textContent = filled.length > 1
-            ? `Slide ${i + 1} of ${filled.length}` : 'Rendering';
-        }
+    for (let i = 0; i < filled.length && !job.cancelled; i++) {
+      const pg = filled[i];
+      const moving = hasVideo(pg);
+      exportProgress(job, i, 0, moving);
+      if (moving) {
         let clip = null;
         try {
-          clip = await renderVideoPage(page, (done) => {
-            $('op-fill').style.width = `${Math.round(done * 100)}%`;
-            $('op-step').textContent = `${Math.round(done * 100)}% of this slide`;
-          });
+          clip = await renderVideoPage(pg, (done) => exportProgress(job, i, done, true), job);
         } catch (err) {
-          console.warn('Video export failed', { page: i + 1, error: err });
+          if (!job.cancelled) console.warn('Video export failed', { page: i + 1, error: err });
         }
-        if (clip) {
-          files.push(new File([clip], `${String(i + 1).padStart(2, '0')}.mp4`, { type: 'video/mp4' }));
-          continue;
-        }
+        if (job.cancelled) break;
+        if (clip) { job.files.push(new File([clip], slideName(i, 'mp4'), { type: 'video/mp4' })); continue; }
         // Rather than drop the slide, send the frame it opens on. A carousel
         // missing its third slide is worse than one whose third slide is a
         // still, and it is obvious which happened.
-        failed += 1;
+        job.failed += 1;
       }
       // Never export a proxy. Whatever is on screen, the file that comes out
       // is rendered from the photo as it arrived.
-      await Promise.all(photosOn(page).map(ensureFull));
-      await subjectsFor(page);
-      const blob = await renderToBlob(page, state.format);
-      if (!blob) continue;
+      await Promise.all(photosOn(pg).map(ensureFull));
+      await subjectsFor(pg);
+      if (job.cancelled) break;
+      const blob = await renderToBlob(pg);
       // Instagram imports by filename, so the order has to be in the name.
-      files.push(new File([blob], `${String(i + 1).padStart(2, '0')}.${ext}`, { type: state.format }));
+      if (blob) job.files.push(new File([blob], slideName(i, 'jpg'), { type: 'image/jpeg' }));
     }
-    if (moving) hideOpening();
-    if (!files.length) { toast("Couldn't render the pages"); return; }
 
-    // Said at the end rather than here. Everything below toasts something
-    // routine on its way out, and a routine message replacing this one is
-    // how you would come to post a still where you meant a video.
-    const warn = failed
-      ? () => toast(`${failed} video slide${failed > 1 ? 's' : ''} wouldn't render — sent as stills`)
-      : null;
+    if (exportJob !== job) return;
+    if (job.cancelled) { closeExportScreen(); toast('Export cancelled'); return; }
+    if (!job.files.length) { closeExportScreen(); toast("Couldn't render the pages"); return; }
+    setExportState('ready');
+  }
 
-    // Share sheet takes the whole carousel at once and lands it in Photos.
-    if (navigator.canShare && navigator.canShare({ files })) {
+  function showExportScreen() {
+    const screen = $('export-screen');
+    screen.dataset.state = 'exporting';
+    screen.hidden = false;
+    document.body.classList.add('is-exporting');
+    $('export-cancel').disabled = false;
+    $('export-count').textContent = '';
+    $('export-fill').style.strokeDasharray = '0 100';
+  }
+
+  function closeExportScreen() {
+    $('export-screen').hidden = true;
+    document.body.classList.remove('is-exporting');
+    exportJob = null;
+  }
+
+  // One ring for the whole deck: the slides done, and how far through the one
+  // being made, which for a video is its frames.
+  function exportProgress(job, i, done, moving) {
+    if (exportJob !== job) return;
+    $('export-fill').style.strokeDasharray = `${(((i + done) / job.total) * 100).toFixed(2)} 100`;
+    $('export-count').textContent = `${i + 1}/${job.total}`;
+    $('export-title').textContent = `Exporting slide ${i + 1} of ${job.total}`;
+    $('export-sub').textContent = moving ? 'A video, so this one takes longer' : '';
+  }
+
+  function setExportState(stateName) {
+    const job = exportJob;
+    if (!job) return;
+    const n = job.files.length;
+    const screen = $('export-screen');
+    screen.dataset.state = stateName;
+    $('export-fill').style.strokeDasharray = '100 100';
+    if (stateName === 'ready') {
+      const share = shareable(job.files);
+      $('export-title').textContent = `${plural(n, 'slide')}, ready`;
+      // What to do in the share sheet, since a web app cannot open Instagram
+      // or post for anyone; with no share sheet, where they will land.
+      $('export-sub').textContent = share
+        ? (n === 1 ? 'Choose Instagram in the share sheet to post it' : 'Choose Instagram in the share sheet to post them as one carousel')
+        : 'They save as numbered files, so they stay in order';
+      $('export-share').textContent = `${share ? 'Share' : 'Save'} ${plural(n, 'slide')}`;
+      $('export-share').focus({ preventScroll: true });
+    } else if (stateName === 'shared') {
+      $('export-title').textContent = 'Shared';
+      $('export-sub').textContent = n === 1 ? 'Sent the slide' : `Sent all ${n} in order`;
+      $('export-done').focus({ preventScroll: true });
+    }
+  }
+
+  // The share sheet opens here and only here, on a tap. A browser allows
+  // navigator.share only within a few seconds of one, and a deck with video
+  // takes longer than that to render, so opening it at the end of the run
+  // failed on exactly the slow decks and fell back to saving files one by one.
+  //
+  // Worth a test on a phone: the title below. One report has iOS sharing the
+  // text instead of the files to some apps when a title is given.
+  async function shareExport() {
+    const job = exportJob;
+    if (!job) return;
+    const { files } = job;
+    if (shareable(files)) {
       try {
         await navigator.share({ files, title: 'Carousel' });
-        if (warn) warn();
-        return;
+        if (exportJob === job) setExportState('shared');
       } catch (err) {
-        if (err.name === 'AbortError') { if (warn) warn(); return; }
+        // Dismissed: back where it was, nothing lost.
+        if (err && err.name === 'AbortError') { if (exportJob === job) setExportState('ready'); return; }
+        saveExport(job);
       }
-    }
-
-    if (FRAMED) {
-      // Downloads are blocked in an embedded frame; offer the current page.
-      const url = URL.createObjectURL(files[Math.min(state.current, files.length - 1)]);
-      openSheet(url, files[0].name, `${out.w}×${out.h}`, ext.toUpperCase());
-      toast(warn ? '' : 'Embedded preview can only save one page at a time');
-      if (warn) warn();
       return;
     }
+    saveExport(job);
+  }
 
+  // Said once the screen has gone rather than while it is up. A routine
+  // message replacing this one is how you would come to post a still where
+  // you meant a video.
+  function warnStills(job) {
+    if (job && job.failed) toast(`${plural(job.failed, 'video slide')} wouldn't render — sent as stills`);
+  }
+
+  function saveExport(job) {
+    const { files } = job;
+    const out = outputSize();
+    closeExportScreen();
+    if (FRAMED) {
+      // Downloads are blocked in an embedded frame; offer the current page.
+      const file = files[Math.min(state.current, files.length - 1)];
+      const url = URL.createObjectURL(file);
+      openSheet(url, file.name, `${out.w}×${out.h}`, file.name.split('.').pop().toUpperCase());
+      if (job.failed) warnStills(job);
+      else toast('Embedded preview can only save one page at a time');
+      return;
+    }
     // No share sheet here (most desktop browsers): save them one by one,
     // numbered, so they still import in order.
     files.forEach((file, i) => {
@@ -7588,8 +7708,23 @@
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       }, i * 250);
     });
-    if (warn) warn();
-    else toast(`Saving ${files.length} page${files.length > 1 ? 's' : ''} as ${out.w}×${out.h} ${ext.toUpperCase()}`);
+    if (job.failed) warnStills(job);
+    else toast(`Saving ${plural(files.length, 'page')} as ${out.w}×${out.h}`);
+  }
+
+  function leaveExport() {
+    const job = exportJob;
+    const shared = $('export-screen').dataset.state === 'shared';
+    closeExportScreen();
+    if (shared) warnStills(job);
+  }
+
+  // Cancel stops between slides, and between frames of a video; the loop
+  // drops the black itself once it has.
+  function cancelExport() {
+    if (!exportJob) return;
+    exportJob.cancelled = true;
+    $('export-cancel').disabled = true;
   }
 
   function openSheet(url, name, size, ext) {
@@ -8308,8 +8443,7 @@
       $(`${key}-val`).textContent = state[key];
       paintSlider($(key));
     });
-    $('quality').value = String(state.quality);
-    $('format').value = state.format;
+    syncSizes();
   }
 
   function markActive(wrap, btn) {
@@ -8424,7 +8558,7 @@
   // it to one row means the preview never has to share the screen with a
   // panel, and using a control can't scroll the preview out of view.
   const DRAWERS = ['layout', 'shape', 'gap', 'padding', 'corners',
-    'background', 'page', 'export', 'tile'];
+    'background', 'page', 'tile'];
   let drawer = null;
 
   // Which of the tile's tools is open, and the tile waiting to be swapped with
@@ -10069,6 +10203,7 @@
 
   function openDrawer(name) { morph(() => openDrawerNow(name)); }
   function openDrawerNow(name) {
+    closeExportCard();
     const wasOpen = drawer !== null;
     const fromBar = $('dock-root').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
     if (fromBar) sheetOpener = document.activeElement;
@@ -10130,7 +10265,6 @@
     sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub) && !(tileSub === 'replace' && trayOpen));
     sheet.classList.toggle('has-replace-foot', drawer === 'tile' && tileSub === 'replace' && !trayOpen);
     sheet.classList.toggle('has-value', drawer === 'shape');
-    sheet.classList.toggle('has-go', drawer === 'export');
     const single = layoutCells(page().layout).length < 2;
     [...$('dock-tabs').children].forEach((t) => {
       const on = t.dataset.drawer === drawer;
@@ -10221,12 +10355,9 @@
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    // The export settings scroll a rail inside their panel rather than the
-    // panel scrolling whole, so it is the rail that has to carry the fade or
-    // nothing would say there was more. The reels are not here: they run round
-    // without an end, so there is always more, and they fade both edges in the
-    // stylesheet for good.
-    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'export-settings', 'effect-list'].map($),
+    // The reels are not here: they run round without an end, so there is
+    // always more, and they fade both edges in the stylesheet for good.
+    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -10466,7 +10597,6 @@
       radius: state.radius,
       bg: state.bg,
       quality: state.quality,
-      format: state.format,
       current: state.current,
       pages: state.pages.map((pg) => ({
         layout: pg.layout.id,
@@ -10489,7 +10619,6 @@
       if (typeof data[k] === 'number') state[k] = data[k];
     });
     if (data.bg) state.bg = data.bg;
-    if (data.format) state.format = data.format;
 
     if (data.pages && data.pages.length) {
       // Every undo replaces the cells wholesale, and a poster is a decoded
@@ -10705,7 +10834,6 @@
       if (typeof saved[k] === 'number') state[k] = saved[k];
     });
     if (saved.bg) state.bg = saved.bg;
-    if (saved.format) state.format = saved.format;
   }
 
   // Back to the state a fresh project starts in. Bitmaps are closed and the
@@ -10735,7 +10863,6 @@
     state.radius = 0;
     state.bg = '#ffffff';
     state.quality = 1080;
-    state.format = 'image/jpeg';
     undoStack.length = 0;
     redoStack.length = 0;
     syncHistoryButtons();
@@ -11768,16 +11895,13 @@
   slider('radius', 'radius');
   closeDrawer();
 
-  $('quality').value = String(state.quality);
-  $('format').value = state.format;
-  // The three controls in the dock that a tap never lands on, so the delegated
-  // tick below never reaches them: two selects and the colour well all hand
-  // over to a picker of the system's own and come back with an answer. The
-  // buzz belongs to the answer arriving, which is what change means on all
-  // three — an input event on a colour well fires for every step of a drag
-  // round the wheel, and buzzing those would be the rattle the sliders avoid.
-  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); buzz('tap'); });
-  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); buzz('tap'); });
+  syncSizes();
+  // The one control in the dock that a tap never lands on, so the delegated
+  // tick below never reaches it: the colour well hands over to a picker of
+  // the system's own and comes back with an answer. The buzz belongs to the
+  // answer arriving, which is what change means there — an input event on a
+  // colour well fires for every step of a drag round the wheel, and buzzing
+  // those would be the rattle the sliders avoid.
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
   $('bg').addEventListener('change', () => buzz('tap'));
 
@@ -11917,7 +12041,20 @@
     btn.addEventListener('click', () => toggleSide(btn.dataset.side));
   });
 
+  $('btn-export-open').addEventListener('click', () => { if ($('export-card').hidden) openExportCard(); else closeExportCard(); });
+  $('export-card').querySelectorAll('[data-quality]').forEach((btn) => {
+    btn.addEventListener('click', () => chooseSize(Number(btn.dataset.quality)));
+  });
   $('btn-export').addEventListener('click', exportDeck);
+  $('export-cancel').addEventListener('click', cancelExport);
+  $('export-share').addEventListener('click', shareExport);
+  $('export-again').addEventListener('click', shareExport);
+  $('export-later').addEventListener('click', leaveExport);
+  $('export-done').addEventListener('click', leaveExport);
+  buzzTaps($('export-screen'));
+  // The card goes when anything else is touched: a finger on the page, or
+  // another setting opened.
+  stageInput.addEventListener('pointerdown', closeExportCard, true);
   // A press is settled by the pointer sequence in the stage handlers, and this
   // still fires afterwards for the same tap — so it is the second caller the
   // guard in requestDeletePage exists for, not a fallback. It matters on its own
@@ -12015,6 +12152,15 @@
       if (detailOf && e.key === 'Escape') closeDetail();
       return;
     }
+    // The export's screen takes nothing, keys included, but its own way out.
+    if (!$('export-screen').hidden) {
+      if (e.key === 'Escape') {
+        const on = $('export-screen').dataset.state;
+        if (on === 'exporting') cancelExport(); else leaveExport();
+      }
+      return;
+    }
+    if (e.key === 'Escape' && !$('export-card').hidden) { closeExportCard(); return; }
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();

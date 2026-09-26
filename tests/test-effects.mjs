@@ -201,16 +201,16 @@ check(modelFetches.length === fetchedBefore, 'and its subject comes back from st
 
 /* ------------------------------------------------------------------ export */
 
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const got = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const out = await p.evaluate(async ([b64, pts]) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -220,7 +220,6 @@ else {
   const got = Object.fromEntries(Object.keys(POINTS).map((k, i) => [k, out[i]]));
   check(poppedOut(got), 'the exported file has the pop out the preview had', show(got));
 }
-await p.click('#dock-back');
 
 /* ------------------------------------------------------------ clips opt out */
 

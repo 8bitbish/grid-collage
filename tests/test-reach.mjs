@@ -50,7 +50,6 @@ const DRAWERS = [
   ['padding',    '#dp-padding .dial-track'],
   ['corners',    '#dp-corners .dial-track'],
   ['page',       '#dp-page .btn'],
-  ['export',     '#dp-export .select, #btn-export'],
 ];
 // The tile's tools, each opened from its tab along the foot.
 const SUBS = [
@@ -127,23 +126,20 @@ for (const [label, vp, floor] of [
   ok('any colour: smallest control', customs.side >= floor, `${customs.id} at ${customs.side}px`);
   await p.click('#dock-back');
 
-  await open('export');
+  // Export is a card off the bar rather than a sheet: its sizes and its
+  // button are controls like any other, and all of it has to be on screen.
+  await p.click('#btn-export-open');
+  // At rest: it rises off the button from 96%, and measured on the way it
+  // is 42 of its 44.
+  await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const sizes = await worst('#export-card button');
+  ok('export: smallest control', sizes.side >= floor, `${sizes.id} at ${sizes.side}px`);
   const exp = await p.evaluate(() => {
-    const r = document.getElementById('btn-export').getBoundingClientRect();
-    const panel = document.getElementById('dp-export');
-    const cs = getComputedStyle(panel);
-    return { right: Math.round(r.right), width: window.innerWidth,
-             scrolls: panel.scrollWidth - panel.clientWidth,
-             masked: (cs.maskImage || cs.webkitMaskImage || 'none') !== 'none' };
+    const r = document.getElementById('export-card').getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), width: window.innerWidth };
   });
-  ok('Export is on screen', exp.right <= exp.width, `right edge ${exp.right} of ${exp.width}`);
-  // The panel sets overflow: visible so its settings rail can scroll inside it,
-  // which means the panel itself never can — and a row that cannot scroll must
-  // not be wearing the sideways-scroll fade. That is the fault 059493d found on
-  // the sliders, and the mask would take the right-hand edge of Export with it.
-  ok('and the panel around it is not masked', !exp.masked && exp.scrolls <= 2,
-     `${exp.scrolls}px of slack, mask ${exp.masked ? 'on' : 'off'}`);
-  await p.click('#dock-back');
+  ok('the export card is on screen', exp.left >= 0 && exp.right <= exp.width && exp.top >= 0, `${exp.left}–${exp.right} of ${exp.width}, top ${exp.top}`);
+  await p.click('#btn-export-open');
 
   // The tile drawer and its sub-panels.
   const box=await p.locator('#canvas').boundingBox();
@@ -165,7 +161,7 @@ for (const [label, vp, floor] of [
   // Nothing may hang out of the bar. A panel that overflows downward is a
   // control pressed against the bottom edge of the screen, which is how the
   // trim panel arrived — 90px of content in 62px of dock.
-  for (const name of ['shape','background','page','export']) {
+  for (const name of ['shape','background','page']) {
     await open(name);
     // Measured at rest. A sheet rises from wherever the last one fell to,
     // so mid-flight its panel is below the dock by however far that was:

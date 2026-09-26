@@ -121,6 +121,18 @@ const offCentre = await p.$$eval('.setting[data-adjust] .setting-ring', (rings) 
 check(offCentre <= 0.5, 'every tool\'s icon sits in the middle of its ring', `worst ${offCentre.toFixed(2)}px off`);
 
 const choose = (id) => p.click(`.setting[data-adjust="${id}"]`);
+// The export is a JPEG at 0.92 now, which is what Instagram is sent. A check
+// on what the app draws — rather than on what the encoder makes of it — reads
+// the one export it needs as a PNG of the very canvas the app drew, by asking
+// the next toBlob for a PNG and then putting toBlob back.
+const readDrawnNotEncoded = () => p.evaluate(() => {
+  const toBlob = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb, type, q) {
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    return toBlob.call(this, cb, 'image/png', q);
+  };
+});
+
 // A drag, as far as the app can tell: input while moving, change on letting go.
 const slide = async (value) => {
   await p.evaluate((v) => {
@@ -245,16 +257,16 @@ check(near(reopened.bands, bpDown.bands, 2), 'the edit survives closing and reop
 
 /* ------------------------------------------------------------------ export */
 
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const got = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const out = await p.evaluate(async (b64) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -263,7 +275,6 @@ else {
   }, bytes);
   check(near(out, bpDown.bands, 2), 'the exported file has the edit the preview had', `bands ${out.join('/')}`);
 }
-await p.click('#dock-back');
 
 /* ------------------------------------------------------------------- reset */
 
@@ -389,16 +400,16 @@ check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && ha
 await slide(100);
 if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const gotSharp = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const sharpDownload = await gotSharp;
 if (!sharpDownload) check(false, 'the sharpened export arrives');
 else {
   const bytes = fs.readFileSync(await sharpDownload.path()).toString('base64');
   const out = await p.evaluate(async (b64) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -410,7 +421,6 @@ else {
   check(near(out.bands, BANDS, 1) && 100 - Math.min(...out.run) >= 8 && Math.max(...out.run) - 170 >= 8,
     'the exported file is sharpened as the preview was', `bands ${out.bands.join('/')}, edge ${Math.min(...out.run)}..${Math.max(...out.run)}`);
 }
-await p.click('#dock-back');
 
 // And back to nought, which is the photo again and nothing left to reset.
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -518,16 +528,15 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
   await slide(amount);
   if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-  await p.click('.dock-item[data-drawer="export"]');
-  await p.selectOption('#quality', '2160');
-  await p.selectOption('#format', 'image/png');
+  await p.click('#btn-export-open');
+  await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const download = await got;
-  await p.click('#dock-back');
   if (!download) return null;
   return p.evaluate(async ({ b64, L, P, kind }) => {
-    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);
@@ -563,10 +572,7 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
       for (let i = 0; i < d.length; i += 4) { s1 += d[i + 1]; s2 += d[i + 1] ** 2; n++; }
       return Math.sqrt(s2 / n - (s1 / n) ** 2);
     };
-    const jpeg = await createImageBitmap(await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 }));
-    const jg = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d');
-    jg.drawImage(jpeg, 0, 0);
-    return { size: bmp.width, fundamentals, edge, steps, noise: spread(g), noiseJpeg: spread(jg) };
+    return { size: bmp.width, fundamentals, edge, steps, noise: spread(g) };
   }, { b64: fs.readFileSync(await download.path()).toString('base64'), L: layout, P: PATCH, kind });
 };
 const gainsOf = (fundamentals, base) => fundamentals.map((v, i) => v / base.gratings[i].fundamental);
@@ -600,14 +606,17 @@ else {
   // Google's noise patch came out at 3.01, its own q90 JPEG included; the
   // chart as it came reads 3.02, and 2.59 through the same JPEG. This is
   // grain at the pixel, finer than anything in a photograph's own detail,
-  // and it is where keeping the finest detail costs most: 3.25 through the
+  // and it is where keeping the finest detail costs most: 3.25 through a
   // JPEG, where trading it had 3.10 and keeping it with the lift at 1.55
   // throughout 3.75. On the photos the app's soft ground came out no
   // grainier than Google's (the fox's soft background 1.20 in the fine band
-  // against Google's 1.28), so this holds it to not much worse.
-  check(sharpChart.noiseJpeg - googlePhone['sharpen+100'].noise <= 0.8,
-    'and the noise patch comes out no more than 0.8 louder than Google\'s once both are JPEGs',
-    `${sharpChart.noiseJpeg.toFixed(2)} (${sharpChart.noise.toFixed(2)} before the JPEG); Google ${googlePhone['sharpen+100'].noise}`);
+  // against Google's 1.28), so this holds it to not much worse. The export
+  // is itself a JPEG at 0.92 now, so it is compared as it comes: until the
+  // PNG went, this test made its own q90 JPEG of a lossless export, and
+  // doing that to a JPEG is a second generation Google's never had.
+  check(sharpChart.noise - googlePhone['sharpen+100'].noise <= 0.8,
+    'and the noise patch comes out no more than 0.8 louder than Google\'s, both as JPEGs',
+    `${sharpChart.noise.toFixed(2)}; Google ${googlePhone['sharpen+100'].noise}`);
   // Google's rings 10 under and 7 over at this edge. The app's rings 5 and
   // 11 (1 and 4 while the finest detail was traded), and what matters more
   // is that it goes no further out than Google's by much.
@@ -834,13 +843,16 @@ await choose('sharpen');
 await slide(100);
 if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#quality', '2160');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
+await p.click('#export-card [data-quality=\"2160\"]');
 const gotTexture = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+// Detail at 2.5px is what a JPEG spends first, and this is a check on the
+// sharpening: read what was drawn. Through the export's own JPEG the same
+// stand-in reads ×0.55 and ×0.95 at 2.5 and 3px.
+await readDrawnNotEncoded();
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const textureDownload = await gotTexture;
-await p.click('#dock-back');
 if (!textureDownload) check(false, 'the sharpened stand-in arrives');
 else {
   // Brightness of the stand-in drawn into the export as the app draws it,
@@ -906,19 +918,18 @@ const tonedChart = async (amount) => {
   await slide(amount);
   if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-  await p.click('.dock-item[data-drawer="export"]');
-  await p.selectOption('#quality', '2160');
-  await p.selectOption('#format', 'image/png');
+  await p.click('#btn-export-open');
+  await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const download = await got;
-  await p.click('#dock-back');
   if (!download) return null;
   return {
     oneWay,
     ...await p.evaluate(async ({ b64, original, L, points }) => {
       const read = async (data) => {
-        const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+        const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${data}`)).blob());
         const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d', { willReadFrequently: true });
         g.drawImage(bmp, 0, 0);
         return g;

@@ -176,9 +176,10 @@ console.log('\n== exporting a deck with no video touches none of it ==');
   await q.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:15000});
   await q.waitForTimeout(400);
   served=[];
-  await q.click('.dock-item[data-drawer="export"]'); await q.waitForTimeout(300);
+  await q.click('#btn-export-open'); await q.waitForTimeout(300);
   const dl = q.waitForEvent('download',{timeout:30000}).catch(()=>null);
   await q.click('#btn-export');
+  await q.click('#export-share', { timeout: 120000 });
   await dl;
   await q.waitForTimeout(800);
   ok('mediabunny never fetched for a photo deck', !served.some(u=>u.includes('mediabunny')), j(served));
@@ -194,9 +195,10 @@ console.log('\n== exporting a video deck, with no WebCodecs to do it with ==');
 // video came out, or the app said the slide went out as a still. A slide that
 // simply vanishes fails either way, which is the thing worth catching.
 served=[];
-await p.click('.dock-item[data-drawer="export"]');
+await p.click('#btn-export-open');
 await p.waitForTimeout(300);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 // Until the export has finished one way or the other, rather than nine
 // seconds: the overlay put away, and either an mp4 downloaded or the toast
 // saying the slide went out as a still. It took about three here. If neither
@@ -205,7 +207,7 @@ await p.click('#btn-export');
   const until=Date.now()+30000;
   while(Date.now()<until){
     const state=await p.evaluate(()=>({
-      done: document.getElementById('opening').hidden,
+      done: document.getElementById('export-screen').hidden,
       still: /still/i.test(document.getElementById('toast').textContent)}));
     if(state.done && (saved.some(n=>/\.mp4$/.test(n)) || state.still)) break;
     await p.waitForTimeout(100);
@@ -213,12 +215,12 @@ await p.click('#btn-export');
 }
 const after = await p.evaluate(()=>({
   toast: document.getElementById('toast').textContent,
-  opening: document.getElementById('opening').hidden,
+  opening: document.getElementById('export-screen').hidden,
 }));
 console.log('  asked for:', j(served.filter(u=>u.includes('vendor'))));
 console.log('  ended with:', j(after));
 ok('it did reach for the encoder', served.some(u=>u.includes('mediabunny')), j(served.filter(u=>u.includes('vendor'))));
-ok('the progress overlay was put away', after.opening);
+ok('the export screen was put away', after.opening);
 ok('a video came out, or it said the slide went out as a still',
   saved.some(n=>/\.mp4$/.test(n)) || /still/i.test(after.toast),
   `saved ${j(saved)} · toast ${JSON.stringify(after.toast.trim())}`);

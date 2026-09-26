@@ -158,16 +158,15 @@ await tap('#dock-back'); await buzzes();
   await tap('#dock-back'); await buzzes();
 }
 
-// A select is answered in a picker of the system's own, so the tap never lands
-// on anything the dock can hear. The buzz belongs to the answer coming back.
+// The export's sizes are tabs on a card off the bar, and a size is a tap like
+// any other in the dock: one tick, not the double a delete gets and not none.
 {
-  await open('export'); await buzzes();
-  await p.selectOption('#format','image/png');
-  await p.waitForTimeout(200);
+  await tap('#btn-export-open'); await buzzes();
+  await tap('#export-card [data-quality="1440"]');
   const sel=await buzzes();
-  console.log('choose a format    ->', JSON.stringify(sel), sel.length===1?'✓ one tick':'✗ wanted one tick');
+  console.log('choose a size      ->', JSON.stringify(sel), sel.length===1?'✓ one tick':'✗ wanted one tick');
   if(sel.length!==1) process.exitCode=1;
-  await tap('#dock-back'); await buzzes();
+  await tap('#btn-export-open'); await buzzes();
 }
 
 console.log('errors:', errs.length?errs.join(' | '):'none');

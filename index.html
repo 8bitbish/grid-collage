@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.26f">
+<link rel="stylesheet" href="styles.css?v=2026.09.26g">
 </head>
 <body class="on-home">
 
@@ -225,10 +225,28 @@
         </button>
       </div>
       <div class="bar-end">
-        <button class="dock-item circle circle-primary" type="button" data-drawer="export" aria-label="Export" title="Export">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l4-4 4 4M12 3v12M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+        <!-- Opens the export card over the bar rather than a sheet in place
+             of it, and turns into the card's close while it is open. -->
+        <button class="circle circle-primary export-open" id="btn-export-open" type="button"
+                aria-haspopup="dialog" aria-expanded="false" aria-controls="export-card" aria-label="Export" title="Export">
+          <svg class="export-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l4-4 4 4M12 3v12M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+          <svg class="export-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
+    </div>
+
+    <!-- What Export asks, which is only the size: Instagram re-encodes every
+         photo as JPEG whatever it is sent, and a clip is always an MP4, so
+         there is no format to choose. The card rises off the Export button,
+         anchored to its right and 8 above the bar, and is as wide as the
+         sizes; the button to go takes that width. -->
+    <div class="export-card" id="export-card" role="dialog" aria-label="Export" hidden>
+      <div class="export-sizes" role="radiogroup" aria-label="Size in pixels">
+        <button class="dock-tab" type="button" role="radio" data-quality="1080">1080</button>
+        <button class="dock-tab" type="button" role="radio" data-quality="1440">1440</button>
+        <button class="dock-tab" type="button" role="radio" data-quality="2160">2160</button>
+      </div>
+      <button class="action action-primary" id="btn-export" type="button">Export</button>
     </div>
 
     <!-- What belongs to the photo rather than to the controls floats over
@@ -348,24 +366,6 @@
       <div class="dock-panel dock-actions" id="dp-page" hidden>
         <button class="btn btn-ghost" id="btn-duplicate" type="button">Duplicate page</button>
         <button class="btn btn-ghost btn-danger" id="btn-delete-page" type="button" data-buzz="warn">Delete page</button>
-      </div>
-
-      <!-- The settings Export used to carry, as the control; the button that
-           does the export is the sheet's foot, where a thumb already is. -->
-      <div class="dock-panel dock-export" id="dp-export" hidden>
-        <div class="export-settings" id="export-settings">
-          <label class="sr" for="quality">Size</label>
-          <select id="quality" class="select">
-            <option value="1080">1080px (Instagram)</option>
-            <option value="1440">1440px</option>
-            <option value="2160">2160px</option>
-          </select>
-          <label class="sr" for="format">Format</label>
-          <select id="format" class="select">
-            <option value="image/jpeg">JPG</option>
-            <option value="image/png">PNG</option>
-          </select>
-        </div>
       </div>
 
       <!-- Opens by itself when a tile is chosen, on whichever of the tile's
@@ -590,13 +590,35 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
       </button>
       <p class="sheet-value" id="sheet-value" aria-live="polite"><span class="value-window"><strong id="sheet-value-main"></strong></span><span id="sheet-value-sub"></span></p>
-      <button class="btn btn-primary sheet-go" id="btn-export" type="button">Export</button>
       <span class="sheet-balance" aria-hidden="true"></span>
      </div>
 
     </div>
   </nav>
 </main>
+
+<!-- The export, while it runs and once it is done: the screen held black at
+     90%, taking no touches, one ring for the whole deck. Done, it waits for a
+     fresh tap to open the share sheet, because a browser only lets a page do
+     that within a few seconds of a tap and a deck with video in it takes
+     longer than that to render. data-state says which of the three it is. -->
+<div class="export-screen" id="export-screen" role="dialog" aria-modal="true" aria-labelledby="export-title" data-state="exporting" hidden>
+  <div class="export-state">
+    <div class="export-ring">
+      <svg viewBox="0 0 72 72" aria-hidden="true"><circle class="export-track" cx="36" cy="36" r="34.2"/><circle class="export-fill" id="export-fill" cx="36" cy="36" r="34.2" pathLength="100"/></svg>
+      <span class="export-count" id="export-count"></span>
+      <svg class="export-tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    </div>
+    <p class="export-words" aria-live="polite"><strong id="export-title"></strong><span id="export-sub"></span></p>
+    <div class="export-actions">
+      <button class="action action-quiet export-cancel" id="export-cancel" type="button">Cancel</button>
+      <button class="action action-primary" id="export-share" type="button">Share</button>
+      <button class="action action-quiet" id="export-later" type="button">Not now</button>
+      <button class="action action-primary" id="export-done" type="button">Done</button>
+      <button class="action action-quiet" id="export-again" type="button">Share again</button>
+    </div>
+  </div>
+</div>
 
 <div class="update-toast" id="update-toast" role="status" aria-live="polite" hidden>
   <div class="ut-text">
@@ -697,6 +719,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.26f"></script>
+<script src="app.js?v=2026.09.26g"></script>
 </body>
 </html>

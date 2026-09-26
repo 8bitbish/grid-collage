@@ -97,23 +97,22 @@ const onScreen = () => p.evaluate((fine) => {
 }, FINE);
 // Back out of whatever tile panel is open to the page's own dock.
 const toPage = async () => {
-  for (let k = 0; k < 3 && !(await p.locator('.dock-item[data-drawer="export"]').isVisible()); k++) {
+  for (let k = 0; k < 3 && !(await p.locator('#btn-export-open').isVisible()); k++) {
     await p.click('#dock-back');
     await p.waitForTimeout(250);
   }
 };
 const exported = async () => {
   await toPage();
-  await p.click('.dock-item[data-drawer="export"]');
-  await p.selectOption('#format', 'image/png');
+  await p.click('#btn-export-open');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const download = await got;
-  await p.click('#dock-back');
   if (!download) return null;
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   return p.evaluate(async ({ b64, fine }) => {
-    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d', { willReadFrequently: true });
     g.drawImage(bmp, 0, 0);

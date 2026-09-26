@@ -57,7 +57,7 @@ console.log('  back -> settings list shown:', await rootVisible());
 
 // each category opens its own controls
 for (const [name, sel] of [['shape','#ratios'],['gap','#gap'],['padding','#padding'],
-                            ['corners','#radius'],['background','#swatches'],['page','#btn-duplicate'],['export','#quality']]) {
+                            ['corners','#radius'],['background','#swatches'],['page','#btn-duplicate']]) {
   await openDrawer(name);
   const ok = await p.locator(sel).isVisible();
   process.stdout.write(`${name}:${ok?'✓':'✗'} `);

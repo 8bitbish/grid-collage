@@ -208,11 +208,26 @@ check(modelFetches.length === fetched, 'without running the model again', `${mod
 // in a 2160px export: how many pixels it takes to get from blue to red. The
 // disc there is a circle's edge crossed at a slant of about 70°, so even a
 // perfect cut spreads a one-pixel edge over a pixel or so of this row.
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#quality', '2160');
-await p.selectOption('#format', 'image/png');
+// The export is a JPEG at 0.92 now, which is what Instagram is sent. A check
+// on what the app draws — rather than on what the encoder makes of it — reads
+// the one export it needs as a PNG of the very canvas the app drew, by asking
+// the next toBlob for a PNG and then putting toBlob back.
+const readDrawnNotEncoded = () => p.evaluate(() => {
+  const toBlob = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb, type, q) {
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    return toBlob.call(this, cb, 'image/png', q);
+  };
+});
+// The cut's edge is what is measured below, blue to red, and a JPEG keeps
+// colour at half the resolution of brightness: through the export's own
+// encoder that edge spreads over 5px. So this reads what was drawn.
+await readDrawnNotEncoded();
+await p.click('#btn-export-open');
+await p.click('#export-card [data-quality=\"2160\"]');
 const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {

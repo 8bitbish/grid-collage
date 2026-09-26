@@ -51,9 +51,10 @@ const box = await p.locator('#canvas').boundingBox();
 // Export the slide and say how long its sound runs, if it has any.
 async function exportedSound() {
   await rest();
-  await p.click('.dock-item[data-drawer="export"]');
+  await p.click('#btn-export-open');
   const dl = p.waitForEvent('download', { timeout: 120000 });
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const saved = await dl;
   const bytes = fs.readFileSync(await saved.path()).toString('base64');
   await p.keyboard.press('Escape');
