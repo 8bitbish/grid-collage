@@ -1,14 +1,57 @@
 /* ---------------------------------------------------------------- base */
+/* Two layers, the same two the Figma file has. The primitives are raw values
+   and nothing below binds to them; the system tokens say what a value is for
+   and are the only names the rest of this file uses. Their names are the Figma
+   variables' code syntax, so a token read off Dev Mode is a token that exists
+   here. Point a role at a different primitive and only that role moves.
+
+   There is no accent colour. What marks the chosen thing — the needle, the
+   current page, the chosen tab — is white, and the only colour on screen is
+   the photos and the backgrounds people pick for them. */
 :root {
-  --bg: #0d0d10;
-  --surface: #16161c;
-  --surface-2: #1e1e26;
-  --line: #2b2b36;
-  --text: #f2f2f5;
-  --muted: #8d8d9c;
-  --accent: #ff4d8d;
-  --accent-2: #ffb648;
-  --radius: 12px;
+  --grey-0: #000000;
+  --grey-100: #1a1a1a;
+  --grey-150: #262626;
+  --grey-500: #8e8e8e;
+  --grey-950: #f5f5f5;
+
+  --background-screen: var(--grey-0);
+  --background-raised: var(--grey-100);
+  --background-control: var(--grey-150);
+  --background-inverse: var(--grey-950);
+  --border-subtle: var(--grey-150);
+  --content-primary: var(--grey-950);
+  --content-secondary: var(--grey-500);
+  --content-inverse: var(--grey-0);
+  --selection-indicator: var(--grey-950);
+  /* Destructive, and only that: the one colour kept for meaning rather than
+     decoration, so deleting never looks like choosing. */
+  --content-danger: #ff8f8f;
+  --background-danger: #2a1414;
+  --border-danger: #5c2626;
+
+  --space-between: 2px;
+  --space-inset-pill: 4px;
+  --space-inset-sheet: 8px;
+  --space-bar-edge: 8px;
+  --space-dock-top: 10px;
+  --space-stack: 12px;
+  /* Either side of a word on a tab: enough that the row breathes, and that
+     the next word along still shows through the fade at the row's edge. */
+  --space-inset-tab: 16px;
+  --space-sheet-top: 16px;
+  --space-screen-edge: 16px;
+  --space-sheet-lift: 26px;
+  --space-safe-bottom: 34px;
+
+  /* The corners nest: the sheet less its inset is a control, and a control
+     less a pill's inset is a chip. Break that and a corner looks pinched
+     against its container even when nobody can say why. */
+  --radius-sheet: 30px;
+  --radius-control: 22px;
+  --radius-chip: 18px;
+  --radius-thumb: 9px;
+  --radius-mark: 3px;
 }
 
 * { box-sizing: border-box; }
@@ -35,22 +78,22 @@ html, body {
 }
 
 body {
-  /* --surface, not --bg, and that is what this colour is for: the strip of
-     screen the web view is never given — the status bar on an installed
-     iPhone — is painted by WebKit from the page's background, and it reads
-     body's rather than the root element's. Both were measured. Setting the
-     manifest's background_color to red left the strip alone; setting html
-     alone left it alone too, with body's colour still showing underneath;
-     setting body is what moved it. So body carries the colour the strip
-     should be, which is the bar sitting directly beneath it.
+  /* The colour of the strip of screen the web view is never given — the
+     status bar on an installed iPhone — which WebKit paints from the page's
+     background, and reads off body's rather than the root element's. Both were
+     measured. Setting the manifest's background_color to red left the strip
+     alone; setting html alone left it alone too, with body's colour still
+     showing underneath; setting body is what moved it. So body carries the
+     colour the strip should be, which is the bar sitting directly beneath it:
+     black, now that the top bar is.
      Nothing else sees this: .app and .home are flex:1 children that fill the
-     view, and they carry --bg, the background the app actually has.
+     view, and they carry the screen's background themselves.
      The same colour is repeated as theme-color in index.html and theme_color
      in the manifest, which is what Android reads for its status bar. Neither
      of those can see a CSS variable, so all three move together or not at
      all. */
-  background: var(--surface);
-  color: var(--text);
+  background: var(--background-screen);
+  color: var(--content-primary);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   display: flex;
@@ -74,7 +117,7 @@ input, textarea, .val, #bg-hex {
    photo stays one line. */
 .pm-data {
   padding: 10px 12px 16px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border-subtle);
 }
 .pm-data-row {
   display: flex;
@@ -87,17 +130,17 @@ input, textarea, .val, #bg-hex {
   min-width: 0;
   font-size: 12px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--content-secondary);
 }
 #pm-data-text {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
   padding: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--background-screen);
+  color: var(--content-primary);
   font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre;
   overflow: auto;
@@ -112,10 +155,8 @@ input, textarea, .val, #bg-hex {
   gap: 12px;
   padding: 10px 12px;
   padding-top: calc(10px + env(safe-area-inset-top, 0px));
-  border-bottom: 1px solid var(--line);
-  background:
-    linear-gradient(90deg, rgba(255, 77, 141, 0.14), rgba(255, 182, 72, 0.08)),
-    var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-raised);
 }
 .installbar[hidden] { display: none; }
 
@@ -126,8 +167,8 @@ input, textarea, .val, #bg-hex {
   grid-template-rows: repeat(2, 9px);
   gap: 2px;
 }
-.brand-mark i { background: var(--accent); border-radius: 2px; }
-.brand-mark i:last-child { background: var(--accent-2); }
+.brand-mark i { background: var(--content-primary); border-radius: 2px; }
+.brand-mark i:last-child { background: var(--content-secondary); }
 
 .installbar-text {
   flex: 1;
@@ -139,7 +180,7 @@ input, textarea, .val, #bg-hex {
 .installbar-text strong { font-size: 14px; font-weight: 650; }
 .installbar-text span {
   font-size: 11.5px;
-  color: var(--muted);
+  color: var(--content-secondary);
   /* One line: the banner must not grow taller than the row it was given. */
   white-space: nowrap;
   overflow: hidden;
@@ -156,7 +197,7 @@ input, textarea, .val, #bg-hex {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--muted);
+  color: var(--content-secondary);
   cursor: pointer;
 }
 .installbar-x svg {
@@ -168,7 +209,7 @@ input, textarea, .val, #bg-hex {
   stroke-linecap: round;
 }
 @media (hover: hover) {
-  .installbar-x:hover { background: var(--surface-2); color: var(--text); }
+  .installbar-x:hover { background: var(--background-raised); color: var(--content-primary); }
 }
 
 /* ------------------------------------------------------------ the homepage */
@@ -193,8 +234,8 @@ body.on-home .app { display: none; }
   gap: 12px;
   padding: 14px 16px;
   padding-top: calc(14px + env(safe-area-inset-top, 0px));
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-screen);
 }
 .home-titles { flex: 1; min-width: 0; }
 .home-titles h1 {
@@ -206,7 +247,7 @@ body.on-home .app { display: none; }
 .home-titles p {
   margin: 1px 0 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -221,10 +262,8 @@ body.on-home .app { display: none; }
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background:
-    linear-gradient(90deg, rgba(255, 77, 141, 0.16), rgba(255, 182, 72, 0.08)),
-    var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-raised);
 }
 /* Wraps rather than ellipsising. When the bar only ever counted photos the
    label was short and a nowrap ellipsis cost nothing, but it also carries the
@@ -239,7 +278,7 @@ body.on-home .app { display: none; }
   line-height: 1.3;
 }
 .sharebar .btn { flex: none; }
-#share-drop { color: var(--muted); }
+#share-drop { color: var(--content-secondary); }
 
 .home-body {
   flex: 1;
@@ -270,7 +309,7 @@ body.on-home .app { display: none; }
   border: none;
   padding: 0;
   margin: 0;
-  background: var(--surface-2);
+  background: var(--background-raised);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -326,7 +365,7 @@ body.is-picking .tile::after {
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--selection-indicator);
   opacity: 0.5;
   pointer-events: none;
 }
@@ -353,7 +392,7 @@ body.is-picking .tile::after {
   padding: 0 14px;
   text-align: center;
   font-size: 11.5px;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-variant-numeric: tabular-nums;
   /* Worth being able to read off the screen and repeat back. */
   -webkit-user-select: text;
@@ -365,7 +404,7 @@ body.is-picking .tile::after {
   text-align: center;
 }
 .home-empty p { margin: 0 0 14px; font-size: 15px; }
-.home-sub-note { margin: 14px 0 0 !important; font-size: 12px; color: var(--muted); }
+.home-sub-note { margin: 14px 0 0 !important; font-size: 12px; color: var(--content-secondary); }
 
 /* ------------------------------------------------- press and hold a project */
 /* Everything the grid leaves out. It opens on a hold rather than a tap so the
@@ -378,7 +417,7 @@ body.is-picking .tile::after {
   display: grid;
   place-items: center;
   padding: 22px;
-  background: rgba(8, 8, 11, 0.72);
+  background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(10px);
 }
 .detail-card {
@@ -389,9 +428,9 @@ body.is-picking .tile::after {
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  background: var(--surface);
+  background: var(--background-screen);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
   animation: detail-in 140ms ease-out;
 }
@@ -409,7 +448,7 @@ body.is-picking .tile::after {
    the carousel actually opens on. */
 .detail-cover {
   border-radius: 10px;
-  background: var(--bg);
+  background: var(--background-screen);
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -439,7 +478,7 @@ body.is-picking .tile::after {
   padding: 0 2px 2px;
   font-size: 12.5px;
 }
-.detail-stats dt { color: var(--muted); }
+.detail-stats dt { color: var(--content-secondary); }
 .detail-stats dd {
   margin: 0;
   text-align: right;
@@ -453,7 +492,7 @@ body.is-picking .tile::after {
 }
 .detail-row .btn { flex: 1; }
 .detail-ask { font-size: 12.5px; }
-.detail-ask span { flex: 1; color: var(--muted); }
+.detail-ask span { flex: 1; color: var(--content-secondary); }
 .detail-ask .btn { flex: none; }
 
 /* ------------------------------------------------------ opening a project */
@@ -467,7 +506,7 @@ body.is-picking .tile::after {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(13, 13, 16, 0.86);
+  background: rgba(0, 0, 0, 0.86);
   backdrop-filter: blur(8px);
 }
 .op-card {
@@ -487,7 +526,7 @@ body.is-picking .tile::after {
 .op-track {
   height: 5px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--background-raised);
   overflow: hidden;
 }
 .op-track i {
@@ -495,12 +534,12 @@ body.is-picking .tile::after {
   height: 100%;
   width: 0;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: var(--background-inverse);
   transition: width 120ms linear;
 }
 .op-step {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -511,7 +550,7 @@ body.is-picking .tile::after {
    what paints the strip outside the view. These two are the whole screen —
    one or the other is always shown — so between them they cover everything
    the strip does not. */
-.app, .home { background: var(--bg); }
+.app, .home { background: var(--background-screen); }
 
 .app {
   flex: 1;
@@ -520,91 +559,82 @@ body.is-picking .tile::after {
   flex-direction: column;
 }
 
-/* pages along the top, with the photo library pinned to the left of them */
-/* The topmost thing on screen in the editor, and with viewport-fit=cover that
-   means it is under the status bar unless it says otherwise. The homepage and
-   the photo sheet both already did — .home-head and .pm-head carry the same
-   line — which is exactly why the editor was the one place the clock sat on top
-   of the page buttons. */
+/* ------------------------------------------------------------- top bar
+   Back to the projects, the pages, and undo and redo in a pill built like the
+   bottom bar's, so the top and the bottom of the screen rhyme. 8 above and
+   below and 16 at the sides: 60 tall, where it was 68. The photos moved down
+   beside Add — this row is the only place the deck can be scrolled through,
+   and the strip is what wants its width. */
 .pagesbar {
   flex: none;
   display: flex;
-  align-items: stretch;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-  padding-top: env(safe-area-inset-top, 0px);
+  align-items: center;
+  gap: var(--space-stack);
+  padding: var(--space-bar-edge) var(--space-screen-edge);
+  padding-top: calc(var(--space-bar-edge) + env(safe-area-inset-top, 0px));
+  background: var(--background-screen);
 }
 
-/* The way back to the projects, at the far left where a back arrow belongs.
-   It shares the row rather than taking one of its own — the preview needs
-   every pixel of height it can get. */
-.home-btn {
+/* The round buttons at either end of the screen: 44, the smallest target a
+   thumb hits reliably, raised off the black and edged with a hairline so they
+   separate from it. Export is the one white thing on the screen. */
+.circle {
+  position: relative;
   flex: none;
-  width: 36px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
+  padding: 0;
   appearance: none;
-  border: none;
-  border-right: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background-raised);
+  color: var(--content-primary);
   cursor: pointer;
 }
-.home-btn svg {
-  width: 19px;
-  height: 19px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.circle-primary {
+  border-color: transparent;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
 }
-
-/* Pinned, not part of the strip: the way into the photos has to stay put
-   however far along the pages you have scrolled. */
-/* The count sits under the icon rather than beside it. Side by side it made
-   the button as wide as two pages of the strip, and the strip is the thing
-   that wants the room — this row is the only place the deck can be scrolled
-   through. */
-.photos-btn {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 8px;
-  appearance: none;
-  border: none;
-  border-right: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-.photos-btn svg {
-  width: 21px;
-  height: 21px;
+/* Every icon here is drawn at 1.5 on screen. Stroke width is in viewBox
+   units, so a 22px icon asks for 1.7 and a 20px one for 1.8 to land there. */
+.circle svg,
+.chip svg,
+.film-add svg,
+.pill svg {
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-/* No pill under the icon: at this size the background was most of what you
-   saw, and the number is the point. The colour carries the empty state. */
+
+/* The photos in the tray, counted on the button into them. White on black
+   like everything chosen, cut out of the bar with a ring of its colour, and
+   gone while there are none. */
 .photos-count {
-  min-width: 1em;
-  line-height: 1;
-  color: var(--muted);
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
+  box-shadow: 0 0 0 2px var(--background-screen);
   font-size: 11px;
   font-weight: 700;
+  line-height: 18px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
-/* Nothing imported yet is the one time this wants to catch the eye. */
-.photos-btn.is-empty { color: var(--text); }
-.photos-btn.is-empty .photos-count { color: var(--accent); }
-.photos-btn[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+.photos-btn.is-empty .photos-count { display: none; }
+.photos-btn[aria-expanded="true"] { background: var(--background-control); }
 
 /* While a page is being dragged, both ends step out and hand their width to
    the strip: more room to move the page around, and less chance of dropping
@@ -617,7 +647,6 @@ body.is-picking .tile::after {
    visible, while the padding eases the whole way. The pages drift for the
    length of the animation. Switching both at once, the drift is a frame. */
 .pagesbar.is-reordering .home-btn,
-.pagesbar.is-reordering .photos-btn,
 .pagesbar.is-reordering .pagesbar-end { display: none; }
 
 /* The strip takes on exactly the width each end gave up, as padding on that
@@ -627,32 +656,38 @@ body.is-picking .tile::after {
    unchanged — that's the right, and without it a strip already scrolled to
    the end gets clamped back by the width of the undo pair the instant you
    pick a page up, jolting every thumbnail sideways. Both are measured in JS
-   at the moment the drag starts. */
+   at the moment the drag starts, each end's width and the gap beside it. */
 .pagesbar.is-reordering .filmstrip {
-  padding-left: calc(12px + var(--fold-left, 0px));
-  padding-right: calc(12px + var(--fold-right, 0px));
+  padding-left: var(--fold-left, 0px);
+  padding-right: var(--fold-right, 0px);
 }
+
 /* Undo and redo bracket the pages from the right, where the work they undo
-   is. Pinned like the library button, so the strip between them still
-   scrolls the full length of the deck. */
+   is, in a pill built exactly like the bottom bar's: 44 with 4 inside, so its
+   chips are concentric with it. Each one is 36 to look at and the pill's full
+   height to press. */
 .pagesbar-end {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 6px;
-  border-left: 1px solid var(--line);
+  gap: var(--space-between);
+  height: 44px;
+  padding: 0 var(--space-inset-pill);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background-raised);
 }
 .pb-btn {
   width: 38px;
-  height: 38px;
+  height: 42px;
   display: grid;
   place-items: center;
+  padding: 0;
   appearance: none;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-chip);
   background: transparent;
-  color: var(--muted);
+  color: var(--content-secondary);
   cursor: pointer;
 }
 .pb-btn svg {
@@ -660,14 +695,15 @@ body.is-picking .tile::after {
   height: 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.9;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.pb-btn:not(:disabled) { color: var(--text); }
-.pb-btn:disabled { opacity: 0.3; cursor: default; }
+.pb-btn:not(:disabled) { color: var(--content-primary); }
+.pb-btn:disabled { opacity: 0.35; cursor: default; }
 @media (hover: hover) {
-  .pb-btn:hover:not(:disabled) { background: var(--surface-2); }
+  .pb-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 3px var(--background-raised); background: var(--background-control); }
+  .circle:hover { filter: brightness(1.2); }
 }
 
 /* ------------------------------------------------------- update available
@@ -683,9 +719,9 @@ body.is-picking .tile::after {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 14px;
-  background: rgba(30, 30, 38, 0.97);
+  background: rgba(26, 26, 26, 0.97);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
@@ -703,7 +739,7 @@ body.is-picking .tile::after {
 .ut-text strong { font-size: 13.5px; font-weight: 650; }
 .ut-text span {
   font-size: 11.5px;
-  color: var(--muted);
+  color: var(--content-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -717,7 +753,7 @@ body.is-picking .tile::after {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  background: rgba(8, 8, 11, 0.72);
+  background: rgba(0, 0, 0, 0.72);
   padding: 0;
 }
 .photos-modal[hidden] { display: none; }
@@ -727,7 +763,7 @@ body.is-picking .tile::after {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--background-screen);
   /* Full bleed on a phone; a panel on anything wider. */
   max-width: 720px;
 }
@@ -739,8 +775,8 @@ body.is-picking .tile::after {
   gap: 12px;
   padding: 10px 12px;
   padding-top: calc(10px + env(safe-area-inset-top, 0px));
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-screen);
 }
 .pm-head h2 {
   flex: 1;
@@ -752,7 +788,7 @@ body.is-picking .tile::after {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pm-head .val { color: var(--muted); font-weight: 600; }
+.pm-head .val { color: var(--content-secondary); font-weight: 600; }
 
 .pm-close {
   flex: none;
@@ -761,10 +797,10 @@ body.is-picking .tile::after {
   display: grid;
   place-items: center;
   appearance: none;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--background-raised);
+  color: var(--content-primary);
   cursor: pointer;
 }
 .pm-close svg {
@@ -786,14 +822,14 @@ body.is-picking .tile::after {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-screen);
 }
 .pm-tally {
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--content-secondary);
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -805,9 +841,9 @@ body.is-picking .tile::after {
   display: flex;
   padding: 2px;
   gap: 2px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 9px;
-  background: var(--surface-2);
+  background: var(--background-raised);
 }
 .pm-seg-btn {
   appearance: none;
@@ -817,13 +853,13 @@ body.is-picking .tile::after {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--content-secondary);
   background: none;
   cursor: pointer;
 }
 /* The selected half brightens rather than moving: these sit next to a live
    list, and anything that changes size makes the list below it jump. */
-.pm-seg-btn.is-on { color: var(--text); background: var(--surface); }
+.pm-seg-btn.is-on { color: var(--content-primary); background: var(--background-screen); }
 .pm-seg-sm .pm-seg-btn { padding: 5px 10px; font-size: 12px; }
 
 .pm-tune {
@@ -833,8 +869,8 @@ body.is-picking .tile::after {
   flex-wrap: wrap;
   gap: 10px 14px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--background-screen);
 }
 .pm-tune[hidden] { display: none; }
 
@@ -844,23 +880,23 @@ body.is-picking .tile::after {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--content-secondary);
 }
-.pm-knob input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--accent); }
+.pm-knob input[type="range"] { flex: 1; min-width: 60px; accent-color: var(--content-primary); }
 /* Fixed width and tabular figures, so the number changing does not shove the
    slider sideways under the finger that is dragging it. */
 .pm-knob output {
   flex: none;
   width: 68px;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--content-primary);
 }
 
 /* An event heading carries more than a day heading does, so it stacks: what
    and when on top, the numbers that make the split arguable underneath. */
 .pm-event { display: flex; flex-direction: column; gap: 1px; }
 .pm-event-when { font-size: 13px; }
-.pm-event-facts { font-size: 11px; font-weight: 500; color: var(--muted); }
+.pm-event-facts { font-size: 11px; font-weight: 500; color: var(--content-secondary); }
 
 .pm-body {
   flex: 1;
@@ -882,8 +918,8 @@ body.is-picking .tile::after {
   font-size: 13px;
   font-weight: 650;
   letter-spacing: 0.01em;
-  color: var(--text);
-  background: linear-gradient(var(--bg) 72%, rgba(13, 13, 16, 0));
+  color: var(--content-primary);
+  background: linear-gradient(var(--background-screen) 72%, rgba(0, 0, 0, 0));
 }
 .pm-day:first-child { padding-top: 8px; }
 
@@ -899,7 +935,7 @@ body.is-picking .tile::after {
   position: relative;
   aspect-ratio: 1;
   overflow: hidden;
-  background: var(--surface-2);
+  background: var(--background-raised);
 }
 .pm-pick {
   display: block;
@@ -925,7 +961,7 @@ body.is-picking .tile::after {
   bottom: 4px;
   padding: 1px 5px;
   border-radius: 8px;
-  background: rgba(8, 8, 12, 0.72);
+  background: rgba(0, 0, 0, 0.72);
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;
@@ -941,8 +977,8 @@ body.is-picking .tile::after {
   min-width: 20px;
   padding: 2px 6px;
   border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -969,7 +1005,7 @@ body.is-picking .tile::after {
 .pm-empty {
   margin: 48px 0 0;
   text-align: center;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-size: 15px;
   line-height: 1.8;
 }
@@ -985,9 +1021,7 @@ body.is-picking .tile::after {
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background:
-    radial-gradient(1200px 600px at 30% -10%, #1b1b24 0%, transparent 60%),
-    var(--bg);
+  background: var(--background-screen);
 }
 
 .canvas-wrap {
@@ -1039,8 +1073,8 @@ body.is-picking .tile::after {
   translate: -50% 0;
   padding: 6px 12px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
   font-size: 12px;
   font-weight: 650;
   pointer-events: none;
@@ -1081,7 +1115,7 @@ body.is-picking .tile::after {
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 50%;
-  background: rgba(13, 13, 16, 0.66);
+  background: rgba(0, 0, 0, 0.6);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   color: #fff;
@@ -1114,8 +1148,52 @@ body.is-picking .tile::after {
 .canvas-wrap.is-sliding .page-x { pointer-events: none; }
 
 @media (hover: hover) {
-  .page-x:hover { background: var(--accent); border-color: var(--accent); }
+  .page-x:hover { background: var(--background-control); }
 }
+
+/* The chosen tile's own actions, floating on it: three 44 circles in a pill
+   built like the bar's, 4 inside and 2 between, so the corners nest — 26 on
+   the pill less its 4 is the circles' 22. It rides the tile rather than the
+   sheet because what it does is to the tile, not to whichever tool is open.
+   Placed in app.js, since the tile's rect is only known there. */
+.tile-actions {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-between);
+  height: 52px;
+  padding: 0 var(--space-inset-pill);
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--background-raised);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.5);
+}
+.tile-act {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--content-primary);
+  cursor: pointer;
+}
+.tile-act svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Red at rest, not only when pressed: it is the one of the three that loses
+   something, and that should not have to be read off a label. */
+.tile-act-danger { color: var(--content-danger); }
 
 .dropzone {
   position: fixed;
@@ -1123,9 +1201,9 @@ body.is-picking .tile::after {
   z-index: 20;
   display: grid;
   place-items: center;
-  border: 3px dashed var(--accent);
+  border: 3px dashed var(--selection-indicator);
   border-radius: 14px;
-  background: rgba(13, 13, 16, 0.72);
+  background: rgba(0, 0, 0, 0.72);
   font-size: 18px;
   font-weight: 650;
   pointer-events: none;
@@ -1149,9 +1227,24 @@ body.is-picking .tile::after {
   pointer-events: none;
 }
 .blank[hidden] { display: none; }
-.blank p { margin: 0; color: var(--muted); font-size: 15px; }
-.blank .blank-sub { font-size: 12.5px; opacity: 0.8; }
-.blank .btn { pointer-events: auto; }
+/* The picture icon, a title, a line on how to begin, and the button that
+   does it — the same four things an empty page in the strip stands for. */
+.blank { gap: 10px; }
+.blank-icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 4px;
+  fill: none;
+  stroke: var(--content-secondary);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blank p { margin: 0; }
+.blank .blank-title { font-size: 17px; font-weight: 600; color: var(--content-primary); }
+.blank .blank-sub { max-width: 250px; font-size: 13px; line-height: 1.45; color: var(--content-secondary); }
+.blank .btn { pointer-events: auto; margin-top: 8px; }
+.blank .pill { min-height: 36px; padding: 0 14px 0 8px; gap: 4px; }
 /* Nothing to frame yet, so the empty page shouldn't pretend otherwise. */
 .canvas-wrap.is-blank #canvas { opacity: 0.25; }
 .canvas-wrap.is-blank .peek { visibility: hidden; }
@@ -1189,71 +1282,76 @@ body.is-picking .tile::after {
    on the resting rule buys. Controls that already animate their position
    answer with light instead of movement, so nothing fights a transform. */
 .dock-item,
-.dock-back,
+.circle,
+.chip,
+.dock-tab,
+.pill,
 .film-add,
-.home-btn,
-.photos-btn,
 .pb-btn,
 .pm-close,
 .pm-pick,
-.tile,
-.layout-btn,
-.swatch {
+.tile-act,
+.tile {
   transition: background-color 140ms, color 140ms, border-color 140ms,
               transform 140ms, filter 140ms;
 }
 .dock-item:active,
-.dock-back:active,
+.circle:active,
+.chip:active,
+.dock-tab:active,
+.pill:active,
 .film-add:active:not(:disabled),
-.home-btn:active,
-.photos-btn:active,
 .tile:active,
 .pb-btn:active:not(:disabled),
 .page-x:active,
 .pm-close:active,
 .pm-pick:active,
 .pm-x:active,
-.layout-btn:active,
-.swatch:active,
 .film:active,
 .choose-item:active,
+.tile-act:active,
 .btn:active:not(:disabled) {
   transition-duration: 0s;
 }
 
-.dock-item:active { background: var(--surface-2); color: var(--text); transform: scale(0.92); }
-.dock-back:active { background: #2f2f3c; transform: scale(0.92); }
-.film-add:active:not(:disabled) { border-color: var(--accent); color: var(--text); transform: scale(0.92); }
-.home-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.9); }
-.photos-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.93); }
+.dock-item:active { color: var(--content-primary); transform: scale(0.92); }
+/* Lit inside the pill rather than moving, like the chips in the bar's. */
+.tile-act:active { background: var(--background-control); }
+.circle:active { filter: brightness(1.3); transform: scale(0.92); }
+/* The chips and the history buttons light up inside their pill rather than
+   moving, drawn 36 inside the 44 and 42 they take to press. */
+.dock-root .chip:active { box-shadow: inset 0 0 0 4px var(--background-raised); background: var(--background-control); }
+.pb-btn:active:not(:disabled) { box-shadow: inset 0 0 0 3px var(--background-raised); background: var(--background-control); }
+.dock-tab:active { background: var(--background-control); }
+.pill:active { filter: brightness(1.25); }
+.film-add:active:not(:disabled) { border-color: var(--selection-indicator); color: var(--content-primary); transform: scale(0.92); }
 /* A tile has no chrome to darken, so it answers with light. It must not
    scale: the tiles sit two pixels apart and a shrinking one opens a gap. */
 .tile:active { filter: brightness(1.22); }
-.pb-btn:active:not(:disabled) { background: var(--surface-2); transform: scale(0.9); }
-.page-x:active { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(0.9); }
-.pm-close:active { background: #2f2f3c; transform: scale(0.92); }
+.page-x:active { background: var(--background-inverse); border-color: transparent; color: var(--content-inverse); transform: scale(0.9); }
+.pm-close:active { background: var(--background-control); transform: scale(0.92); }
 .pm-pick:active { transform: scale(0.94); filter: brightness(1.25); }
 .pm-x:active { transform: scale(0.88); }
-.layout-btn:active { border-color: var(--accent); transform: scale(0.92); }
-.swatch:active { transform: scale(0.88); }
-/* These two carry transforms of their own — the strip sliding pages aside,
-   the reel scaling the centred option — so they brighten rather than move. */
+/* These carry motion of their own — the strip sliding pages aside, the reels
+   turning, the chooser scaling its centred option — so they brighten rather
+   than move. */
 .film:active { filter: brightness(1.4); }
-.choose-item:active { filter: brightness(1.25); }
+.choose-item:active,
+.tray-item:active { filter: brightness(1.25); }
+.reel button:active { filter: brightness(1.3); }
 .btn:active:not(:disabled) { transform: translateY(1px) scale(0.97); }
 
-/* ---------------------------------------------------------------- dock */
+/* ---------------------------------------------------------------- dock
+   The bottom of the editor is one of two things: the bar at rest, or the
+   sheet something in it opened. Both live in here, so the dock is always the
+   box they fit in — it grows to the sheet and gives the height back after,
+   and the preview above takes whatever is left. */
 .dock {
   flex: none;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  /* Fixed, not min-height: the bar must not resize when it swaps between the
-     settings list, a drawer and the tile actions. */
-  height: 82px;
-  box-sizing: content-box;
-  display: flex;
-  align-items: stretch;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  position: relative;
+  background: var(--background-screen);
+  padding: var(--space-dock-top) var(--space-screen-edge) var(--space-sheet-top);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-sheet-top));
 }
 
 /* Room for the home indicator, put back by hand. Dropping viewport-fit=cover
@@ -1267,38 +1365,260 @@ body.is-picking .tile::after {
    markInstalled in app.js. It is not "is this installed on a touch screen",
    which was the first attempt and put this space under the dock on Android
    too, where the navigation bar is outside the view and none is wanted. */
-.has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px); }
+.has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-safe-bottom)); }
 
+/* Open, the sheet sits 8 in from the sides and floats clear of the bottom:
+   26 above the home indicator's edge, which puts Back exactly where Add is at
+   rest — 16 in, 34 up — so the thumb that opened it is already on the way
+   out. Without an indicator the same sum, 8 and 8, lands on the bar's 16. */
+.dock.is-open { padding: 0 var(--space-inset-sheet) var(--space-inset-sheet); }
+.has-home-indicator .dock.is-open { padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-sheet-lift)); }
+
+/* The bar. On a phone it is exactly the screen less its margins; anywhere
+   wider it stops at the width of a big phone rather than pushing Add and
+   Export to opposite ends of a desktop. It is also the container the two
+   settings measure themselves against — see the chips. */
 .dock-root {
-  flex: 1;
   display: flex;
-  align-items: stretch;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 520px;
+  margin: 0 auto;
+  container-type: inline-size;
+}
+.bar-start { flex: none; display: flex; gap: 8px; }
+/* As wide as the start, so the pill between them is centred on the screen
+   rather than between two things of different widths. */
+.bar-end { flex: none; display: flex; justify-content: flex-end; width: 96px; }
+
+/* The page's two settings, in a pill that hugs them: 44 with 4 inside, so the
+   chips in it are concentric with it — 22 less 4 is 18. The outline is a
+   shadow rather than a border because a border comes out of the inside: it
+   left the chips 42 tall to press, under the 44 floor test-reach holds. */
+.bar-pill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-between);
+  height: 44px;
+  padding: 0 var(--space-inset-pill);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background-raised);
+}
+
+/* A setting in the bar. Only its icon until the bar has room for words: at
+   398px it spells itself out, which is a 430pt phone, and at 390 and 402 the
+   two icons are what fits beside Add, Photos and Export. The chip takes the
+   pill's whole height to press, and its lit state is inset to draw 36. */
+.dock-root .chip {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--content-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dock-root .chip svg { width: 20px; height: 20px; stroke-width: 1.8; }
+/* Said twice as specifically as it needs to be, because the icons along a
+   tile's tools lay their words out with `.dock-item span`, which a chip is
+   too. */
+.dock-root .chip .chip-label,
+.dock-root .chip .chip-value { display: none; white-space: nowrap; }
+.dock-root .chip .chip-value { color: var(--content-secondary); font-weight: 400; font-variant-numeric: tabular-nums; }
+@container (min-width: 398px) {
+  .dock-root .chip { padding: 0 13px 0 10px; }
+  .dock-root .chip .chip-label,
+  .dock-root .chip .chip-value { display: inline; }
+  .bar-end { width: auto; }
+}
+
+/* A layout drawn the way its icon is: one rounded outline, the cells divided
+   inside it. The grid's own colour shows through the gaps between its cells,
+   so the outline and the dividers are one stroke for nothing, and it follows
+   currentColor like any icon. The cells are painted the colour of whatever
+   the glyph sits on, which is raised everywhere it appears. */
+.layout-glyph {
+  flex: none;
+  display: grid;
+  gap: 1.5px;
+  padding: 1.5px;
+  border-radius: 3.5px;
+  background: currentColor;
+  font-style: normal;
+}
+.layout-glyph span { background: var(--background-raised); border-radius: 1.5px; }
+.chip .layout-glyph { width: 17px; height: 17px; margin: 1.5px; }
+
+/* ---------------------------------------------------------------- sheet
+   16 inside at the top, 8 at the sides and foot, 12 between the control and
+   the foot. The corners nest: 30 on the sheet less its 8 is 22, the radius
+   of every 44 control in its foot. */
+.dock-drawer {
+  position: relative;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-stack);
+  padding: var(--space-sheet-top) var(--space-inset-sheet) var(--space-inset-sheet);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sheet);
+  background: var(--background-raised);
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* A control that opens on a row of buttons sits 8 from the top, the same as
+   it sits from the sides. The 16 above is for a number or a line of words,
+   which want the room under a rounded corner; above a row of 40 and 44 tall
+   buttons it read as a gap nobody had meant, twice the space beside them.
+   app.js says which controls these are — see BUTTONS_ON_TOP. */
+.dock-drawer.buttons-on-top { padding-top: var(--space-inset-sheet); }
+
+/* One control at a time, never shorter than 76 so moving between tabs never
+   moves the sheet. The tile's tools and a custom colour are the controls
+   taller than that, and the sheet grows with them while they are open. */
+.sheet-body {
+  position: relative;
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Back, in the corner, on the sheet's own grey. On a tile it lets go of the
+   tile, which is a step back like any other now that the tile's tools are
+   tabs: it used to be a cross there, over a row of tools that had no tab. */
+.dock-back {
+  border-color: transparent;
+  background: var(--background-control);
+}
+
+/* The page's settings as words. Words read at a glance where icons have to
+   be learnt, and five of them cannot fit beside Back at 390px, so the row
+   scrolls, fades at whichever edge has more, and is kept scrolled so the
+   chosen one is in view. 16 inside each, so the next word shows through the
+   fade rather than sitting out of sight. */
+.dock-tabs,
+.tile-tabs {
+  --fade: 44px;
+  flex: 1;
+  min-width: 0;
+  display: none;
+  gap: var(--space-between);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  padding: 0 6px;
 }
-.dock-root::-webkit-scrollbar { display: none; }
+.dock-tabs::-webkit-scrollbar,
+.tile-tabs::-webkit-scrollbar { display: none; }
+.has-tabs .dock-tabs,
+.has-tile-tabs .tile-tabs { display: flex; }
+.dock-tab {
+  flex: none;
+  height: 44px;
+  padding: 0 var(--space-inset-tab);
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--content-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dock-tab.is-active { background: var(--background-control); color: var(--content-primary); }
 
+/* The value of a sheet's one control, dead centre, balanced by an empty 44
+   opposite Back. */
+.sheet-value {
+  flex: 1;
+  min-width: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  line-height: 1.25;
+  text-align: center;
+}
+.has-value .sheet-value { display: flex; }
+.sheet-value strong { display: block; font-size: 16px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; }
+/* The ratio's window, the same idea as a dial's number: 20 in the layout, 36
+   to draw in, fading over the 8 above and below. */
+.value-window {
+  display: block;
+  padding-block: 8px;
+  margin-block: -8px;
+  -webkit-mask-image: linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
+  mask-image: linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
+}
+.sheet-value span { font-size: 12px; color: var(--content-secondary); }
+.sheet-balance { flex: none; width: 44px; display: none; }
+.has-value .sheet-balance { display: block; }
+
+
+/* A panel is a control, centred in the space above the foot. Nothing in one
+   scrolls whole: rows that scroll are inside it, and carry their own fades. */
+.dock-panel {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* Every button in a drawer answers a thumb. */
+.dock .btn { min-height: 44px; }
+
+/* Two actions spread across the row, the destructive one kept apart from the
+   one beside it. */
+.dock-actions { gap: 10px; padding: 0 8px; }
+.dock-actions .btn { flex: 1; min-width: 0; max-width: 220px; border-radius: var(--radius-control); }
+
+
+/* The icons along a tile's tools: an icon over its word, grey until chosen. */
 .dock-item {
   flex: none;
-  min-width: 74px;
+  min-width: 64px;
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--muted);
+  color: var(--content-secondary);
   font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 10px 8px;
+  gap: 6px;
+  padding: 8px 6px;
   cursor: pointer;
-  border-radius: 10px;
+  border-radius: 14px;
 }
 .dock-item svg {
   width: 22px;
@@ -1310,9 +1630,28 @@ body.is-picking .tile::after {
   stroke-linejoin: round;
 }
 @media (hover: hover) {
-  .dock-item:hover { color: var(--text); background: var(--surface-2); }
+  .dock-item:hover { color: var(--content-primary); }
 }
 .dock-item span { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* Export is a round button that happens to open a drawer, so it carries
+   .dock-item for the drawer and has to win back everything that says about
+   an icon over its word. */
+.dock-root .circle {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--background-raised);
+  color: var(--content-primary);
+}
+.dock-root .circle-primary {
+  border-color: transparent;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
+}
 
 .dock-count {
   font-size: 10px;
@@ -1320,94 +1659,10 @@ body.is-picking .tile::after {
   min-width: 15px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
 }
 .dock-count:empty { display: none; }
-
-/* drilled into one setting */
-.dock-drawer {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  min-width: 0;
-}
-
-/* The most-pressed control in the drawer, and it was 38 square. 44 fits the
-   62px the dock leaves inside a drawer with room to spare; landscape, where
-   there are only 42, puts it back to 38. */
-.dock-back {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  appearance: none;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--text);
-  cursor: pointer;
-}
-.dock-back #dock-back-cross,
-.dock-back.is-cross #dock-back-arrow { display: none; }
-.dock-back.is-cross #dock-back-cross { display: block; }
-
-.dock-back svg {
-  width: 19px;
-  height: 19px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.dock-back:hover { background: #262632; }
-
-.dock-panel {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.dock-panel::-webkit-scrollbar { display: none; }
-
-/* Every button in a drawer answers a thumb. .btn-sm's 34px is right in a toast,
-   where the pointer is a mouse or the message is the point, and wrong in a bar
-   you aim at one-handed while looking at the picture above it. Measured before
-   this: Duplicate page, Delete page, Turn 90°, both Flips and the chooser's
-   Back were all 34 tall, and the drawer they sit in is 62. */
-.dock .btn { min-height: 44px; }
-
-/* Two actions and 300px of row, which they used to leave empty. Filling it
-   also spaces the destructive one away from the one beside it. */
-.dock-actions { gap: 10px; }
-.dock-actions .btn { flex: 1; min-width: 0; max-width: 220px; }
-
-/* The settings shrink and scroll; Export never does. It was the first thing off
-   the right-hand edge on a 360px phone — 316px of controls in 286 of row — and
-   the button is the only reason the panel exists. */
-.dock-export { overflow: visible; gap: 8px; }
-.export-settings {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.export-settings::-webkit-scrollbar { display: none; }
-.export-settings .select { flex: none; }
-.dock-export .btn { flex: none; }
 
 /* Sliders. The geometry lives here as variables because three separate things
    have to agree on where the knob is — the fill behind it, the readout above
@@ -1450,7 +1705,7 @@ body.is-picking .tile::after {
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--content-secondary);
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -1458,8 +1713,8 @@ body.is-picking .tile::after {
      the first touch of a drag would be the whole point of widening it lost. */
   pointer-events: none;
 }
-.dock-slider.is-sliding .dock-label { color: var(--text); }
-.dock-slider.is-sliding .val { color: var(--accent); }
+.dock-slider.is-sliding .dock-label { color: var(--content-primary); }
+.dock-slider.is-sliding .val { color: var(--content-primary); }
 
 /* Rides the knob, and only while a thumb is on the track. It escapes upward
    out of the dock rather than taking a row of its own, because the dock's
@@ -1471,8 +1726,8 @@ body.is-picking .tile::after {
   transform: translate(-50%, 4px) scale(0.9);
   padding: 4px 9px;
   border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--background-inverse);
+  color: var(--content-inverse);
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1490,20 +1745,21 @@ body.is-picking .tile::after {
 
 .dock-tile { gap: 12px; overflow: visible; padding: 0; }
 
-.tile-actions {
-  flex: 1;
-  min-width: 0;
-  display: flex;
+/* Crop: what the dial turns and the one-tap buttons in one row, 44 tall and
+   8 from the top of the sheet, and the dial 8 under them. Said with both
+   classes so it wins over .tile-sub's centred row, which is written later. */
+.tile-sub.tile-crop {
+  flex-direction: column;
   align-items: stretch;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  justify-content: flex-start;
+  gap: var(--space-inset-sheet);
+  padding: 0;
 }
-.tile-actions::-webkit-scrollbar { display: none; }
-.tile-actions { padding-left: 12px; }
-.tile-actions .dock-item { min-width: 68px; }
-.dock-item-danger:hover { color: #ff8fae; background: #2a1620; }
+.crop-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.crop-turning { display: flex; gap: var(--space-between); }
+.crop-quick { display: flex; gap: 6px; }
+/* On the sheet's own grey, like Back: they are part of the control. */
+.crop-btn { border-color: transparent; background: var(--background-control); }
 
 /* The tile drawer runs edge to edge so the actions row can scroll off the
    side; a sub-panel is ordinary content, so it puts the margins back. */
@@ -1524,121 +1780,213 @@ body.is-picking .tile::after {
    weight and .tile-sub is written later. Both are put back here. */
 .tile-sub.dock-slider { align-items: stretch; gap: 4px; }
 
-/* Choosing a photo: the pages bar stands down and the dock takes two rows,
-   so the options are big enough to judge. */
-.app.is-choosing .pagesbar { display: none; }
-.dock.is-choosing { height: 152px; }
-.dock.is-choosing .dock-back { display: none; }
-.dock.is-choosing .dock-drawer.is-tile { padding: 10px 12px; }
-.dock.is-choosing .dock-drawer.is-tile::before { display: none; }
-
-/* The reel is the exception: it wants the full width to slide through. */
-.tile-choose {
+/* Replace. The reel and the tray are the whole width of the sheet; each
+   carries its own fade. */
+.tile-sub.tile-choose {
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 0;
   padding: 0;
 }
 
-.choose-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+/* The reel: 56 photos, 10 apart, round and round. The one under the centre
+   is drawn at 68 and ringed, and the rest stand 6 further off either side,
+   so the space between every pair is 10 — the larger one included. All of
+   it is transforms, so turning the reel never moves what it is measuring. */
+.choose-reel {
+  height: 76px;
+  gap: 10px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
 }
-.choose-head .btn-icon { padding: 6px 9px; }
-.choose-head .btn-icon svg {
-  width: 19px; height: 19px;
-  fill: none; stroke: currentColor; stroke-width: 1.7;
-  stroke-linecap: round; stroke-linejoin: round;
-}
-
-/* A reel that runs under a fixed marker: whatever sits in the middle is the
-   photo in the tile. The end padding is what lets the first and last reach
-   the centre. */
-.choose-rail {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-}
-
-.choose-strip {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 calc(50% - 31px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-}
-.choose-strip::-webkit-scrollbar { display: none; }
-
-.choose-focus {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  translate: -50% -50%;
-  width: 70px;
-  height: 70px;
-  border: 2px solid var(--accent);
-  border-radius: 12px;
-  pointer-events: none;
-}
-
-.choose-item {
+.choose-reel .choose-item,
+.choose-reel .reel-echo {
   position: relative;
   flex: none;
-  width: 62px;
-  height: 62px;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
   padding: 0;
+  appearance: none;
   border: none;
-  border-radius: 9px;
-  overflow: hidden;
-  background: var(--surface-2);
-  cursor: pointer;
+  border-radius: var(--radius-thumb);
+  background: var(--background-control);
+  color: var(--content-primary);
   scroll-snap-align: center;
-  opacity: 0.45;
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  cursor: pointer;
+  transition: transform 120ms ease-out;
 }
-.choose-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.choose-item.is-current { opacity: 1; transform: scale(1.04); }
-.choose-empty { color: var(--muted); font-size: 13px; margin: 0 auto; }
-
-@media (prefers-reduced-motion: reduce) {
-  .choose-item { transition: none; }
-}
-
-/* the cross that drops the tile, kept apart from the actions like the sketch */
-.dock-back { position: relative; }
-.dock-drawer.is-tile .dock-back { border-color: #3a3a48; }
-.dock-drawer.is-tile::before {
+.choose-reel [data-side="l"] { transform: translateX(-6px); }
+.choose-reel [data-side="r"] { transform: translateX(6px); }
+.choose-reel [data-d="0"] { transform: scale(1.2143); }
+/* 2.5 once scaled up to 68, and inside its edge, as Figma draws it. */
+.choose-reel [data-d="0"]::after {
   content: '';
   position: absolute;
-  left: 62px;
-  top: 18px;
-  bottom: 18px;
-  width: 1px;
-  background: var(--line);
+  inset: 0;
+  border: 2.06px solid var(--selection-indicator);
+  border-radius: inherit;
+  pointer-events: none;
 }
-.dock-drawer.is-tile { padding: 0 0 0 12px; gap: 0; }
+/* Placed rather than sized: a percentage height inside a grid button did
+   not resolve, and a portrait thumbnail hung out under its tile. */
+.choose-item img,
+.tray-item img,
+.choose-reel .reel-echo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.is-add svg,
+.choose-reel .reel-echo > svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+/* Which page a photo is already on, where it is on one besides this tile. */
+.choose-page {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--background-raised);
+  color: var(--content-primary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The foot's other button, opposite Back: open the reel up into the tray. */
+.choose-open { display: none; margin-left: auto; }
+.has-replace-foot .choose-open { display: grid; }
+
+/* The whole tray: four across, Add first, scrolling under a grabber at the
+   top and under Back and the fold at the bottom, which float over it on a
+   fade 8 in from the card's edge, as everything in a sheet is. Its height is
+   the Figma card's 403 where the screen has the room and less where it does
+   not, so the page above can always stay in view. The foot goes: Back is
+   down here. */
+.dock-drawer.is-tray .sheet-foot { display: none; }
+/* With the tray open the page is short of height rather than width, and 12
+   above and below keep it off the pages bar and the card. */
+.app.is-tray .stage { padding: 12px 0; }
+.choose-tray {
+  position: relative;
+  height: min(403px, calc(100dvh - 420px));
+  min-height: 200px;
+}
+.tray-grid {
+  height: 100%;
+  display: grid;
+  /* minmax(0, …), not 1fr: a bare 1fr has an automatic minimum, the photo's
+     own width, and the thumbnails pushed it to three across. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 20px 0 60px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.tray-grid::-webkit-scrollbar { display: none; }
+.tray-item {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: 13px;
+  background: var(--background-control);
+  color: var(--content-primary);
+  cursor: pointer;
+}
+.tray-item.is-current::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--selection-indicator);
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* The fades are the sheet's grey written out, as the edge fades are
+   everywhere: a gradient cannot take a variable. */
+.choose-tray::before,
+.choose-tray::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.choose-tray::after {
+  bottom: 0;
+  height: 96px;
+  background: linear-gradient(rgba(26, 26, 26, 0), rgba(26, 26, 26, 0.9) 55%, #1a1a1a);
+}
+.choose-tray.is-scrolled::before {
+  top: 0;
+  height: 72px;
+  background: linear-gradient(#1a1a1a, rgba(26, 26, 26, 0.9) 45%, rgba(26, 26, 26, 0));
+}
+/* A 36 by 5 bar to see, on a target as wide as a thumb. */
+.tray-grabber {
+  position: absolute;
+  z-index: 3;
+  top: -5px;
+  left: 50%;
+  width: 88px;
+  height: 28px;
+  margin-left: -44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.tray-grabber i {
+  width: 36px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--border-subtle);
+}
+.tray-back,
+.tray-fold { position: absolute; z-index: 3; bottom: 0; }
+.tray-back { left: 0; }
+.tray-fold { right: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .choose-reel .choose-item, .choose-reel .reel-echo { transition: none; }
+}
 
 /* -------------------------------------------------------- shared bits */
 .val {
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--content-primary);
   text-transform: none;
   letter-spacing: 0;
   font-weight: 600;
 }
 
-.angle { color: var(--muted); font-weight: 500; }
+.angle { color: var(--content-secondary); font-weight: 500; }
 
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; min-width: 0; }
@@ -1646,9 +1994,9 @@ body.is-picking .tile::after {
 /* -------------------------------------------------------------- inputs */
 .btn {
   appearance: none;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  color: var(--text);
+  border: 1px solid var(--border-subtle);
+  background: var(--background-raised);
+  color: var(--content-primary);
   font: inherit;
   font-weight: 600;
   font-size: 13.5px;
@@ -1657,7 +2005,7 @@ body.is-picking .tile::after {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, transform 0.06s;
 }
-.btn:hover { background: #262632; border-color: #3a3a48; }
+.btn:hover { background: var(--background-control); }
 /* The press state lives with the others, up in the press-feedback block. */
 .btn-sm { padding: 7px 8px; font-size: 12.5px; }
 /* 44px square: the smallest target a thumb hits reliably. */
@@ -1669,7 +2017,7 @@ body.is-picking .tile::after {
   min-height: 44px;
 }
 .btn:disabled { opacity: 0.32; cursor: default; }
-.btn:disabled:hover { background: var(--surface-2); border-color: var(--line); }
+.btn:disabled:hover { background: var(--background-raised); border-color: var(--background-control); }
 .btn-ghost:disabled:hover { background: transparent; }
 .btn-ghost { background: transparent; }
 
@@ -1679,31 +2027,15 @@ body.is-picking .tile::after {
    be taken back by tapping it again should not have to be read to be told
    apart. The projects list was already saying this in a rule of its own, which
    this replaces. */
-.btn-danger { border-color: #7a2b3f; background: #2a1620; color: #ff8fae; }
-.btn-danger:hover { border-color: #93334c; background: #351a26; }
+.btn-danger { border-color: var(--border-danger); background: var(--background-danger); color: var(--content-danger); }
+.btn-danger:hover { border-color: var(--border-danger); background: var(--background-danger); filter: brightness(1.15); }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent), #ff7a45);
+  background: var(--background-inverse);
   border-color: transparent;
-  color: #fff;
+  color: var(--content-inverse);
 }
-.btn-primary:hover { filter: brightness(1.08); background: linear-gradient(135deg, var(--accent), #ff7a45); }
-
-.select {
-  appearance: none;
-  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238d8d9c' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
-  border: 1px solid var(--line);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  padding: 8px 26px 8px 10px;
-  border-radius: 9px;
-  cursor: pointer;
-  /* The same 44 as everything else it stands next to. A select opens a picker
-     rather than acting on the tap, so a miss here costs a wheel that has to be
-     dismissed as well as the tap that missed. */
-  min-height: 44px;
-}
+.btn-primary:hover { filter: brightness(0.92); background: var(--background-inverse); }
 
 /* The trim pair keeps the thin bars: they are stacked two deep over one clip,
    and each has to span the full width so start and end are measured on the same
@@ -1713,7 +2045,7 @@ input[type="range"] {
   width: 100%;
   height: 4px;
   border-radius: 2px;
-  background: var(--line);
+  background: var(--background-control);
   outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
@@ -1721,7 +2053,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--text);
+  background: var(--background-inverse);
   cursor: grab;
   border: none;
 }
@@ -1730,7 +2062,7 @@ input[type="range"]::-moz-range-thumb {
   height: 16px;
   border: none;
   border-radius: 50%;
-  background: var(--text);
+  background: var(--background-inverse);
   cursor: grab;
 }
 
@@ -1764,17 +2096,17 @@ input[type="range"]::-moz-range-thumb {
   height: var(--rail);
   border-radius: calc(var(--rail) / 2);
   background: linear-gradient(to right,
-    var(--line) 0 var(--lo),
-    var(--accent) var(--lo) var(--hi),
-    var(--line) var(--hi) 100%);
+    var(--background-control) 0 var(--lo),
+    var(--content-primary) var(--lo) var(--hi),
+    var(--background-control) var(--hi) 100%);
 }
 .dock-slider input[type="range"]::-moz-range-track {
   height: var(--rail);
   border-radius: calc(var(--rail) / 2);
   background: linear-gradient(to right,
-    var(--line) 0 var(--lo),
-    var(--accent) var(--lo) var(--hi),
-    var(--line) var(--hi) 100%);
+    var(--background-control) 0 var(--lo),
+    var(--content-primary) var(--lo) var(--hi),
+    var(--background-control) var(--hi) 100%);
 }
 
 /* Big enough to see under a finger, and it grows into a ring while held, which
@@ -1786,7 +2118,7 @@ input[type="range"]::-moz-range-thumb {
   height: var(--knob);
   border: none;
   border-radius: 50%;
-  background: #fff;
+  background: var(--background-inverse);
   cursor: grab;
   /* WebKit puts the thumb's top on the track's top; every other engine centres
      it. Half the difference is what brings it back onto the rail. */
@@ -1799,179 +2131,370 @@ input[type="range"]::-moz-range-thumb {
   height: var(--knob);
   border: none;
   border-radius: 50%;
-  background: #fff;
+  background: var(--background-inverse);
   cursor: grab;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   transition: transform 90ms, box-shadow 90ms;
 }
-/* --accent at 22%, written out because rgba() cannot read a variable. */
+/* The selection indicator at 18%, written out because rgba() cannot read a variable. */
 .dock-slider.is-sliding input[type="range"]::-webkit-slider-thumb {
   transform: scale(1.15);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(245, 245, 245, 0.18);
 }
 .dock-slider.is-sliding input[type="range"]::-moz-range-thumb {
   transform: scale(1.15);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(255, 77, 141, 0.22);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(245, 245, 245, 0.18);
 }
 .dock-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--selection-indicator);
 }
 
-/* ------------------------------------------------------------ layouts */
-.layouts {
+/* -------------------------------------------------------------- reels
+   Options turned under a fixed centre, like a dial: whatever comes to rest in
+   the middle is chosen. The reel runs round without an end, so there is always
+   something on both sides of the centre, and both edges fade into the sheet
+   for good rather than only while there is more to see. The lists inside it
+   are display: contents so the echoes either side and the real buttons lie in
+   one row, while the list itself keeps one button per option. */
+.reel {
+  position: relative;
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  padding: 2px 0;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 72px, #000 calc(100% - 72px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 72px, #000 calc(100% - 72px), transparent);
 }
-.layouts::-webkit-scrollbar { display: none; }
+.reel::-webkit-scrollbar { display: none; }
+.reel-echoes,
+.reel .reel-list { display: contents; }
 
-.layout-btn {
+/* The dot under the chosen mark. It belongs to the centre, not to any mark,
+   so it stays put while the reel turns. */
+.reel-dot {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--selection-indicator);
+  pointer-events: none;
+}
+
+/* Layouts, 54 apart. The chosen one is drawn at 50 in white with a heavier
+   stroke; then 36, 32, and 28 at sixty per cent for the rest. Each option is
+   still a 54 by 68 button whatever size its drawing is. */
+.dock-panel.has-reel { height: 76px; }
+.reel-layouts .layout-btn,
+.reel-layouts .reel-echo {
   flex: none;
-  width: 46px;
-  height: 46px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface-2);
-  cursor: pointer;
+  width: 54px;
+  height: 68px;
   display: grid;
-  gap: 3px;
-  transition: border-color 0.12s, background 0.12s;
-}
-@media (hover: hover) {
-  .layout-btn:hover { border-color: #4a4a5c; }
-}
-.layout-btn span { background: #4a4a5c; border-radius: 2px; }
-.layout-btn.is-active { border-color: var(--accent); background: rgba(255, 77, 141, 0.1); }
-.layout-btn.is-active span { background: var(--accent); }
-
-/* ---------------------------------------------------------- segmented */
-/* The tightest control in the app, measured: four pills 24, 29, 35 and 35px
-   wide and 30 tall, huddled against the left of a row 316px across. The width
-   was there all along — the cluster simply hugged its content. It fills the row
-   now, one equal column per option, and each option is 44px tall.
-   The rail keeps a maximum so it does not sprawl across a tablet; the same
-   number the sliders use, for the same reason. */
-.segmented {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  flex: 1;
-  max-width: 460px;
-}
-.segmented button {
-  flex: 1;
+  place-items: center;
+  padding: 0;
   appearance: none;
   border: none;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 4px;
-  border-radius: 7px;
+  background: none;
+  color: var(--content-secondary);
+  scroll-snap-align: center;
   cursor: pointer;
-  /* 44px is the smallest a thumb hits reliably, and the number the icon buttons
-     and the sliders both already cite. */
-  min-height: 44px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
 }
-.segmented button:hover { color: var(--text); }
-.segmented button.is-active { background: var(--text); color: #12121a; }
+.reel-layouts .layout-glyph {
+  width: 28px;
+  height: 28px;
+  transition: width 120ms ease-out, height 120ms ease-out;
+}
+.reel-layouts [data-d="0"] { color: var(--content-primary); }
+.reel-layouts [data-d="0"] .layout-glyph { width: 50px; height: 50px; gap: 2px; padding: 2px; border-radius: 6px; }
+.reel-layouts [data-d="0"] .layout-glyph span { border-radius: 2.5px; }
+.reel-layouts [data-d="1"] .layout-glyph { width: 36px; height: 36px; border-radius: 4.5px; }
+.reel-layouts [data-d="2"] .layout-glyph { width: 32px; height: 32px; border-radius: 4px; }
+.reel-layouts [data-d="3"] { opacity: 0.6; }
 
-/* A rectangle drawn to the option's own proportion, above the numbers. The
-   layout picker next door has always said what it does by drawing it, and
-   "9:16" is a ratio you have to work out before it means a shape. Sized from
-   the ratio in buildRatios, and drawn in currentColor so it inverts with the
-   active pill for nothing. */
-.seg-shape {
+/* Ratios, the same way, 56 apart, tallest to widest. A shape is a rectangle
+   in its own proportion; every ratio here is square or taller, so the height
+   is what each size sets and the width follows from the ratio. */
+.reel-ratios .segmented button,
+.reel-ratios .reel-echo {
   flex: none;
-  height: 15px;
-  border: 1.5px solid currentColor;
-  border-radius: 2.5px;
-  opacity: 0.9;
-}
-
-/* ----------------------------------------------------------- swatches */
-/* One row, never two: the dock is a fixed height and a wrapped second row is
-   simply cut off. The presets scroll sideways instead.
-   The scroller is this row rather than the panel around it, which is what keeps
-   the custom colour beside it on screen. With the panel scrolling, eight 26px
-   presets and the colour control came to 362px in a 316px row and the control
-   that reaches every colour the row does not offer was the part that fell off
-   the end — on all three phone widths measured.
-   The 4px of padding is room for the active swatch's outline, which the
-   scroller would otherwise cut off — on all four sides, not two: the rail is
-   exactly as tall as a swatch, so a ring drawn 2px outside one lost its top and
-   bottom to overflow: hidden and showed as two arcs. */
-.swatches {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  padding: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.swatches::-webkit-scrollbar { display: none; }
-.swatches .swatch { flex: none; }
-
-.swatch {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  cursor: pointer;
+  width: 56px;
+  height: 68px;
+  display: grid;
+  place-items: center;
   padding: 0;
-}
-.swatch.is-active { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-.colour-row {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.colour-row input[type="color"] {
   appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-secondary);
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.seg-shape {
+  --s: 22px;
+  display: block;
+  width: calc(var(--s) * var(--rw, 1) / var(--rh, 1));
+  height: var(--s);
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  transition: width 120ms ease-out, height 120ms ease-out;
+}
+.reel-ratios [data-d="0"] { color: var(--content-primary); }
+.reel-ratios [data-d="0"] .seg-shape { --s: 40px; border-width: 2px; border-radius: 4px; }
+.reel-ratios [data-d="1"] .seg-shape { --s: 29px; }
+.reel-ratios [data-d="2"] .seg-shape { --s: 25px; }
+.reel-ratios [data-d="3"] { opacity: 0.6; }
+
+/* -------------------------------------------------------------- dials
+   A number on a ruler dragged under a fixed needle, the number over it. A
+   tick every 2, a longer one every 10. The ruler is drawn in app.js; the
+   needle, the fades and the number are here. The range input is still the
+   control, laid over the ruler where a finger would be and never touched by
+   one — it takes the keyboard, and it is what a screen reader hears. */
+.dial {
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  max-width: none;
+}
+/* The number's window. It takes 30 in the layout but is 50 tall, the extra
+   10 above and below given back with negative margins, and it fades out over
+   those 10 instead of cutting off. A roll moves the number 7.5 either way, so
+   the 28 of its box never leaves the window, and near the ends it fades
+   rather than being cut in half, which is what the old 30px clip did. */
+.dial .dock-label {
+  justify-content: center;
+  height: 50px;
+  padding-block: 10px;
+  margin-block: -10px;
+  -webkit-mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  color: var(--content-primary);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.dial .val { display: inline-block; font-size: 22px; font-weight: 600; line-height: 28px; }
+/* 44 is the floor for anything a finger is meant to find, and the ruler is
+   it: drawn at 40 it was the one control in the sheet under it. */
+.dial-track {
+  position: relative;
+  height: 44px;
+  touch-action: none;
+  cursor: grab;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+}
+.dial-track.is-held { cursor: grabbing; }
+.dial-ruler { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dial-needle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 2.5px;
+  height: 32px;
+  margin-left: -1.25px;
+  border-radius: 1.25px;
+  background: var(--selection-indicator);
+  pointer-events: none;
+}
+.dial input[type="range"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.dial .slider-read { display: none; }
+.dial:has(input:focus-visible) .dial-track,
+.colour-ruler:focus-visible .dial-track {
+  outline: 2px solid var(--selection-indicator);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* The number rolls the way it is going, like a counter — see roll() in
+   app.js, which animates it. With reduced motion it simply changes. */
+@media (prefers-reduced-motion: reduce) {
+  .reel-layouts .layout-glyph, .seg-shape { transition: none; }
+}
+
+/* -------------------------------------------------------------- colour
+   Background as a reel of colours under a fixed centre, with one line of
+   text over it, never two: a preset's name, anything else's hex, and Custom
+   saying what a tap does, in grey, so it reads as an instruction and not as
+   the name of a colour. */
+.ticker { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ticker-name {
+  margin: 0;
+  height: 30px;
+  line-height: 30px;
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ticker-name.is-hint { font-size: 17px; color: var(--content-secondary); }
+.reel-colours { height: 44px; }
+
+/* Each colour is a pill standing on the baseline, 44 across to press: 16 by
+   32 and ringed at the centre, shrinking away from it. Colours out of the
+   photos carry a dot over them, which is how they say where they came from. */
+.reel-colours .swatch,
+.reel-colours .reel-echo {
+  --h: 17px;
+  position: relative;
+  flex: none;
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  appearance: none;
+  border: none;
+  background: none;
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.reel-colours .swatch::before,
+.reel-colours .reel-echo::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 12px;
+  height: var(--h);
+  margin-left: -6px;
+  border-radius: 6px;
+  background: var(--swatch, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: width 120ms ease-out, height 120ms ease-out, margin 120ms ease-out;
+}
+.reel-colours [data-d="0"] { --h: 32px; }
+.reel-colours [data-d="0"]::before {
+  width: 16px;
+  margin-left: -8px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--selection-indicator);
+}
+.reel-colours [data-d="1"] { --h: 24px; }
+.reel-colours [data-d="2"] { --h: 20px; }
+.reel-colours .is-photo::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(4px + var(--h) + 5px);
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--content-secondary);
+}
+.reel-colours .is-custom::before {
+  background: conic-gradient(#ff4d4d, #ffcc33, #66e666, #33ccff, #6666ff, #ff4de6, #ff4d4d);
+}
+
+/* What Custom opens into, in the same sheet: Presets to go back, the hex in
+   a field that opens the keyboard, and hue and shade on rulers with their
+   names to the left, each ruler fading towards its name so neither takes a
+   row of its own. The system's picker is the swatch in the hex field. */
+/* Figma stacks a 36 pill and two 40 rulers 10 apart, 136 in all. Here each
+   is 44 to press, so the rows sit 2 apart to come to the same 136: the sheet
+   is the height designed, and what is drawn is within 4px of where it was
+   drawn. */
+.custom-colour { width: 100%; display: flex; flex-direction: column; gap: var(--space-between); }
+.custom-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* The pill and the field beside it are drawn 36 and pressed 44: the extra is
+   a transparent border the background stops short of, so the box a finger is
+   tested against is the floor while the thing drawn is the design's. The
+   corner is the control radius outside so that inside, less the border, it
+   is the chip's 18. */
+.pill,
+.hex-field {
+  height: 44px;
+  border: 4px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--background-control);
+  background-clip: padding-box;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px 0 6px;
+  appearance: none;
+  color: var(--content-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.pill svg { width: 18px; height: 18px; stroke-width: 2; }
+.hex-field {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 14px 0 0;
+  cursor: text;
+}
+/* The system's picker is a 20px circle to look at and a 44px square to
+   press, reaching out over the field's border to get it. */
+.hex-field input[type="color"] {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -4px;
+  padding: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 50%;
   background: none;
   cursor: pointer;
 }
-.colour-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
-.colour-row input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
+.hex-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.hex-field input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); }
+.hex-field input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
+#bg-hex {
+  width: 78px;
+  align-self: stretch;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--content-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  outline: none;
+}
+.colour-ruler { display: flex; align-items: center; gap: 4px; outline: none; }
+.colour-ruler-label { flex: none; width: 46px; color: var(--content-secondary); font-size: 13px; font-weight: 500; }
+.colour-ruler .dial-track { flex: 1; min-width: 0; }
+.colour-ruler .dial-needle { bottom: 3px; height: 34px; }
 
+/* ---------------------------------------------------------- the pages */
 .filmstrip {
+  --fade: 32px;
   flex: 1;
   min-width: 0;
+  height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  padding: 9px 12px;
   /* A long press is how you pick a page up, so none of the usual long-press
      behaviours may fire: selecting the page number, the iOS callout, or the
      grey tap flash. Any of them cancels the pointer stream mid-drag. */
@@ -1982,6 +2505,8 @@ input[type="range"]::-moz-range-thumb {
 }
 .filmstrip::-webkit-scrollbar { display: none; }
 
+/* A page, 44 tall at whatever width its shape gives it, ringed when it is the
+   one on screen. */
 .film {
   position: relative;
   flex: none;
@@ -1990,10 +2515,10 @@ input[type="range"]::-moz-range-thumb {
      where the picture is narrower than its own frame. */
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-thumb);
   overflow: hidden;
   cursor: grab;
-  background: var(--surface-2);
+  background: var(--background-raised);
   line-height: 0;
   -webkit-user-select: none;
   user-select: none;
@@ -2002,22 +2527,48 @@ input[type="range"]::-moz-range-thumb {
      it by cancelling the first touchmove after the hold. */
   touch-action: pan-x;
   /* What makes the others glide aside instead of jumping. */
-  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1), scale 160ms ease-out;
 }
-/* Fixed height, not fixed width: a 9:16 thumbnail 62px wide is 110px tall,
-   and that row grows straight out of the preview's vertical budget. */
-.film canvas { display: block; height: 46px; width: auto; }
-@media (hover: hover) {
-  .film:hover { border-color: #4a4a5c; }
-}
-.film.is-current { border-color: var(--accent); }
-/* The page being moved rides above the rest and tracks the finger exactly,
-   so it gets no transition of its own until it settles. */
+/* Fixed height, not fixed width: a 9:16 thumbnail is far taller than it is
+   wide, and that row comes straight out of the preview's vertical budget. */
+.film canvas { display: block; height: 40px; width: auto; border-radius: 7px; }
+.film.is-current { border-color: var(--selection-indicator); }
+/* The page being moved lifts to 52 against its neighbours' 44 and takes a
+   shadow, and tracks the finger exactly, so it gets no transition of its own
+   until it settles. */
 .film.is-lifted {
   z-index: 5;
   cursor: grabbing;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
-  border-color: var(--accent);
+  scale: 1.18;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.7);
+  border-color: var(--selection-indicator);
+}
+
+/* The number is in the button's name for anyone who needs it; on the strip
+   the pages are pictures, and the order is the order. */
+.film-num { display: none; }
+
+/* A page nobody has put a photo on yet reads as a place to fill, not as a
+   missing picture: the sheet's grey with the image icon in it. */
+.film-empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--background-raised);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: var(--content-secondary);
+}
+.film.is-empty .film-empty { display: grid; }
+.film-empty svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Freeze the strip's own scrolling for the duration, or the browser fights
@@ -2031,57 +2582,36 @@ input[type="range"]::-moz-range-thumb {
 
 @media (prefers-reduced-motion: reduce) {
   .film { transition: none; }
+  .film.is-lifted { scale: none; }
 }
 
-/* Delete this page. Small, because the tile it sits on is small — at 9:16 the
-   page is only 30px across — but it keeps a 28px touch target through the
-   padding, which overhangs the corner where there is nothing else to hit. */
-/* A shadow alone disappears against a white page, so the number carries its
-   own dark chip. */
-.film-num {
-  position: absolute;
-  left: 3px;
-  bottom: 3px;
-  min-width: 13px;
-  padding: 1px 3px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.62);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: center;
-  color: #fff;
-}
-
-/* The page it would add has the deck's shape, so the slot standing in for it
-   does too — otherwise it reads as a wider page at the end of the row. No
-   min-width: that would win over the aspect ratio and push the row taller at
-   9:16, which is the one shape with no height to spare. */
+/* The last slot, standing in for the page it would add, in the deck's shape
+   so it does not read as a wider page at the end of the row, and never so
+   narrow a thumb cannot find it. */
 .film-add {
   flex: none;
-  width: auto;
+  display: grid;
+  place-items: center;
+  height: 44px;
   aspect-ratio: var(--page-ratio, 1);
-  align-self: stretch;
-  min-height: 50px;
-  border: 1px dashed var(--line);
-  border-radius: 9px;
+  min-width: 32px;
+  padding: 0;
+  appearance: none;
+  border: 1px dashed rgba(142, 142, 142, 0.5);
+  border-radius: var(--radius-thumb);
   background: transparent;
-  color: var(--muted);
-  font-size: 18px;
+  color: var(--content-secondary);
   cursor: pointer;
 }
+.film-add svg { width: 20px; height: 20px; stroke-width: 1.8; }
 @media (hover: hover) {
-  .film-add:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+  .film-add:hover:not(:disabled) { border-color: var(--selection-indicator); color: var(--content-primary); }
 }
 .film-add:disabled { opacity: 0.3; cursor: default; }
 
-
-
-
-
 /* ------------------------------------------------------------- a11y */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--selection-indicator);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -2094,7 +2624,7 @@ input[type="range"]::-moz-range-thumb {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(6, 6, 9, 0.78);
+  background: rgba(0, 0, 0, 0.78);
 }
 
 .sheet-card {
@@ -2105,9 +2635,9 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  background: var(--surface);
+  background: var(--background-screen);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
 }
 
@@ -2125,22 +2655,22 @@ input[type="range"]::-moz-range-thumb {
   align-items: baseline;
   gap: 8px;
 }
-.sheet-head .val { font-size: 12px; color: var(--muted); font-weight: 500; }
+.sheet-head .val { font-size: 12px; color: var(--content-secondary); font-weight: 500; }
 
 #sheet-img {
   width: 100%;
   border-radius: 10px;
   display: block;
-  background: var(--surface-2);
+  background: var(--background-raised);
 }
 
 .sheet-note {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--content-secondary);
 }
-.sheet-note strong { color: var(--text); font-weight: 650; }
+.sheet-note strong { color: var(--content-primary); font-weight: 650; }
 
 /* -------------------------------------------------------------- toast */
 /* Inside the preview area, so it can't cover the pages above or the settings
@@ -2153,8 +2683,8 @@ input[type="range"]::-moz-range-thumb {
   max-width: calc(100% - 24px);
   text-align: center;
   transform: translate(-50%, 10px);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
+  background: var(--background-raised);
+  border: 1px solid var(--border-subtle);
   padding: 9px 16px;
   border-radius: 999px;
   font-size: 13px;
@@ -2180,7 +2710,7 @@ input[type="range"]::-moz-range-thumb {
   display: block;
   height: 4px;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--background-control);
   overflow: hidden;
 }
 .toast-bar i {
@@ -2188,7 +2718,7 @@ input[type="range"]::-moz-range-thumb {
   height: 100%;
   width: 0;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: var(--background-inverse);
   transition: width 140ms linear;
 }
 
@@ -2206,175 +2736,266 @@ body.is-library .toast {
 @media (max-width: 860px) {
   .stage { padding: 0; }
   #canvas { box-shadow: none; }
-  .dock { height: 76px; }
-  .dock-item { min-width: 66px; font-size: 11px; }
 }
 
 /* --------------------------------------------- short and wide (landscape)
    A phone on its side has barely any height to give the preview, so claw it
-   back from the chrome: smaller page thumbnails, a shorter dock, no brand. */
+   back from the chrome: tighter bars, a shorter sheet, no brand. Everything
+   the portrait bars give 44 comes down to 38, the floor a landscape phone can
+   spare. */
 @media (max-height: 520px) and (orientation: landscape) {
   /* Nothing above the pages but the offer to install, and it gets one line. */
   .installbar { padding: 6px 10px; }
   .installbar-text span { display: none; }
-  .filmstrip { padding: 5px 8px; gap: 6px; }
-  .film canvas { height: 32px; }
-  .film-add { width: 30px; min-height: 36px; }
-  .dock { height: 62px; }
+  .pagesbar { padding-top: calc(4px + env(safe-area-inset-top, 0px)); padding-bottom: 4px; }
+  .circle { width: 38px; height: 38px; }
+  .pagesbar-end, .bar-pill { height: 38px; }
+  .pb-btn { height: 36px; }
+  .dock-root .chip { height: 38px; min-width: 38px; }
+  .filmstrip { height: 38px; }
+  .film canvas { height: 34px; }
+  .film-add { height: 38px; }
+  .bar-end { width: 84px; }
+  .dock { padding-top: 6px; }
   /* iOS reserves less for the indicator on its side, and 34 would eat a screen
      that is already short of height. Later in the file than the rule above, so
      this is the one that lands in landscape. The portrait number was measured;
      this one is what iOS documents and has not been checked on a device. */
   .has-home-indicator .dock { padding-bottom: max(env(safe-area-inset-bottom, 0px), 21px); }
+  .has-home-indicator .dock.is-open { padding-bottom: max(env(safe-area-inset-bottom, 0px), 13px); }
+  .dock-drawer { padding: 8px 8px 6px; gap: 6px; border-radius: 24px; }
+  .sheet-body { min-height: 56px; }
+  .dock-back { width: 38px; height: 38px; }
+  .dock-tab { height: 38px; }
+  .dock-panel.has-reel { height: 58px; }
+  .reel-layouts .layout-btn, .reel-layouts .reel-echo,
+  .reel-ratios .segmented button, .reel-ratios .reel-echo { height: 54px; }
+  .reel-layouts [data-d="0"] .layout-glyph { width: 40px; height: 40px; }
+  .reel-ratios [data-d="0"] .seg-shape { --s: 34px; }
+  .ticker-name { height: 24px; line-height: 24px; font-size: 18px; }
+  .dial .dock-label { height: 44px; font-size: 18px; }
+  .dial .val { line-height: 24px; }
+  .dial .val { font-size: 18px; }
+  .dial-track { height: 34px; }
+  .dial input[type="range"] { height: 34px; }
+  .dial-needle { height: 26px; }
+  .reel-colours, .reel-colours .swatch, .reel-colours .reel-echo { height: 36px; }
+  .reel-colours [data-d="0"] { --h: 26px; }
   .dock-item { min-width: 58px; font-size: 10px; gap: 2px; padding: 4px 6px; }
   .dock-item svg { width: 18px; height: 18px; }
-  .drawer-body { padding: 6px 10px; }
-  /* A 62px dock leaves 42px inside the drawer, and a label above a slider came
-     to 45. The reach stays 44px: what gives way is the label, which loses a
-     point of type and two of the gap under it. The negative margin cannot go
-     past the 10px of padding it is spending — at -11 the bottom of the reach
-     measured half a pixel below the dock itself. */
+  .dock .btn { min-height: 38px; }
   .dock-slider { gap: 2px; }
   .dock-label { font-size: 10.5px; }
-
-  /* Everything the portrait dock gives 44px has to come back to something that
-     fits 42, and the reach a landscape phone can spare is what is left rather
-     than what is wanted. The shape picker keeps its rectangles — they cost 15px
-     and they are the reason the control reads at a glance — and gives up the
-     height instead. */
-  .dock-back { width: 38px; height: 38px; }
-  .dock .btn { min-height: 38px; }
-  .select { min-height: 38px; }
-  .segmented { padding: 3px; }
-  .segmented button { min-height: 34px; gap: 1px; font-size: 11.5px; }
-  .seg-shape { height: 12px; }
-  .swatch { width: 34px; height: 34px; border-radius: 8px; }
-  .colour-row input[type="color"] { width: 34px; height: 34px; border-radius: 8px; }
 }
 
 /* ------------------------------------------------------------ trimming */
-/* Two handles over one clip. They are stacked rather than side by side so
-   each spans the whole length — a half-width slider would mean the start and
-   the end were measured on different scales.
-   That stacking is why this is the only panel with three rows to fit, and it
-   did not fit: measured at 390x844 it asked for 90px of a dock that gives 62,
-   which left two 4px bars and a Whole clip button pressed against the bottom
-   edge of the screen with one pixel to spare. So the dock grows for trimming,
-   the way it already does for choosing a photo, and to the same height — a
-   readout row and two catchable bars come to 118, and 152 is the one number
-   the bar already knows how to be when a job needs the room. The pages bar
-   stays, unlike the chooser: which page you are cutting on still matters. */
-.dock.is-trimming { height: 152px; }
-.tile-trim {
+/* The in and out times either side of how long the cut is, 10 over a 56 tall
+   filmstrip of the whole clip. It opens on words, not buttons, so its sheet
+   keeps the 16 at the top. */
+.tile-sub.tile-trim {
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 14px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 4px 0 0;
 }
-/* Whole clip rides the readout row rather than taking a fourth one. It is the
-   row's own subject — the times either side of it are what it puts back. */
 .trim-read {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 4px;
+  line-height: 27px;
   font-variant-numeric: tabular-nums;
 }
-.trim-arrow { color: var(--muted); }
-.trim-span { margin-left: auto; color: var(--muted); }
-.tile-trim .btn { flex: none; }
-
-/* The kept span, drawn on both rails rather than on either handle's own. Two
-   bars each filling from their own end read as two unrelated controls that
-   happen to be stacked; the same band on both, one above the other, reads as
-   the one stretch of clip they between them decide.
-   app.js writes --fa and --fb on every drag, the same way the dock sliders get
-   --frac: a range input's value is invisible to CSS. And the same correction
-   applies to both ends as --at makes for one — a handle travels between its own
-   two edges, so a band drawn to a plain percentage sat 24px clear of the very
-   handle setting it, and the two rows disagreed with each other by as much. */
-.trim-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  --knob: 20px;
-  --fa: 0;
-  --fb: 1;
-  --a: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fa));
-  --b: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fb));
-  --band: linear-gradient(90deg,
-    var(--line) var(--a), var(--accent) var(--a),
-    var(--accent) var(--b), var(--line) var(--b));
-}
-
-/* 32px of reach each, where there were 4. Two 44s cannot both fit even the
-   taller dock, and of the two numbers a bar that can be caught at all beats a
-   pair that cannot. The rail itself stays thin — what grew is the box being
-   hit, exactly as it did for the dock sliders. */
-.trim-bars input[type="range"] {
-  position: relative;
+.trim-time { font-size: 15px; font-weight: 400; color: var(--content-secondary); }
+/* The time a handle is setting, while it is being set. */
+.trim-time.is-lit { color: var(--content-primary); }
+.trim-span { font-size: 22px; font-weight: 600; color: var(--content-primary); }
+/* Close up, the time being set is the big number, to a hundredth, and a
+   ruler in tenths takes a row of its own over the strip. */
+.trim-held {
   margin: 0;
-  height: 32px;
-  background: transparent;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 27px;
+  font-variant-numeric: tabular-nums;
 }
-.trim-bars input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--band);
-}
-.trim-bars input[type="range"]::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--band);
-}
-.trim-bars input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  margin-top: -7px;
-  border-radius: 50%;
-  border: 2px solid var(--surface);
-  background: var(--text);
-  cursor: grab;
-}
-.trim-bars input[type="range"]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--surface);
-  border-radius: 50%;
-  background: var(--text);
-  cursor: grab;
-}
-/* The end handle reads as the closing edge, so it takes the second colour. */
-#trim-end::-webkit-slider-thumb { background: var(--accent-2); }
-#trim-end::-moz-range-thumb { background: var(--accent-2); }
+.trim-ruler { display: block; width: 100%; height: 20px; }
 
-/* Trimming's own landscape rules, here rather than up in the block with the
-   rest of them: these selectors are no more specific than the ones they have
-   to beat, and those are written above — a rule in the earlier block lost to
-   the plain one below it and the dock stayed 152 on a 380px-tall screen.
-   What gives way is the reach on the bars, which is what the room is for. */
-@media (max-height: 520px) and (orientation: landscape) {
-  .dock.is-trimming { height: 124px; }
-  .trim-bars input[type="range"] { height: 24px; }
-  .trim-bars input[type="range"]::-webkit-slider-thumb { margin-top: -7px; }
+/* The strip. What is kept sits in a white bracket, 3 thick with rounded ends,
+   a 14 wide handle at either end of it; what is cut is dimmed. app.js places
+   all of it through --a and --b, where the cut starts and ends on the strip,
+   and --p, where the playhead is. */
+.trim-strip {
+  --a: 0px;
+  --b: 100%;
+  --p: 0px;
+  position: relative;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: none;
 }
+.trim-frames { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.trim-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+.trim-cut-before { left: 0; width: var(--a); }
+.trim-cut-after { left: var(--b); right: 0; }
+.trim-kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--a);
+  width: calc(var(--b) - var(--a));
+  border: 3px solid var(--background-inverse);
+  border-radius: 12px;
+  pointer-events: none;
+}
+.trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  padding: 0;
+  appearance: none;
+  border: none;
+  background: var(--background-inverse);
+  cursor: ew-resize;
+  touch-action: none;
+}
+/* 14 to see and 44 to catch: 15 more either side, where the strip has it. */
+.trim-handle::before { content: ''; position: absolute; top: 0; bottom: 0; left: -15px; right: -15px; }
+.trim-handle i {
+  position: absolute;
+  left: 6px;
+  top: 20px;
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--content-inverse);
+  opacity: 0.5;
+}
+.trim-handle-start { left: var(--a); border-radius: 12px 0 0 12px; }
+.trim-handle-end { left: calc(var(--b) - 14px); border-radius: 0 12px 12px 0; }
+/* The handle being held glows, the one thing on the strip that is live. */
+.trim-handle.is-held { box-shadow: 0 0 10px rgba(255, 255, 255, 0.45); }
+.trim-handle:focus-visible { outline: 2px solid var(--selection-indicator); outline-offset: 2px; }
+.trim-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--p) - 1.5px);
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--background-inverse);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* A clip's sound, at the end of its foot: the speaker, or crossed out. */
+.tile-sound { display: none; margin-left: auto; }
+.has-sound .tile-sound { display: grid; }
+.tile-sound .sound-off,
+.tile-sound.is-muted .sound-on { display: none; }
+.tile-sound.is-muted .sound-off { display: block; }
 
 /* ----------------------------------------------------------- adjusting */
-/* Two rows: the tools, then the slider for whichever one is chosen, the way
-   the Adjust tab in Google Photos stacks them. The dock grows for it to the
-   height trimming already takes, for the same reason — two rows do not fit the
-   62px a drawer is normally given — and the pages bar stays, because which
-   page is being edited still matters. */
-.dock.is-adjusting { height: 152px; }
+/* The settings across the top, turned under the centre like the other reels,
+   and the dial for the chosen one under them, 8 apart: the sheet's own inset,
+   since the row of buttons sits 8 from its top as well. */
 .tile-adjust {
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 0;
+  justify-content: flex-start;
+  gap: var(--space-inset-sheet);
+  padding: 0;
 }
+/* 56 of fade either side, where the page's reels take 72: a setting is a
+   word as well as a drawing, and the next one's name should still be half
+   readable through the edge. */
+/* A dial here is not a panel of its own, so it says display: flex itself —
+   laid out as a block, the number's negative margins collapsed and took the
+   dial to 74 of its 76. And not .tile-sub's flex: 1, which lets it shrink. */
+.tile-sub .dial { display: flex; flex: none; }
+.settings-reel {
+  height: 40px;
+  gap: 6px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+}
+/* A setting is a pill, 40 tall and concentric with the 32 ring inside it:
+   4 before the ring, 14 after the name. The chosen one is filled. */
+.settings-reel .setting,
+.settings-reel .reel-echo {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 4px;
+  appearance: none;
+  border: none;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--content-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.settings-reel .setting.is-active { background: var(--background-control); color: var(--content-primary); }
+.setting-ring {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+}
+/* How far the setting has moved, on a ring drawn from the top: turned a
+   quarter back so the circle starts at twelve rather than three, and mirrored
+   for a setting taken below nought so it fills the other way round. app.js
+   writes the dash; nought draws nothing, an empty track. */
+.ring {
+  position: absolute;
+  inset: 0;
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke-width: 2.5;
+  transform: rotate(-90deg);
+}
+.is-less .ring { transform: scaleX(-1) rotate(-90deg); }
+.ring-track { stroke: var(--background-control); }
+/* On the chosen pill the track would vanish into the pill's own grey, so it
+   is the secondary colour at 35% there, written out because rgba() cannot
+   read a variable. */
+.setting.is-active .ring-track { stroke: rgba(142, 142, 142, 0.35); }
+.ring-fill { stroke: var(--content-primary); stroke-dasharray: 0 100; }
+/* 16 across, so 2.2 in the viewBox draws the 1.5 every icon here lands on. */
+.setting-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.setting-icon .solid { fill: currentColor; stroke: none; }
+
+/* Effects still lay their row out the way Adjust used to: an icon over its
+   word, the ring round it filled while the effect is on. */
 .adjust-tools {
   display: flex;
   gap: 2px;
@@ -2385,15 +3006,9 @@ body.is-library .toast {
 }
 .adjust-tools::-webkit-scrollbar { display: none; }
 .adjust-tool { min-width: 72px; padding: 4px 6px; gap: 4px; }
-.adjust-tool.is-active { color: var(--text); }
-.adjust-tool .solid, .tile-adjust .btn-icon .solid { fill: currentColor; stroke: none; }
-/* The ring says how far a tool has been moved, and in which direction does
-   not matter to it — Photos draws it the same for -40 as for +40. It is a
-   conic fill behind a disc the colour of the dock, so the icon sits inside a
-   ring rather than on a pie. --amount is 0..1, written by app.js on the
-   button and inherited from there — declaring a default on the ring itself
-   would shadow it, and did: every ring drew empty.
-   The ring is a span in a dock item, and `.dock-item span` outranks a lone
+.adjust-tool.is-active { color: var(--content-primary); }
+.adjust-tool .solid { fill: currentColor; stroke: none; }
+/* The ring is a span in a dock item, and `.dock-item span` outranks a lone
    class: it made the ring a flex row, which ignores place-items, and every
    icon sat hard against the left of its ring, five pixels off centre. Both
    axes are said again in flex's own terms so it centres either way. */
@@ -2407,18 +3022,24 @@ body.is-library .toast {
   height: 32px;
   border-radius: 50%;
 }
+/* The ring says how far a tool has been moved, and in which direction does
+   not matter to it. It is a conic fill behind a disc the colour of the dock,
+   so the icon sits inside a ring rather than on a pie. --amount is 0..1,
+   written by app.js on the button and inherited from there — declaring a
+   default on the ring itself would shadow it, and did: every ring drew
+   empty. */
 .adjust-tool.is-set .adjust-ring {
-  background: conic-gradient(var(--accent) calc(var(--amount) * 360deg), var(--line) 0);
+  background: conic-gradient(var(--content-primary) calc(var(--amount) * 360deg), var(--background-control) 0);
 }
 .adjust-tool.is-set .adjust-ring::before {
   content: '';
   position: absolute;
   inset: 2.5px;
   border-radius: 50%;
-  background: var(--surface);
+  background: var(--background-screen);
 }
 .adjust-ring svg { position: relative; }
-.adjust-tool.is-active .adjust-ring { box-shadow: 0 0 0 1.5px var(--text); }
+.adjust-tool.is-active .adjust-ring { box-shadow: 0 0 0 1.5px var(--content-primary); }
 .adjust-tool.is-active.is-set .adjust-ring { box-shadow: none; }
 .adjust-row {
   display: flex;
@@ -2428,29 +3049,185 @@ body.is-library .toast {
 }
 .adjust-row .dock-slider { flex: 1; min-width: 0; }
 .adjust-row .btn { flex: none; }
-.tile-adjust .btn-icon svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linejoin: round;
-}
-/* Brightens rather than scales while held. The hold can last as long as the
-   comparing does, and a button sitting shrunk for seconds reads as stuck. */
-#adjust-compare.is-held { background: var(--surface-2); color: var(--accent); }
 
 @media (max-height: 520px) and (orientation: landscape) {
-  .dock.is-adjusting { height: 124px; }
   .adjust-ring { width: 26px; height: 26px; }
 }
 
+/* ----------------------------------------------------- floating actions */
+/* A row of its own at the top of the dock, so the stage gives up the room
+   and the pill never sits on the photo: 52 tall and 8 above the sheet, its
+   right edge in line with the sheet's inner one. Built like the bar's pills,
+   4 inside and 2 between, and lifted off the page by the same shadow as the
+   tile's own actions. */
+.sheet-float {
+  max-width: 520px;
+  margin: 0 auto var(--space-inset-sheet);
+  padding: 0 var(--space-inset-sheet);
+  display: flex;
+  justify-content: flex-end;
+}
+.float-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-between);
+  height: 52px;
+  padding: 0 var(--space-inset-pill);
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--background-raised);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.5);
+}
+.float-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--content-primary);
+  cursor: pointer;
+  transition: background-color 140ms, color 140ms, opacity 140ms;
+}
+.float-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.float-btn .solid { display: none; fill: currentColor; stroke: none; }
+/* On, Compare is the one white thing in the pill, with the after panel of
+   its drawing filled in: what is on screen is the original, and the button
+   says which half of the comparison that is. */
+.float-btn[aria-pressed="true"] { background: var(--background-inverse); color: var(--content-inverse); }
+.float-btn[aria-pressed="true"] .solid { display: block; }
+.float-btn:active:not(:disabled) { background: var(--background-control); transition-duration: 0s; }
+.float-btn[aria-pressed="true"]:active { background: var(--background-inverse); filter: brightness(0.9); }
+/* Crop before anything has changed: there, so nothing jumps in under a
+   pinch, but at 40% and not yet anything to press. */
+.sheet-float.is-resting .float-btn { opacity: 0.4; }
+.float-btn:disabled { cursor: default; }
+
+/* --------------------------------------------------------------- export */
+/* Export turns into the card's close while the card is open. */
+.export-open .export-cross,
+.export-open.is-open .export-arrow { display: none; }
+.export-open.is-open .export-cross { display: block; }
+
+/* The card rises off the button, anchored to its right and 8 above the bar,
+   and is as wide as the sizes: the sizes are tabs, 44 tall with 16 either
+   side of each number, and the button to go takes that width beneath them.
+   8 inside and 4 between, so its corners nest, 30 on the card less 8. */
+.export-card {
+  position: absolute;
+  z-index: 8;
+  right: var(--space-screen-edge);
+  bottom: calc(100% - var(--space-dock-top) + var(--space-inset-sheet));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-inset-sheet);
+  border-radius: var(--radius-sheet);
+  background: var(--background-raised);
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.55);
+  transform-origin: 100% 100%;
+}
+.export-sizes { display: flex; }
+.export-card .action { width: 100%; }
+
+/* The one thing a card or a screen is for, as a word on a 44 pill. Primary
+   is white, and there is at most one on screen; quiet stands beside it. */
+.action {
+  height: 44px;
+  padding: 0 var(--space-inset-tab);
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 140ms, filter 140ms;
+}
+.action-primary { background: var(--background-inverse); color: var(--content-inverse); }
+.action-quiet { background: var(--background-control); color: var(--content-primary); }
+.action:active:not(:disabled) { transform: translateY(1px) scale(0.97); transition-duration: 0s; }
+.action:disabled { opacity: 0.4; cursor: default; }
+
+/* The export's screen: held black at 90%, taking every touch, with one ring
+   for the whole deck, what is happening under it, and what to do next. */
+.export-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: var(--space-screen-edge);
+  background: rgba(0, 0, 0, 0.9);
+  touch-action: none;
+}
+.export-state { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 240px; }
+.export-ring { position: relative; width: 72px; height: 72px; display: grid; place-items: center; }
+.export-ring > svg:first-child { position: absolute; inset: 0; width: 72px; height: 72px; fill: none; stroke-width: 3.6; transform: rotate(-90deg); }
+.export-track { stroke: var(--background-control); }
+.export-fill { stroke: var(--content-primary); stroke-dasharray: 0 100; transition: stroke-dasharray 200ms linear; }
+.export-count { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.export-tick { display: none; width: 28px; height: 28px; fill: none; stroke: var(--content-primary); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.export-screen:not([data-state="exporting"]) .export-count { display: none; }
+.export-screen:not([data-state="exporting"]) .export-tick { display: block; }
+.export-words { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; text-align: center; line-height: normal; }
+.export-words strong { font-size: 15px; font-weight: 500; }
+.export-words span { font-size: 12px; color: var(--content-secondary); }
+.export-words span:empty { display: none; }
+.export-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+.export-actions .action { width: 100%; }
+.export-actions .export-cancel { width: 120px; }
+.export-actions .action { display: none; }
+.export-screen[data-state="exporting"] #export-cancel,
+.export-screen[data-state="ready"] #export-share,
+.export-screen[data-state="ready"] #export-later,
+.export-screen[data-state="shared"] #export-done,
+.export-screen[data-state="shared"] #export-again { display: block; }
+/* The toast has something to say while the screen is up — how many empty
+   pages were skipped — so it comes out over the black, as it does over the
+   library. */
+body.is-exporting .toast {
+  position: fixed;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+}
+
+/* What the chosen tile is showing that it would not otherwise — its original
+   while Compare is on, the time under a trim handle — written on the tile
+   itself, white on black at 60%. */
+.tile-chip {
+  position: absolute;
+  z-index: 5;
+  padding: 4.5px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--content-primary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The time under a trim handle is the Frame time component: a size smaller
+   and bold, since it changes under the finger and is read in a glance. */
+#frame-time { padding: 4px 10px; border-radius: 11px; font-size: 11px; font-weight: 700; line-height: 13px; }
+
 /* ------------------------------------------------------------- effects */
-/* Built like the Adjust panel, and given the same room for the same reason:
-   the row of effects, then the settings of the one that is on. An effect is
-   on or off rather than an amount, so its ring is simply filled while on. */
-.dock.is-effecting { height: 152px; }
+/* Built like the Adjust panel, and the sheet grows for it the same way: the
+   row of effects, then the settings of the one that is on. An effect is on or
+   off rather than an amount, so its ring is simply filled while on. */
 .tile-effects {
   flex-direction: column;
   align-items: stretch;
@@ -2458,8 +3235,8 @@ body.is-library .toast {
   gap: 6px;
   padding: 4px 0;
 }
-.effect-item.is-active { color: var(--text); }
-.effect-item.is-active .adjust-ring { background: var(--accent); color: #fff; }
+.effect-item.is-active { color: var(--content-primary); }
+.effect-item.is-active .adjust-ring { background: var(--background-inverse); color: var(--content-inverse); }
 .effect-hint {
   margin: 0;
   padding: 0 14px;
@@ -2467,7 +3244,7 @@ body.is-library .toast {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-size: 12px;
 }
 .pop-sides { display: flex; gap: 4px; flex: none; }
@@ -2480,8 +3257,8 @@ body.is-library .toast {
   padding: 0;
   border: none;
   border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--background-raised);
+  color: var(--content-secondary);
   cursor: pointer;
 }
 .pop-side svg {
@@ -2493,35 +3270,34 @@ body.is-library .toast {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.pop-side[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.pop-side[aria-pressed="true"] { background: var(--background-inverse); color: var(--content-inverse); }
 .effect-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .effect-head .adjust-tools { flex: 0 1 auto; min-width: 0; }
 .pop-note {
   flex: 1;
   min-width: 0;
   margin: 0;
-  color: var(--muted);
+  color: var(--content-secondary);
   font-size: 12px;
   line-height: 1.35;
 }
 .effect-main, .effect-edge { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 .effect-edge .effect-head { padding-left: 14px; }
-.pop-tool[aria-pressed="true"] { color: var(--text); }
-.pop-tool[aria-pressed="true"] .adjust-ring { background: var(--accent); color: #fff; }
-.pop-tool.is-set .adjust-ring { box-shadow: 0 0 0 1.5px var(--accent); }
+.pop-tool[aria-pressed="true"] { color: var(--content-primary); }
+.pop-tool[aria-pressed="true"] .adjust-ring { background: var(--background-inverse); color: var(--content-inverse); }
+.pop-tool.is-set .adjust-ring { box-shadow: 0 0 0 1.5px var(--selection-indicator); }
 .edge-key {
   flex: none;
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 2px solid var(--text);
+  border: 2px solid var(--content-primary);
   background: var(--key, transparent);
 }
 
 .pop-side:active { transform: scale(0.92); }
 
 @media (max-height: 520px) and (orientation: landscape) {
-  .dock.is-effecting { height: 124px; }
   .pop-side { width: 34px; height: 34px; }
 }
 

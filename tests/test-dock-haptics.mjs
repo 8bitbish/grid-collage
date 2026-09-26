@@ -38,15 +38,24 @@ const tap=async(sel,n=0)=>{
   if(!bx) throw new Error(`no box for ${sel} #${n}`);
   await p.touchscreen.tap(bx.x+bx.width/2, bx.y+bx.height/2); await p.waitForTimeout(250);};
 
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+// The tab tap is let through unheard, the way the old bar's was.
+const open=async(name)=>{
+  if(await p.locator(`.dock-root [data-drawer="${name}"]`).count()) return tap(`.dock-root [data-drawer="${name}"]`);
+  await tap('.dock-root [data-drawer="layout"]');
+  await tap(`.dock-tab[data-drawer="${name}"]`);
+};
+
 await buzzes();
-await tap('.dock-item[data-drawer="layout"]');
+await open('layout');
 console.log('open Layout        ->', JSON.stringify(await buzzes()));
 await tap('.layout-btn[data-id="2x2"]');
 console.log('pick a layout      ->', JSON.stringify(await buzzes()));
 await tap('#dock-back');
 console.log('back out           ->', JSON.stringify(await buzzes()));
 
-await tap('.dock-item[data-drawer="background"]');
+await open('background');
 await buzzes();
 await tap('.swatch', 1);
 console.log('pick a colour      ->', JSON.stringify(await buzzes()));
@@ -56,21 +65,32 @@ await tap('#dock-back'); await buzzes();
 // of the knob, one per notch crossed, and the firmer double at either end.
 // Twelve notches to a sweep is the number that matters — the step count is 60,
 // and buzzing every step is a rattle rather than a control.
-await tap('.dock-item[data-drawer="gap"]'); await buzzes();
-const s=await p.locator('#gap').boundingBox();
+await open('gap'); await buzzes();
+// The ruler over the input is what a finger meets now, and it follows the
+// finger: dragging it left brings larger numbers under the needle. So the
+// sweep that used to run left to right from zero runs the other way, after a
+// first pass to the right to be sure it starts from zero.
+const s=await p.locator('#dp-gap .dial-track').boundingBox();
 await p.touchscreen.tap(s.x+10, s.y+s.height/2);
 await p.waitForTimeout(200);
 console.log('touch the track    ->', JSON.stringify(await buzzes()), '(one for the grab)');
 {
   const cdp=await ctx.newCDPSession(p);
   const y=Math.round(s.y+s.height/2);
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:Math.round(s.x+2),y}]});
-  for (let x=Math.round(s.x+2); x<s.x+s.width-2; x+=6) {
-    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});
-    await p.waitForTimeout(12);
-  }
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  await p.waitForTimeout(250);
+  const sweep=async(from,to)=>{
+    const dir=Math.sign(to-from);
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:from,y}]});
+    for (let x=from; dir*(to-x)>0; x+=6*dir) {
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y}]});
+      await p.waitForTimeout(12);
+    }
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await p.waitForTimeout(250);
+  };
+  const left=Math.round(s.x+2), right=Math.round(s.x+s.width-2);
+  await sweep(left,right); await buzzes();
+  console.log('  starting from', await p.inputValue('#gap'));
+  await sweep(right,left);
   const run=await buzzes();
   const ticks=run.filter(v=>v===4).length;
   const ends=run.filter(v=>Array.isArray(v)).length;
@@ -100,28 +120,27 @@ await p.locator('#dock-root').evaluate(el=>el.scrollLeft=0);
 const box=await p.locator('#canvas').boundingBox();
 await p.touchscreen.tap(box.x+box.width*0.3, box.y+box.height*0.3);
 await p.waitForTimeout(300); await buzzes();
-await tap('.dock-item[data-tile="rotate"]');
-console.log('a tile action      ->', JSON.stringify(await buzzes()));
-await tap('#btn-rot90');
+await tap('#tile-tabs [data-tile="crop"]');
+console.log('a tile tab         ->', JSON.stringify(await buzzes()));
+await tap('#btn-turn-right');
 console.log('turn 90            ->', JSON.stringify(await buzzes()), '(one tick, not two)');
-await tap('#dock-back'); await buzzes();
 
 // the reel still ticks per photo, and not twice for a tap on an option
-await tap('.dock-item[data-tile="replace"]');
+await tap('#tile-actions [data-tile="replace"]');
 await p.waitForTimeout(400); await buzzes();
 const item=await p.locator('.choose-item').nth(2).boundingBox();
 await p.touchscreen.tap(item.x+item.width/2, item.y+item.height/2);
 await p.waitForTimeout(600);
 const reel=await buzzes();
-console.log('tap a reel option  ->', JSON.stringify(reel), '(ticks as it scrolls, no extra tap tick)');
-await tap('#choose-back'); await buzzes();
+console.log('tap a reel option  ->', JSON.stringify(reel), '(the ordinary tap; the reel ticks only as it is scrolled)');
+await tap('#dock-back'); await buzzes();
 
 // Deleting is the one thing in the dock a tap cannot take back, and it used to
 // feel exactly like picking a colour. A pattern rather than a single number is
 // what makes it unmistakable — a longer buzz reads as a slow tap.
 {
   const dbl = (v)=>Array.isArray(v) && v.length===4 && v[1]===14;
-  await tap('.dock-item[data-tile="delete"]');
+  await tap('#tile-actions [data-tile="delete"]');
   const tile=await buzzes();
   console.log('delete a tile      ->', JSON.stringify(tile), tile.some(dbl)?'✓ the double':'✗ wanted the double');
   if(!tile.some(dbl)) process.exitCode=1;
@@ -131,7 +150,7 @@ await tap('#choose-back'); await buzzes();
     await p.click('#dock-back'); await p.waitForTimeout(200);
   }
   await buzzes();
-  await tap('.dock-item[data-drawer="page"]'); await buzzes();
+  await open('page'); await buzzes();
   await tap('#btn-delete-page');
   const pg=await buzzes();
   console.log('delete a page      ->', JSON.stringify(pg), pg.some(dbl)?'✓ the double':'✗ wanted the double');
@@ -139,16 +158,15 @@ await tap('#choose-back'); await buzzes();
   await tap('#dock-back'); await buzzes();
 }
 
-// A select is answered in a picker of the system's own, so the tap never lands
-// on anything the dock can hear. The buzz belongs to the answer coming back.
+// The export's sizes are tabs on a card off the bar, and a size is a tap like
+// any other in the dock: one tick, not the double a delete gets and not none.
 {
-  await tap('.dock-item[data-drawer="export"]'); await buzzes();
-  await p.selectOption('#format','image/png');
-  await p.waitForTimeout(200);
+  await tap('#btn-export-open'); await buzzes();
+  await tap('#export-card [data-quality="1440"]');
   const sel=await buzzes();
-  console.log('choose a format    ->', JSON.stringify(sel), sel.length===1?'✓ one tick':'✗ wanted one tick');
+  console.log('choose a size      ->', JSON.stringify(sel), sel.length===1?'✓ one tick':'✗ wanted one tick');
   if(sel.length!==1) process.exitCode=1;
-  await tap('#dock-back'); await buzzes();
+  await tap('#btn-export-open'); await buzzes();
 }
 
 console.log('errors:', errs.length?errs.join(' | '):'none');
@@ -171,16 +189,17 @@ await ctx.close();
   const box=await q.locator('#canvas').boundingBox();
   await q.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await q.waitForTimeout(500);
-  await q.click('#tile-trim-btn');
+  await q.click('#tile-tabs [data-tile="trim"]');
   await q.waitForTimeout(400);
   await q.evaluate(()=>{window.__buzz=[];});
 
   // Drive the start handle past the end one, which it is not allowed to pass.
   const bar=await q.locator('#trim-start').boundingBox();
+  const strip=await q.locator('#trim-strip').boundingBox();
   const y=Math.round(bar.y+bar.height/2);
-  await q.mouse.move(bar.x+4, y);
+  await q.mouse.move(bar.x+7, y);
   await q.mouse.down();
-  for (let x=Math.round(bar.x+4); x<bar.x+bar.width; x+=10) { await q.mouse.move(x,y); await q.waitForTimeout(8); }
+  for (let x=Math.round(bar.x+7); x<strip.x+strip.width+40; x+=10) { await q.mouse.move(x,y); await q.waitForTimeout(8); }
   await q.mouse.up();
   await q.waitForTimeout(300);
   const run=await q.evaluate(()=>{const v=window.__buzz;window.__buzz=[];return v;});

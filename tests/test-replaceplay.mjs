@@ -45,7 +45,8 @@ const clipRunning=()=>{const v=document.querySelector('video'); return !!v && !v
 const reelSettled=async()=>{
   await settle(()=>{const strip=document.getElementById('choose-strip');
     const el=strip && strip.querySelector('.choose-item.is-current'); if(!el) return false;
-    const r=el.getBoundingClientRect(), mid=strip.getBoundingClientRect().left+strip.clientWidth/2;
+    const reel=document.getElementById('choose-reel');
+    const r=el.getBoundingClientRect(), mid=reel.getBoundingClientRect().left+reel.clientWidth/2;
     return Math.abs(r.left+r.width/2-mid)<4;});
   await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
 };
@@ -99,7 +100,7 @@ console.log('\n== it keeps playing while Replace is open ==');
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await settle(()=>!document.getElementById('dp-tile').hidden);
-  await p.click('.dock-item[data-tile="replace"]');
+  await p.click('#tile-actions [data-tile="replace"]');
   await settle(()=>!document.getElementById('tile-replace').hidden);
   ok('the Replace panel is open', await p.evaluate(()=>!document.getElementById('tile-replace').hidden));
   const seen = await colours('with the chooser up');
@@ -119,28 +120,31 @@ console.log('\n== scrolling onto a photo stops it, scrolling back starts it agai
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await settle(()=>!document.getElementById('dp-tile').hidden || !document.getElementById('tile-replace').hidden);
   if (await p.evaluate(()=>document.getElementById('tile-replace').hidden)) {
-    await p.click('.dock-item[data-tile="replace"]');
+    await p.click('#tile-actions [data-tile="replace"]');
     await settle(()=>!document.getElementById('tile-replace').hidden
-      && document.getElementById('choose-strip').children.length>=2);
+      && document.getElementById('choose-strip').children.length>=3);
   }
   await reelSettled();
-  // Land the reel on each entry in turn and see what the tile does.
+  // Land the reel on each entry in turn and see what the tile does. Add is
+  // the reel's first stop, so the clip is the second and the photo the third.
+  // A wheel first, because the reel only takes what passes its centre as a
+  // choice while something is scrolling it.
   const pick = async (n, then) => {
     await p.evaluate((k)=>{
-      const strip=document.getElementById('choose-strip');
-      const el=strip.children[k];
-      if (el) strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.clientWidth)/2;
-      strip.dispatchEvent(new Event('scroll',{bubbles:true}));
+      const reel=document.getElementById('choose-reel');
+      const el=document.getElementById('choose-strip').children[k];
+      reel.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));
+      if (el) reel.scrollLeft = el.offsetLeft - (reel.clientWidth - el.clientWidth)/2;
     }, n);
     await settle((k)=>document.getElementById('choose-strip').children[k]?.classList.contains('is-current'), n);
     // The marker moves first and the player follows it, so wait for the
     // player too — stopped for a photo, running for the clip.
     await settle(then);
   };
-  await pick(1, ()=>!document.querySelector('video'));
+  await pick(2, ()=>!document.querySelector('video'));
   const onPhoto = await colours('reel on the photo');
   ok('a photo in the tile is a still, as it should be', !playing(onPhoto), JSON.stringify(onPhoto));
-  await pick(0, clipRunning);
+  await pick(1, clipRunning);
   const onClip = await colours('reel back on the clip');
   ok('scrolling back to the clip has it playing again', playing(onClip), JSON.stringify(onClip));
 }

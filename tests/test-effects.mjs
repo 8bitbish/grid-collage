@@ -128,8 +128,8 @@ check(asBefore(before), 'without an effect each tile shows only its own photo', 
 const box = await p.locator('#canvas').boundingBox();
 const tapTile = async () => { await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8); await p.waitForTimeout(200); };
 await tapTile();
-check(await p.locator('#tile-effects-btn').isVisible(), 'a photo tile offers Effects');
-await p.click('.dock-item[data-tile="effects"]');
+check(await p.locator('#tile-tabs [data-tile="effects"]').isVisible(), 'a photo tile offers Effects');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 const effects = await p.$$eval('.effect-item', (els) => els.map((e) => e.dataset.effect));
 check(await p.locator('#tile-effects').isVisible() && effects.includes('popOut'), 'the panel lists the effects', effects.join(', '));
@@ -201,16 +201,16 @@ check(modelFetches.length === fetchedBefore, 'and its subject comes back from st
 
 /* ------------------------------------------------------------------ export */
 
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const got = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const out = await p.evaluate(async ([b64, pts]) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -220,7 +220,6 @@ else {
   const got = Object.fromEntries(Object.keys(POINTS).map((k, i) => [k, out[i]]));
   check(poppedOut(got), 'the exported file has the pop out the preview had', show(got));
 }
-await p.click('#dock-back');
 
 /* ------------------------------------------------------------ clips opt out */
 
@@ -231,7 +230,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.locator('#filmstrip canvas').first().click();
 await p.waitForTimeout(400);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x3"]');
@@ -242,11 +241,14 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.84);
 await p.waitForTimeout(300);
-check(await p.locator('#tile-trim-btn').isVisible() && !(await p.locator('#tile-effects-btn').isVisible()), 'a clip does not offer Effects');
+check(await p.locator('#tile-tabs [data-tile="trim"]').isVisible() && !(await p.locator('#tile-tabs [data-tile="effects"]').isVisible()), 'a clip does not offer Effects');
 await p.click('#dock-back');
+// The page is still growing back into the room the sheet gave up, and a tap
+// mid-flight lands wherever the animation has got to.
+await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.5);
 await p.waitForTimeout(300);
-check(await p.locator('#tile-effects-btn').isVisible(), 'the photo above it still does');
+check(await p.locator('#tile-tabs [data-tile="effects"]').isVisible(), 'the photo above it still does');
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 

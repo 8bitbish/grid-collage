@@ -36,7 +36,9 @@ const order=()=>p.evaluate(()=>[...document.querySelectorAll('.film canvas')].ma
   const d=c.getContext('2d').getImageData(c.width>>1,c.height>>1,1,1).data; return `${d[0]},${d[1]},${d[2]}`;}));
 const geom=()=>p.evaluate(()=>{
   const s=document.getElementById('filmstrip').getBoundingClientRect();
-  const lib=document.getElementById('btn-photos').getBoundingClientRect();
+  // The left end that folds away. It was the photos button until the
+  // redesign moved that down beside Add; the top bar starts with Back now.
+  const lib=document.getElementById('btn-home').getBoundingClientRect();
   const end=document.querySelector('.pagesbar-end').getBoundingClientRect();
   return { stripLeft:Math.round(s.left), stripRight:Math.round(s.right), stripWidth:Math.round(s.width),
            libWidth:Math.round(lib.width), endWidth:Math.round(end.width) };});

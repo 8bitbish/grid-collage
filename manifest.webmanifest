@@ -5,8 +5,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0d0d10",
-  "theme_color": "#16161c",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "categories": ["photo", "graphics", "utilities"],
   "launch_handler": { "client_mode": "focus-existing" },
   "share_target": {

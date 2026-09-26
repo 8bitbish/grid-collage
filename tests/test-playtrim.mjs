@@ -27,6 +27,25 @@ function png(w,h,rgb){const raw=Buffer.alloc((w*3+1)*h);
   const ih=Buffer.alloc(13);ih.writeUInt32BE(w,0);ih.writeUInt32BE(h,4);ih[8]=8;ih[9]=2;
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',ih),chunk('IDAT',zlib.deflateSync(raw)),chunk('IEND',Buffer.alloc(0))]);}
 
+// Drag a trim handle so the cut lands a fraction of the way along the clip,
+// as a thumb does it: press on the handle, move across, and — unless asked
+// to keep holding — let go. The strip shows the whole clip, so a pixel is the
+// clip's length over the strip's width.
+async function dragHandle(p, which, fraction, { release = true } = {}) {
+  // Measured once the sheet has come to rest: mid-rise, the handle is not
+  // where it is about to be, and the press lands on nothing.
+  await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const strip = await p.locator('#trim-strip').boundingBox();
+  const handle = await p.locator(`#trim-${which}`).boundingBox();
+  const edge = which === 'start' ? handle.x : handle.x + handle.width;
+  const x0 = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+  const x1 = x0 + (strip.x + strip.width * fraction - edge);
+  await p.mouse.move(x0, y);
+  await p.mouse.down();
+  for (let k = 1; k <= 8; k++) { await p.mouse.move(x0 + ((x1 - x0) * k) / 8, y); await p.waitForTimeout(16); }
+  if (release) await p.mouse.up();
+}
+
 const webm = fs.readFileSync('fixtures/clip.webm');
 
 const b=await chromium.launch({executablePath: CHROME});
@@ -106,9 +125,9 @@ console.log('\n== Trim is offered for a clip, and only for a clip ==');
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.waitForTimeout(600);
   ok('the tile panel opened', await p.evaluate(()=>!document.getElementById('dp-tile').hidden));
-  ok('Trim is there for a video', await p.evaluate(()=>!document.getElementById('tile-trim-btn').hidden));
+  ok('Trim is there for a video', await p.evaluate(()=>!document.querySelector('#tile-tabs [data-tile="trim"]').hidden));
 
-  await p.click('#tile-trim-btn');
+  await p.click('#tile-tabs [data-tile="trim"]');
   await p.waitForTimeout(500);
   const panel = await p.evaluate(()=>({
     open: !document.getElementById('tile-trim').hidden,
@@ -125,12 +144,8 @@ console.log('\n== Trim is offered for a clip, and only for a clip ==');
 console.log('\n== moving the start handle seeks the preview to that frame ==');
 {
   // Two thirds in: well past the red, so the frame under the handle is blue.
-  await p.evaluate(()=>{
-    const el=document.getElementById('trim-start');
-    el.value='650';
-    el.dispatchEvent(new Event('pointerdown',{bubbles:true}));
-    el.dispatchEvent(new Event('input',{bubbles:true}));
-  });
+  // Still holding on, so the tile stays parked on it.
+  await dragHandle(p, 'start', 0.65, { release: false });
   await p.waitForTimeout(900);
   const at = await playhead();
   const colour = await middle();
@@ -139,12 +154,13 @@ console.log('\n== moving the start handle seeks the preview to that frame ==');
   ok('and is holding that frame, not running', await p.evaluate(()=>document.querySelector('video').paused));
   ok('which is past the red, so blue', isBlue(colour), j(colour));
   const read = await p.evaluate(()=>document.getElementById('trim-from').textContent);
-  ok('the readout followed', read==='0:02', read);
+  ok('the readout followed', /^0:0(1\.9|2)/.test(read), read);
+  ok('and so did the time on the tile', /^0:0(1\.9|2)/.test(await p.textContent('#frame-time')), await p.textContent('#frame-time'));
 }
 
 console.log('\n== letting go plays the trimmed clip, from its new start ==');
 {
-  await p.evaluate(()=>document.getElementById('trim-start').dispatchEvent(new Event('change',{bubbles:true})));
+  await p.mouse.up();
   await p.waitForTimeout(700);
   ok('it is running again', await p.evaluate(()=>{const v=document.querySelector('video');return v && !v.paused;}));
   const seen=[];
@@ -177,18 +193,18 @@ console.log('\n== the trim is on the cell, and it is remembered ==');
   ok('and it plays from the cut after a relaunch', after !== null && after > 1.6, String(after));
 }
 
-console.log('\n== Whole clip puts it back ==');
+console.log('\n== Reset puts the whole clip back ==');
 {
   const box = await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.waitForTimeout(500);
-  await p.click('#tile-trim-btn');
+  await p.click('#tile-tabs [data-tile="trim"]');
   await p.waitForTimeout(400);
-  await p.click('#trim-reset');
+  await p.click('#btn-reset');
   await p.waitForTimeout(800);
   const panel = await p.evaluate(()=>({
     from: document.getElementById('trim-from').textContent,
-    disabled: document.getElementById('trim-reset').disabled,
+    disabled: document.getElementById('sheet-float').hidden,
   }));
   console.log('  back to:', j(panel));
   ok('the start is at zero again', panel.from==='0:00', panel.from);
@@ -209,10 +225,13 @@ console.log('\n== a photo tile has no Trim ==');
   }
   // The slide is a full 1x1, so importing does not place the photo anywhere.
   // Open a second tile and put it there, then select that tile.
-  await p.click('.dock-item[data-drawer="layout"]');
+  await p.click('.dock-root [data-drawer="layout"]');
   await p.waitForTimeout(300);
   await p.click('.layout-btn:nth-child(2)');
   await p.waitForTimeout(600);
+  // The sheet opens over the bar, and Photos lives in the bar; close it.
+  await p.click('#dock-back');
+  await p.waitForTimeout(300);
   await p.click('#btn-photos');
   await p.waitForTimeout(500);
   await p.click('.pm-pick[aria-label*="still.png"]');
@@ -225,7 +244,7 @@ console.log('\n== a photo tile has no Trim ==');
   await p.waitForTimeout(700);
   console.log('  selected tile holds:', await p.evaluate(()=>{
     const el=document.querySelector('#tile-actions'); return el && !document.getElementById('dp-tile').hidden ? 'a tile' : 'nothing';}));
-  const hidden = await p.evaluate(()=>document.getElementById('tile-trim-btn').hidden);
+  const hidden = await p.evaluate(()=>document.querySelector('#tile-tabs [data-tile="trim"]').hidden);
   console.log('  Trim hidden on a photo tile:', hidden);
   ok('Trim is not offered for a still', hidden);
 }

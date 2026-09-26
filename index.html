@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grid Collage — build an Instagram carousel</title>
 <meta name="description" content="Build a carousel up to 20 pages. Drop photos and video in a tray, lay each page out as a single image or a collage, reorder, and export the lot.">
-<meta name="theme-color" content="#16161c">
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.25i">
+<link rel="stylesheet" href="styles.css?v=2026.09.26j">
 </head>
 <body class="on-home">
 
@@ -111,22 +111,21 @@
 <main class="app">
 
   <!-- ------------------------------------------------ pages, along the top -->
+  <!-- Back, the pages, and undo and redo in a pill built like the bottom
+       bar's, so the top and the bottom of the screen rhyme. The photos moved
+       down beside Add: this row is the only place the deck can be scrolled
+       through, and the strip is what wants its width. -->
   <div class="pagesbar">
-    <button class="home-btn" id="btn-home" type="button" aria-label="All projects" title="All projects">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
-    </button>
-    <button class="photos-btn" id="btn-photos" type="button"
-            aria-haspopup="dialog" aria-expanded="false" aria-label="Photos">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M21 8v10a2 2 0 0 1-2 2H7"/><circle cx="8" cy="11" r="1.6"/><path d="M4 16l3.5-3.5L11 16"/></svg>
-      <span class="photos-count" id="photos-count">0</span>
+    <button class="home-btn circle" id="btn-home" type="button" aria-label="All projects" title="All projects">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
     </button>
     <div class="filmstrip" id="filmstrip"></div>
     <div class="pagesbar-end">
       <button id="btn-undo" class="pb-btn" type="button" title="Undo" aria-label="Undo" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h10a5 5 0 0 1 0 10H8"/><path d="M8 4L4 8l4 4"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4L4 8l4 4M4 8h10a5 5 0 0 1 0 10H8"/></svg>
       </button>
       <button id="btn-redo" class="pb-btn" type="button" title="Redo" aria-label="Redo" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8H10a5 5 0 0 0 0 10h6"/><path d="M16 4l4 4-4 4"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4l4 4-4 4M20 8H10a5 5 0 0 0 0 10h6"/></svg>
       </button>
     </div>
   </div>
@@ -135,9 +134,13 @@
   <section class="stage">
     <div class="dropzone" id="dropzone" hidden><span>Drop photos or video to add them</span></div>
     <div class="blank" id="blank" hidden>
-      <p>Nothing here yet.</p>
-      <button class="btn btn-primary" id="blank-add" type="button">Add photos</button>
+      <svg class="blank-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>
+      <p class="blank-title">Nothing here yet.</p>
       <p class="blank-sub">Photos or video. Or drop them anywhere on the page.</p>
+      <button class="btn pill" id="blank-add" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Add photos
+      </button>
     </div>
     <div class="canvas-wrap" id="canvas-wrap">
       <div class="track" id="track">
@@ -157,6 +160,29 @@
         <button class="page-x page-x-peek" id="btn-page-x-next" type="button" tabindex="-1" aria-hidden="true" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
+        <!-- The chosen tile's own actions, floating on the tile they act on
+             rather than in the sheet with its tools: another photo in this
+             tile, trading places with another tile, and taking it off the
+             page — the one that loses something, so the one in red. Placed by
+             placeTileActions against the tile's rect, bottom centre, 12 up. -->
+        <!-- Marks the chosen tile as showing its original while Compare is
+             on, at the tile's top left. Placed with the pill below. -->
+        <span class="tile-chip" id="tile-original" hidden>Original</span>
+        <!-- The time of the frame under a trim handle while it is held, top
+             centre of the tile: the tile is parked on that frame, so this is
+             the label on what is being looked at. -->
+        <span class="tile-chip" id="frame-time" hidden></span>
+        <div class="tile-actions" id="tile-actions" role="toolbar" aria-label="This tile" hidden>
+          <button class="tile-act" type="button" data-tile="replace" aria-label="Replace" title="Another photo in this tile">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4.5h9.5a2.5 2.5 0 0 1 2.5 2.5v9.5M6 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM4.5 18L8 14.5l2.5 2.5 1.5-1.5 3.5 3.5"/></svg>
+          </button>
+          <button class="tile-act" type="button" data-tile="swap" aria-label="Swap" title="Trade places with another tile">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM15 14h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1zM13.5 5.5c3 0 5 2 5 5M16.5 8.8l2 2 2-2M10.5 18.5c-3 0-5-2-5-5M7.5 15.2l-2-2-2 2"/></svg>
+          </button>
+          <button class="tile-act tile-act-danger" type="button" data-tile="delete" data-buzz="warn" aria-label="Delete" title="Take the photo off the page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 12a1.8 1.8 0 0 0 1.7 1.5h6.6A1.8 1.8 0 0 0 17 19l1-12M10 11v5.5M14 11v5.5"/></svg>
+          </button>
+        </div>
       </div>
     </div>
     <!-- The bar only appears for something with a known number of steps to
@@ -171,226 +197,293 @@
   <!-- ------------------------------------------------ settings, at the foot -->
   <nav class="dock" id="dock" aria-label="Settings">
 
+    <!-- The bar at rest. Add and Photos at the start, the page's two settings
+         in a pill that hugs them, and Export on its own at the end in a frame
+         as wide as the start, so the pill sits dead centre. The settings spell
+         themselves out only where the bar has the width for it — 398px, which
+         is a 430pt phone — and are their icons alone anywhere narrower. The
+         Layout chip carries no value: its icon is a drawing of the layout. -->
     <div class="dock-root" id="dock-root">
-      <button class="dock-item" type="button" data-drawer="layout">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
-        <span>Layout</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="shape">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M9 7h6M9 12h6"/></svg>
-        <span>Shape</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="gap">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg>
-        <span>Gap</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="padding">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="2.5" width="19" height="19" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
-        <span>Padding</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="corners">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V9a6 6 0 0 1 6-6h11"/><path d="M3 20h6"/></svg>
-        <span>Corners</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="background">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>
-        <span>Background</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="page">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
-        <span>Page</span>
-      </button>
-      <button class="dock-item" type="button" data-drawer="export">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
-        <span>Export</span>
-      </button>
+      <div class="bar-start">
+        <button class="circle" id="btn-add" type="button" aria-label="Add photos or video" title="Add photos or video">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="circle photos-btn" id="btn-photos" type="button"
+                aria-haspopup="dialog" aria-expanded="false" aria-label="Photos">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>
+          <span class="photos-count" id="photos-count">0</span>
+        </button>
+      </div>
+      <div class="bar-pill" role="group" aria-label="Page settings">
+        <button class="dock-item chip" type="button" data-drawer="shape" aria-label="Ratio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2.5h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2zM9 7h6M9 12h6"/></svg>
+          <span class="chip-label">Ratio</span><span class="chip-value" id="chip-ratio">1:1</span>
+        </button>
+        <button class="dock-item chip" type="button" data-drawer="layout" aria-label="Layout">
+          <i class="layout-glyph" id="chip-layout" aria-hidden="true"></i>
+          <span class="chip-label">Layout</span>
+        </button>
+      </div>
+      <div class="bar-end">
+        <!-- Opens the export card over the bar rather than a sheet in place
+             of it, and turns into the card's close while it is open. -->
+        <button class="circle circle-primary export-open" id="btn-export-open" type="button"
+                aria-haspopup="dialog" aria-expanded="false" aria-controls="export-card" aria-label="Export" title="Export">
+          <svg class="export-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l4-4 4 4M12 3v12M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+          <svg class="export-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
     </div>
 
+    <!-- What Export asks, which is only the size: Instagram re-encodes every
+         photo as JPEG whatever it is sent, and a clip is always an MP4, so
+         there is no format to choose. The card rises off the Export button,
+         anchored to its right and 8 above the bar, and is as wide as the
+         sizes; the button to go takes that width. -->
+    <div class="export-card" id="export-card" role="dialog" aria-label="Export" hidden>
+      <div class="export-sizes" role="radiogroup" aria-label="Size in pixels">
+        <button class="dock-tab" type="button" role="radio" data-quality="1080">1080</button>
+        <button class="dock-tab" type="button" role="radio" data-quality="1440">1440</button>
+        <button class="dock-tab" type="button" role="radio" data-quality="2160">2160</button>
+      </div>
+      <button class="action action-primary" id="btn-export" type="button">Export</button>
+    </div>
+
+    <!-- What belongs to the photo rather than to the controls floats over
+         the sheet's top right, 8 above it and in line with its inner edge:
+         Compare, which shows the tile as it came, and Reset. It takes a row
+         of its own in the dock rather than hanging over the stage, so the page
+         shrinks to clear it and it never sits on the photo. Which of the two
+         are there, and when, is the open tool's business — see floatWanted. -->
+    <div class="sheet-float" id="sheet-float" hidden>
+      <div class="float-pill" role="group" aria-label="This photo">
+        <button class="float-btn" id="btn-compare" type="button" aria-pressed="false" aria-label="Show the original" title="Show the original">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M7.5 7h-3A1.5 1.5 0 0 0 3 8.5v7A1.5 1.5 0 0 0 4.5 17h3A1.5 1.5 0 0 0 9 15.5v-7A1.5 1.5 0 0 0 7.5 7zM19.5 7h-3A1.5 1.5 0 0 0 15 8.5v7a1.5 1.5 0 0 0 1.5 1.5h3a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 19.5 7z"/><path class="solid" d="M19.5 7h-3A1.5 1.5 0 0 0 15 8.5v7a1.5 1.5 0 0 0 1.5 1.5h3a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 19.5 7z"/></svg>
+        </button>
+        <button class="float-btn" id="btn-reset" type="button" aria-label="Reset" title="Reset">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.3 5.7M11 12H4V5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- The sheet everything opens into. It comes down over the bar rather
+         than beside it, with one control at a time above and its foot along
+         the bottom: Back where Add was, then the page's settings as words, or
+         the value of the one control there is, or the button the sheet is
+         for. No title — the lit tab says where you are. -->
     <div class="dock-drawer" id="dock-drawer" hidden>
-      <button class="dock-back" id="dock-back" type="button" aria-label="Back">
-        <svg id="dock-back-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
-        <svg id="dock-back-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+     <div class="sheet-body" id="sheet-body">
 
-      <div class="dock-panel" id="dp-layout" hidden>
-        <div class="layouts" id="layouts"></div>
+      <!-- A dial of drawings, turned under a fixed centre. Whatever sits in
+           the middle is the page's layout. It runs round without an end: the
+           echoes either side are pictures of the same buttons, kept out of
+           #layouts so that list holds exactly one button per layout. -->
+      <div class="dock-panel has-reel" id="dp-layout" hidden>
+        <div class="reel reel-layouts" id="layout-reel">
+          <div class="reel-echoes" aria-hidden="true"></div>
+          <div class="reel-list layouts" id="layouts"></div>
+          <div class="reel-echoes" aria-hidden="true"></div>
+        </div>
+        <span class="reel-dot" aria-hidden="true"></span>
       </div>
 
-      <div class="dock-panel" id="dp-shape" hidden>
-        <div class="segmented" id="ratios"></div>
+      <div class="dock-panel has-reel" id="dp-shape" hidden>
+        <div class="reel reel-ratios" id="ratio-reel">
+          <div class="reel-echoes" aria-hidden="true"></div>
+          <div class="reel-list segmented" id="ratios"></div>
+          <div class="reel-echoes" aria-hidden="true"></div>
+        </div>
+        <span class="reel-dot" aria-hidden="true"></span>
       </div>
 
-      <!-- The readout appears twice on purpose. The one in the label row is the
-           resting state, and the one riding the knob is for the moment a thumb
-           is over the track, when the corner of the dock is the last place
-           anybody is looking. -->
-      <div class="dock-panel dock-slider" id="dp-gap" hidden>
-        <label class="dock-label" for="gap">Gap between tiles <span class="val" id="gap-val">0</span></label>
+      <!-- A ruler dragged under a fixed needle, the number over it. The range
+           input is still the control — it holds the value, takes the keyboard
+           and is what a screen reader hears — and the ruler is how a finger
+           moves it. -->
+      <div class="dock-panel dock-slider dial" id="dp-gap" hidden>
+        <label class="dock-label" for="gap"><span class="sr">Gap between tiles</span> <span class="val" id="gap-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="gap" min="0" max="120" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <div class="dock-panel dock-slider" id="dp-padding" hidden>
-        <label class="dock-label" for="padding">Padding round the edge <span class="val" id="padding-val">0</span></label>
+      <div class="dock-panel dock-slider dial" id="dp-padding" hidden>
+        <label class="dock-label" for="padding"><span class="sr">Padding round the edge</span> <span class="val" id="padding-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="padding" min="0" max="160" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <div class="dock-panel dock-slider" id="dp-corners" hidden>
-        <label class="dock-label" for="radius">Corner radius <span class="val" id="radius-val">0</span></label>
+      <div class="dock-panel dock-slider dial" id="dp-corners" hidden>
+        <label class="dock-label" for="radius"><span class="sr">Corner radius</span> <span class="val" id="radius-val">0</span></label>
+        <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
         <input type="range" id="radius" min="0" max="120" step="2" value="0">
         <span class="slider-read" aria-hidden="true">0</span>
       </div>
 
-      <!-- The presets are the part that scrolls and the custom colour is the part
-           that does not. Both used to sit in the panel's own scroller, which put
-           the one control that can reach a colour the row does not offer off the
-           right-hand edge on every phone measured. -->
+      <!-- Background as a reel of colours under a fixed centre, one line of
+           text above it: a preset says its name, anything else its hex, and
+           Custom what to do. The reel opens with four colours out of this
+           page's own photos, then the presets from light to dark, then Custom.
+           Custom opens in place: a hex you can type, and hue and shade on two
+           more rulers. The system's own picker stays one tap away beside the
+           hex, for anything a ruler makes awkward. -->
       <div class="dock-panel" id="dp-background" hidden>
-        <div class="swatches" id="swatches"></div>
-        <label class="colour-row">
-          <input type="color" id="bg" value="#ffffff">
-          <span id="bg-hex">#FFFFFF</span>
-        </label>
+        <div class="ticker" id="bg-ticker">
+          <p class="ticker-name" id="bg-name" aria-live="polite">White</p>
+          <div class="reel reel-colours" id="bg-reel">
+            <div class="reel-echoes" aria-hidden="true"></div>
+            <div class="reel-list swatches" id="swatches"></div>
+            <div class="reel-echoes" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="custom-colour" id="bg-custom" hidden>
+          <div class="custom-top">
+            <button class="pill" id="bg-presets" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+              Presets
+            </button>
+            <div class="hex-field">
+              <input type="color" id="bg" value="#ffffff" aria-label="Pick any colour">
+              <label class="sr" for="bg-hex">Background colour as hex</label>
+              <input type="text" id="bg-hex" value="#FFFFFF" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="characters" inputmode="text">
+            </div>
+          </div>
+          <div class="colour-ruler" id="hue-ruler" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="359">
+            <span class="colour-ruler-label" aria-hidden="true">Hue</span>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+          </div>
+          <div class="colour-ruler" id="shade-ruler" role="slider" tabindex="0" aria-label="Shade" aria-valuemin="0" aria-valuemax="100">
+            <span class="colour-ruler-label" aria-hidden="true">Shade</span>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+          </div>
+        </div>
       </div>
 
+      <!-- Page lost its button when the bar went down to two settings, so it is
+           the last tab along the foot: the two things that act on a page as a
+           whole, beside the settings of the page as a whole. -->
       <div class="dock-panel dock-actions" id="dp-page" hidden>
         <button class="btn btn-ghost" id="btn-duplicate" type="button">Duplicate page</button>
         <button class="btn btn-ghost btn-danger" id="btn-delete-page" type="button" data-buzz="warn">Delete page</button>
       </div>
 
-      <!-- Same split as the background panel: the two settings share what room
-           is left and scroll if they must, and Export is pinned outside that
-           scroller. A panel whose whole purpose is one button cannot be a panel
-           you have to swipe sideways to reach the button in. -->
-      <div class="dock-panel dock-export" id="dp-export" hidden>
-        <div class="export-settings" id="export-settings">
-          <select id="quality" class="select">
-            <option value="1080">1080px (Instagram)</option>
-            <option value="1440">1440px</option>
-            <option value="2160">2160px</option>
-          </select>
-          <select id="format" class="select">
-            <option value="image/jpeg">JPG</option>
-            <option value="image/png">PNG</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" id="btn-export" type="button">Export</button>
-      </div>
-
-      <!-- opens by itself when a tile is selected -->
+      <!-- Opens by itself when a tile is chosen, on whichever of the tile's
+           tools was used last — see toolFor. The tools themselves are tabs
+           along the foot, and what acts on the tile as a whole rides the tile
+           itself: see #tile-actions. -->
       <div class="dock-panel dock-tile" id="dp-tile" hidden>
 
-        <div class="tile-actions" id="tile-actions">
-          <button class="dock-item" type="button" data-tile="swap">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13a4 4 0 0 1 0 8H9"/><path d="M7 5L4 8l3 3"/><path d="M12 13l-3 3 3 3"/></svg>
-            <span>Swap</span>
-          </button>
-          <button class="dock-item" type="button" data-tile="replace">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17l5-5 4 4 3-2.5 4 3.5"/></svg>
-            <span>Replace</span>
-          </button>
-          <button class="dock-item" id="tile-trim-btn" type="button" data-tile="trim" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8 8.6L20 17M8 15.4L20 7"/></svg>
-            <span>Trim</span>
-          </button>
-          <button class="dock-item" type="button" data-tile="zoom">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3M8 11h6M11 8v6"/></svg>
-            <span>Zoom</span>
-          </button>
-          <button class="dock-item" type="button" data-tile="rotate">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
-            <span>Rotate</span>
-          </button>
-          <button class="dock-item" type="button" data-tile="flip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M9 7L4 12l5 5z"/><path d="M15 7l5 5-5 5z"/></svg>
-            <span>Flip</span>
-          </button>
-          <!-- Photos only, so hidden on a clip the way Trim is hidden on a
-               photo. -->
-          <button class="dock-item" id="tile-adjust-btn" type="button" data-tile="adjust">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/></svg>
-            <span>Adjust</span>
-          </button>
-          <button class="dock-item" id="tile-effects-btn" type="button" data-tile="effects">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9-1.9 4.6-1.9-4.6-4.6-1.9 4.6-1.9z"/><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/></svg>
-            <span>Effects</span>
-          </button>
-          <button class="dock-item" type="button" data-tile="reset">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.3 5.7"/><path d="M4 5v7h7"/></svg>
-            <span>Reset</span>
-          </button>
-          <button class="dock-item dock-item-danger" type="button" data-tile="delete" data-buzz="warn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
-            <span>Delete</span>
-          </button>
-        </div>
-
-        <div class="tile-sub dock-slider" id="tile-zoom" hidden>
-          <label class="dock-label" for="zoom">Zoom <span class="val" id="zoom-val">100%</span></label>
-          <input type="range" id="zoom" min="100" max="800" step="1" value="100" data-read="%">
-          <span class="slider-read" aria-hidden="true">100%</span>
-        </div>
-
-        <!-- Cutting a clip blind would be useless, so both handles seek the
-             preview as they move: the frame you are setting is the frame on
-             the slide. -->
-        <div class="tile-sub tile-trim" id="tile-trim" hidden>
-          <div class="trim-read">
-            <span class="val" id="trim-from">0:00</span>
-            <span class="trim-arrow" aria-hidden="true">→</span>
-            <span class="val" id="trim-to">0:00</span>
-            <span class="trim-span" id="trim-span"></span>
-            <button class="btn btn-ghost btn-sm" id="trim-reset" type="button">Whole clip</button>
-          </div>
-          <div class="trim-bars">
-            <label class="sr" for="trim-start">Start</label>
-            <input type="range" id="trim-start" min="0" max="1000" step="1" value="0">
-            <label class="sr" for="trim-end">End</label>
-            <input type="range" id="trim-end" min="0" max="1000" step="1" value="1000">
-          </div>
-        </div>
-
-        <div class="tile-sub" id="tile-rotate" hidden>
-          <button class="btn btn-ghost btn-sm" id="btn-rot90" type="button">Turn 90&deg;</button>
-          <!-- The one slider whose fill runs from the middle: nought is square,
-               and a bar growing out of the left end would say -180 was. -->
-          <div class="dock-slider from-centre">
-            <label class="dock-label" for="angle">Angle <span class="val" id="cell-angle">0&deg;</span></label>
-            <input type="range" id="angle" min="-180" max="180" step="1" value="0" data-read="&deg;">
-            <span class="slider-read" aria-hidden="true">0&deg;</span>
-          </div>
-        </div>
-
-        <div class="tile-sub tile-choose" id="tile-replace" hidden>
-          <div class="choose-head">
-            <button class="btn btn-ghost btn-sm" id="choose-back" type="button">&larr; Back</button>
-            <button class="btn btn-ghost btn-icon" id="choose-add" type="button" title="Add more photos" aria-label="Add more photos">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-            </button>
-          </div>
-          <div class="choose-rail">
-            <div class="choose-strip" id="choose-strip"></div>
-            <span class="choose-focus" id="choose-focus" aria-hidden="true"></span>
-          </div>
-        </div>
-
-        <!-- One row of tools, one slider for whichever is chosen, the way the
-             Adjust tab in Google Photos works. The tools are written in by
-             app.js from its list of adjustments, so a new one needs nothing
-             here. Compare shows the photo unedited for as long as it is held. -->
-        <div class="tile-sub tile-adjust" id="tile-adjust" hidden>
-          <div class="adjust-tools" id="adjust-tools" role="group" aria-label="Adjustments"></div>
-          <div class="adjust-row">
-            <div class="dock-slider" id="adjust-slide">
-              <label class="dock-label" for="adjust"><span id="adjust-name"></span> <span class="val" id="adjust-val">0</span></label>
-              <input type="range" id="adjust" min="-100" max="100" step="1" value="0">
-              <span class="slider-read" aria-hidden="true">0</span>
+        <!-- Crop: Zoom or Angle chooses what the dial turns, and Flip and the
+             two turns are one tap each, staying put whichever the dial is on.
+             The turns draw the photo's square turning so they never read as
+             Reset, which floats just above them. Flip is across; held, it is
+             down, which is the one of the two the design leaves without a
+             button of its own. -->
+        <div class="tile-sub tile-crop" id="tile-crop" hidden>
+          <div class="crop-head">
+            <div class="crop-turning" role="tablist" aria-label="What the dial turns">
+              <button class="dock-tab" type="button" role="tab" data-turning="zoom">Zoom</button>
+              <button class="dock-tab" type="button" role="tab" data-turning="angle">Angle</button>
             </div>
-            <button class="btn btn-ghost btn-icon" id="adjust-compare" type="button" aria-label="Hold to see the original" title="Hold to see the original">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><path class="solid" d="M12 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7z"/></svg>
+            <div class="crop-quick">
+              <button class="circle crop-btn" id="btn-flip" type="button" aria-label="Flip across" title="Flip across — hold to flip down">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M9 7L4 12l5 5V7zM15 7l5 5-5 5V7z"/></svg>
+              </button>
+              <button class="circle crop-btn" id="btn-turn-left" type="button" aria-label="Turn left" title="Turn left">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM19.5 14c0-5-3-8.5-7.5-8.5H9M11.5 3L9 5.5l2.5 2.5"/></svg>
+              </button>
+              <button class="circle crop-btn" id="btn-turn-right" type="button" aria-label="Turn right" title="Turn right">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM4.5 14c0-5 3-8.5 7.5-8.5h3M12.5 3L15 5.5 12.5 8"/></svg>
+              </button>
+            </div>
+          </div>
+          <!-- Up from 100%, where the ruler starts under the needle and runs
+               out: there is no zooming out past a tile full of photo. -->
+          <div class="dock-slider dial" id="zoom-slide">
+            <label class="dock-label" for="zoom"><span class="sr">Zoom</span> <span class="val" id="zoom-val">100%</span></label>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+            <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+          </div>
+          <!-- Either side of nought, which is square to the page. -->
+          <div class="dock-slider dial" id="angle-slide" hidden>
+            <label class="dock-label" for="angle"><span class="sr">Angle</span> <span class="val" id="cell-angle">0&deg;</span></label>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+            <input type="range" id="angle" min="-180" max="180" step="1" value="0">
+          </div>
+        </div>
+
+        <!-- Trim: the whole clip as a filmstrip, what is kept inside a white
+             bracket and what is cut dimmed, with the in and out times either
+             side of how long the cut is. The clip is always playing — only what
+             is kept, round and round, with a playhead going along the strip —
+             so there is no Play button. A handle being dragged parks the tile
+             on the frame under it and says its time on the tile. Held still
+             for half a second, the strip closes in on two seconds around it,
+             in tenths, and the time gains a digit; letting go sets the cut and
+             the strip eases back out to the whole clip. -->
+        <div class="tile-sub tile-trim" id="tile-trim" hidden>
+          <p class="trim-read" id="trim-read">
+            <span class="trim-time" id="trim-from">0:00</span>
+            <strong class="trim-span" id="trim-span">0.0 s</strong>
+            <span class="trim-time" id="trim-to">0:00</span>
+          </p>
+          <p class="trim-held" id="trim-held" hidden></p>
+          <canvas class="trim-ruler" id="trim-ruler" hidden aria-hidden="true"></canvas>
+          <div class="trim-strip" id="trim-strip">
+            <canvas class="trim-frames" id="trim-frames" aria-hidden="true"></canvas>
+            <i class="trim-cut trim-cut-before" aria-hidden="true"></i>
+            <i class="trim-cut trim-cut-after" aria-hidden="true"></i>
+            <i class="trim-kept" aria-hidden="true"></i>
+            <i class="trim-playhead" id="trim-playhead" aria-hidden="true"></i>
+            <button class="trim-handle trim-handle-start" id="trim-start" type="button" role="slider" aria-label="Where the clip starts"><i></i></button>
+            <button class="trim-handle trim-handle-end" id="trim-end" type="button" role="slider" aria-label="Where the clip ends"><i></i></button>
+          </div>
+        </div>
+
+        <!-- Replace opens on the reel: the tray round and round, the photo under
+             the needle larger, ringed and already in the tile, 10 between
+             every photo. Add from your photos is one of its stops. The chevron
+             in the foot opens the card up into the whole tray, four across,
+             Add first, with a grabber on top to fold it back down; Back and
+             the fold float over the bottom of the grid, which scrolls under
+             them. Both are written in by renderChooser. -->
+        <div class="tile-sub tile-choose" id="tile-replace" hidden>
+          <div class="reel choose-reel" id="choose-reel">
+            <div class="reel-echoes" aria-hidden="true"></div>
+            <div class="reel-list choose-strip" id="choose-strip" role="group" aria-label="Photos"></div>
+            <div class="reel-echoes" aria-hidden="true"></div>
+          </div>
+          <div class="choose-tray" id="choose-tray" hidden>
+            <div class="tray-grid" id="tray-grid" role="group" aria-label="Photos"></div>
+            <button class="tray-grabber" id="tray-grabber" type="button" aria-label="Fold back to the reel"><i></i></button>
+            <button class="circle crop-btn tray-back" id="tray-back" type="button" aria-label="Back">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
             </button>
-            <button class="btn btn-ghost btn-sm" id="adjust-reset" type="button">Reset</button>
+            <button class="circle crop-btn tray-fold" id="tray-fold" type="button" aria-label="Fold back to the reel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Adjust: the settings across the top, running round without an end,
+             the chosen one centred and filled, and a dial under it for that
+             setting — either side of nought, the stretch it has moved lit.
+             Each setting's ring fills clockwise for more and back for less, so
+             the row doubles as a summary of the edit. Written in by app.js
+             from its list of adjustments, so a new one needs nothing here.
+             Compare and Reset float above the sheet rather than sitting in it;
+             see #sheet-float. -->
+        <div class="tile-sub tile-adjust" id="tile-adjust" hidden>
+          <div class="reel settings-reel" id="adjust-reel">
+            <div class="reel-echoes" aria-hidden="true"></div>
+            <div class="reel-list settings" id="adjust-tools" role="group" aria-label="Adjustments"></div>
+            <div class="reel-echoes" aria-hidden="true"></div>
+          </div>
+          <div class="dock-slider dial" id="adjust-slide">
+            <label class="dock-label" for="adjust"><span class="sr" id="adjust-name"></span> <span class="val" id="adjust-val">0</span></label>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+            <input type="range" id="adjust" min="-100" max="100" step="1" value="0">
           </div>
         </div>
 
@@ -453,16 +546,79 @@
           </div>
         </div>
 
-        <div class="tile-sub" id="tile-flip" hidden>
-          <button class="btn btn-ghost btn-sm" id="btn-flip-h" type="button">Flip across</button>
-          <button class="btn btn-ghost btn-sm" id="btn-flip-v" type="button">Flip down</button>
-        </div>
-
       </div>
+
+     </div>
+
+     <div class="sheet-foot">
+      <button class="dock-back circle" id="dock-back" type="button" aria-label="Back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+      </button>
+      <!-- Words, not icons: they read at a glance, and a row of five cannot
+           fit beside Back at 390px, so it scrolls, fading at whichever edge
+           has more, and keeps the chosen one in view. Gap is only here with a
+           collage to put a gap in. -->
+      <div class="dock-tabs" id="dock-tabs" role="tablist" aria-label="Page settings">
+        <button class="dock-tab" type="button" role="tab" data-drawer="layout">Grid</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="gap">Gap</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="padding">Padding</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="corners">Corners</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="background">Background</button>
+        <button class="dock-tab" type="button" role="tab" data-drawer="page">Page</button>
+      </div>
+      <!-- A chosen tile's tools, the same words-on-tabs as the page's
+           settings. A photo has Adjust, Effects and Crop; a clip has Trim and
+           Crop, since a look would have to be redrawn on every frame it
+           plays. syncSheet hides whichever the tile has no use for. -->
+      <div class="tile-tabs" id="tile-tabs" role="tablist" aria-label="This tile">
+        <button class="dock-tab" type="button" role="tab" data-tile="adjust">Adjust</button>
+        <button class="dock-tab" type="button" role="tab" data-tile="effects">Effects</button>
+        <button class="dock-tab" type="button" role="tab" data-tile="trim">Trim</button>
+        <button class="dock-tab" type="button" role="tab" data-tile="crop">Crop</button>
+      </div>
+      <!-- A clip's sound, at the end of its foot so it is in the same place
+           whichever of its tools is open. Muting a clip is also how to choose
+           which clip gives a slide its sound: the export takes the longest one
+           left unmuted. -->
+      <button class="circle dock-back tile-sound" id="btn-sound" type="button" aria-pressed="true" aria-label="Sound on" title="Sound on">
+        <svg class="sound-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5H7l4.5-4v13L7 14.5H3.5zM15 9c1.3 1.4 1.3 4.6 0 6M18 6.5c2.8 3 2.8 8 0 11"/></svg>
+        <svg class="sound-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5H7l4.5-4v13L7 14.5H3.5zM15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>
+      </button>
+      <!-- Replace's foot is Back and this, which opens the reel up into the
+           whole tray. No title: the photos say what it is. -->
+      <button class="circle dock-back choose-open" id="choose-open" type="button" aria-label="Open the whole tray" title="Open the whole tray">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
+      </button>
+      <p class="sheet-value" id="sheet-value" aria-live="polite"><span class="value-window"><strong id="sheet-value-main"></strong></span><span id="sheet-value-sub"></span></p>
+      <span class="sheet-balance" aria-hidden="true"></span>
+     </div>
 
     </div>
   </nav>
 </main>
+
+<!-- The export, while it runs and once it is done: the screen held black at
+     90%, taking no touches, one ring for the whole deck. Done, it waits for a
+     fresh tap to open the share sheet, because a browser only lets a page do
+     that within a few seconds of a tap and a deck with video in it takes
+     longer than that to render. data-state says which of the three it is. -->
+<div class="export-screen" id="export-screen" role="dialog" aria-modal="true" aria-labelledby="export-title" data-state="exporting" hidden>
+  <div class="export-state">
+    <div class="export-ring">
+      <svg viewBox="0 0 72 72" aria-hidden="true"><circle class="export-track" cx="36" cy="36" r="34.2"/><circle class="export-fill" id="export-fill" cx="36" cy="36" r="34.2" pathLength="100"/></svg>
+      <span class="export-count" id="export-count"></span>
+      <svg class="export-tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    </div>
+    <p class="export-words" aria-live="polite"><strong id="export-title"></strong><span id="export-sub"></span></p>
+    <div class="export-actions">
+      <button class="action action-quiet export-cancel" id="export-cancel" type="button">Cancel</button>
+      <button class="action action-primary" id="export-share" type="button">Share</button>
+      <button class="action action-quiet" id="export-later" type="button">Not now</button>
+      <button class="action action-primary" id="export-done" type="button">Done</button>
+      <button class="action action-quiet" id="export-again" type="button">Share again</button>
+    </div>
+  </div>
+</div>
 
 <div class="update-toast" id="update-toast" role="status" aria-live="polite" hidden>
   <div class="ut-text">
@@ -563,6 +719,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.25i"></script>
+<script src="app.js?v=2026.09.26j"></script>
 </body>
 </html>

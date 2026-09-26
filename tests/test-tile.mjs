@@ -49,36 +49,35 @@ const tapTile=(f)=>p.mouse.click(box.x+box.width*f, box.y+box.height*0.5);
 
 console.log('single tile, left half:', await sample(0.15,0.5), '| right half:', await sample(0.85,0.5));
 
-// select the left tile — the tile bar should open with a cross, not an arrow
+// select the left tile — the sheet opens on the tile's tools, as tabs, with
+// its own actions floating on the tile itself
 await tapTile(0.25);
 await p.waitForTimeout(150);
-console.log('tile bar open:', await p.locator('#dp-tile').isVisible(),
-            '| actions:', await p.locator('#tile-actions .dock-item').count(),
-            '| leading button is a cross:', await p.locator('#dock-back-cross').isVisible());
+console.log('tile sheet open:', await p.locator('#dp-tile').isVisible() ? '✓' : '✗',
+            '| tabs:', await p.locator('#tile-tabs .dock-tab:visible').count(),
+            '| actions on the tile:', await p.locator('#tile-actions .tile-act:visible').count() === 3 ? '✓ three' : '✗');
 
-// FLIP
-await p.click('.dock-item[data-tile="flip"]');
-console.log('flip panel:', await p.locator('#tile-flip').isVisible(), '| leading button back to arrow:', await p.locator('#dock-back-arrow').isVisible());
+// FLIP, from Crop
+await p.click('#tile-tabs [data-tile="crop"]');
+console.log('crop open:', await p.locator('#tile-crop').isVisible() ? '✓' : '✗');
 const beforeFlip = await sample(0.15,0.5);
-await p.click('#btn-flip-h');
+await p.click('#btn-flip');
 await p.waitForTimeout(120);
 const afterFlip = await sample(0.15,0.5);
 console.log(`flip across: ${beforeFlip} -> ${afterFlip}`, beforeFlip!==afterFlip ? '✓ mirrored' : '✗ no change');
-await p.click('#dock-back');
-console.log('  back -> tile actions again:', await p.locator('#tile-actions').isVisible());
 
-// ROTATE
-await p.click('.dock-item[data-tile="rotate"]');
-await p.click('#btn-rot90');
+// ROTATE, in the same tab
+await p.click('#btn-turn-right');
 await p.waitForTimeout(120);
-console.log('turn 90 ->', await p.textContent('#cell-angle'));
+const turned = await p.textContent('#cell-angle');
+console.log('turn right ->', turned, turned === '90°' ? '✓' : '✗');
 await p.evaluate(()=>{const a=document.getElementById('angle'); a.value=-30; a.dispatchEvent(new Event('input',{bubbles:true}));});
 await p.waitForTimeout(120);
-console.log('angle slider ->', await p.textContent('#cell-angle'));
-await p.click('#dock-back');
+const set = await p.textContent('#cell-angle');
+console.log('angle dial ->', set, set === '\u221230°' ? '✓' : '✗');
 
 // RESET puts it back
-await p.click('.dock-item[data-tile="reset"]');
+await p.click('#btn-reset');
 await p.waitForTimeout(150);
 console.log('reset -> left tile:', await sample(0.15,0.5), '(matches original:', (await sample(0.15,0.5))===beforeFlip ? '✓)' : '✗)');
 
@@ -99,7 +98,7 @@ const l0=await sample(0.30,0.5), r0=await sample(0.80,0.5);   // off the photo's
 console.log('two tiles:', l0, '|', r0, r0==='20,200,90' ? '(right is the solid one ✓)' : '(setup wrong ✗)');
 await tapTile(0.25);
 await p.waitForTimeout(150);
-await p.click('.dock-item[data-tile="swap"]');
+await p.click('#tile-actions [data-tile="swap"]');
 console.log('swap armed:', await p.evaluate(()=>document.getElementById('canvas-wrap').classList.contains('is-swapping')) ? '✓' : '✗');
 await tapTile(0.75);
 await p.waitForTimeout(300);
@@ -112,10 +111,10 @@ await p.click('#btn-undo');
 await p.waitForTimeout(250);
 console.log('undo swap:', (await sample(0.30,0.5))===l0 ? '✓ back' : '✗');
 
-// DELETE, then the cross deselects
+// DELETE, then Back lets go
 await tapTile(0.25);
 await p.waitForTimeout(150);
-await p.click('.dock-item[data-tile="delete"]');
+await p.click('#tile-actions [data-tile="delete"]');
 await p.waitForTimeout(250);
 console.log('delete -> tile empty:', (await sample(0.25,0.5))!==l0 ? '✓' : '✗', '| settings list back:', await p.locator('#dock-root').isVisible());
 await p.click('#btn-undo');
@@ -125,7 +124,7 @@ await tapTile(0.25);
 await p.waitForTimeout(150);
 await p.click('#dock-back');
 await p.waitForTimeout(150);
-console.log('cross deselects:', await p.locator('#dock-root').isVisible() ? '✓' : '✗');
+console.log('back lets go of the tile:', await p.locator('#dock-root').isVisible() ? '✓' : '✗');
 await p.screenshot({path:'/tmp/shot-tile.png'});
 console.log(errs.length?'✗ ERRORS: '+errs.join(' | '):'✓ no page errors');
 await b.close(); srv.close();

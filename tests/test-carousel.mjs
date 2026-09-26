@@ -20,7 +20,13 @@ const PORT=server.address().port;
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
 const _current = (pg) => pg.evaluate(()=>[...document.querySelectorAll('.film')].findIndex(f=>f.classList.contains('is-current'))+1);
-const _openDrawer = (pg, name) => pg.click(`.dock-item[data-drawer="${name}"]`);
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+const _openDrawer = async (pg, name) => {
+  if (await pg.locator(`.dock-root [data-drawer="${name}"]`).count()) return pg.click(`.dock-root [data-drawer="${name}"]`);
+  await pg.click('.dock-root [data-drawer="layout"]');
+  await pg.click(`.dock-tab[data-drawer="${name}"]`);
+};
 
 // distinct solid-ish colour per photo so we can tell pages apart
 function png(w, h, [r, g, b]) {
@@ -117,14 +123,21 @@ console.log('✓ tray usage badges after filling:', badges.join(','));
 
 // 6. aim at a specific tile, then pick the photo for it. Dragging a photo
 // onto a tile went with the tray — the library is a modal over the canvas,
-// so there is nothing to drop onto. You select the tile and choose instead.
+// so there is nothing to drop onto. You choose the tile, then Replace on it,
+// and the photo comes off the reel.
 await page.click('#pm-close');
 await page.waitForTimeout(250);
 await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.25);
 await page.waitForTimeout(250);
-await page.click('#btn-photos');
+await page.click('#tile-actions [data-tile="replace"]');
+await page.waitForTimeout(400);
+await page.locator('#choose-strip .choose-item').nth(4).click();
+await page.waitForTimeout(700);
+await page.click('#dock-back');            // out of Replace
 await page.waitForTimeout(250);
-await page.locator('.pm-item').nth(5).click();
+await page.click('#dock-back');            // and let go of the tile
+await page.waitForTimeout(250);
+await page.click('#btn-photos');
 await page.waitForTimeout(250);
 console.log('✓ chose a photo for the selected tile; badges now:',
   (await page.evaluate(() => [...document.querySelectorAll('.pm-badge')].map((b) => b.textContent))).join(','));
@@ -199,9 +212,10 @@ page.on('download', (d) => downloads.push(d.suggestedFilename()));
 // The shape drawer is still open from the ratio check; step back out first.
 await page.click('#dock-back');
 await page.waitForTimeout(250);
-await page.click('.dock-item[data-drawer="export"]');
+await page.click('#btn-export-open');
 await page.waitForTimeout(300);
 await page.click('#btn-export');
+await page.click('#export-share', { timeout: 120000 });
 // The app says how many it is saving, and hands them over a quarter of a
 // second apart; wait for that many rather than six seconds. This used to print
 // a tick beside however many arrived, and check their names with every(),
