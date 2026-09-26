@@ -61,21 +61,23 @@ console.log('tile sheet open:', await p.locator('#dp-tile').isVisible() ? '✓' 
 await p.click('#tile-tabs [data-tile="crop"]');
 console.log('crop open:', await p.locator('#tile-crop').isVisible() ? '✓' : '✗');
 const beforeFlip = await sample(0.15,0.5);
-await p.click('#btn-flip-h');
+await p.click('#btn-flip');
 await p.waitForTimeout(120);
 const afterFlip = await sample(0.15,0.5);
 console.log(`flip across: ${beforeFlip} -> ${afterFlip}`, beforeFlip!==afterFlip ? '✓ mirrored' : '✗ no change');
 
 // ROTATE, in the same tab
-await p.click('#btn-rot90');
+await p.click('#btn-turn-right');
 await p.waitForTimeout(120);
-console.log('turn 90 ->', await p.textContent('#cell-angle'));
+const turned = await p.textContent('#cell-angle');
+console.log('turn right ->', turned, turned === '90°' ? '✓' : '✗');
 await p.evaluate(()=>{const a=document.getElementById('angle'); a.value=-30; a.dispatchEvent(new Event('input',{bubbles:true}));});
 await p.waitForTimeout(120);
-console.log('angle slider ->', await p.textContent('#cell-angle'));
+const set = await p.textContent('#cell-angle');
+console.log('angle dial ->', set, set === '\u221230°' ? '✓' : '✗');
 
 // RESET puts it back
-await p.click('#btn-crop-reset');
+await p.click('#btn-reset');
 await p.waitForTimeout(150);
 console.log('reset -> left tile:', await sample(0.15,0.5), '(matches original:', (await sample(0.15,0.5))===beforeFlip ? '✓)' : '✗)');
 

@@ -122,7 +122,7 @@ await p.touchscreen.tap(box.x+box.width*0.3, box.y+box.height*0.3);
 await p.waitForTimeout(300); await buzzes();
 await tap('#tile-tabs [data-tile="crop"]');
 console.log('a tile tab         ->', JSON.stringify(await buzzes()));
-await tap('#btn-rot90');
+await tap('#btn-turn-right');
 console.log('turn 90            ->', JSON.stringify(await buzzes()), '(one tick, not two)');
 
 // the reel still ticks per photo, and not twice for a tap on an option

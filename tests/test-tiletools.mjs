@@ -11,7 +11,26 @@ import { chromium } from 'playwright';
 import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
 import { png } from './image.mjs';
-import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import zlib from 'node:zlib';
+
+// Four colours in four quarters, so which way a photo has been turned or
+// flipped can be read straight off the page.
+const RED = [220, 40, 40], YELLOW = [240, 200, 30], GREEN = [40, 180, 80], BLUE = [40, 80, 220];
+function quarters(n) {
+  const raw = Buffer.alloc((n * 3 + 1) * n);
+  for (let y = 0; y < n; y++) {
+    const o = y * (n * 3 + 1);
+    for (let x = 0; x < n; x++) {
+      const c = y < n / 2 ? (x < n / 2 ? RED : YELLOW) : (x < n / 2 ? GREEN : BLUE);
+      raw[o + 1 + x * 3] = c[0]; raw[o + 2 + x * 3] = c[1]; raw[o + 3 + x * 3] = c[2];
+    }
+  }
+  const TB = [...Array(256)].map((_, k) => { let c = k; for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
+  const crc = (b) => { let c = 0xffffffff; for (const x of b) c = TB[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const b = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(b)); return Buffer.concat([l, b, c]); };
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(n, 0); ih.writeUInt32BE(n, 4); ih[8] = 8; ih[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
 
 const T={'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript','.webmanifest':'application/manifest+json','.png':'image/png'};
 const srv=http.createServer((q,r)=>{const u=q.url.split('?')[0];const f=path.join(ROOT,u==='/'?'index.html':u);
@@ -30,7 +49,7 @@ await autoEnter(p);
 const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
 await p.goto(`http://localhost:${PORT}/`);
 await p.setInputFiles('#file-input',[
-  {name:'grey.png',mimeType:'image/png',buffer:png(600,900,[120,110,100])},
+  {name:'quarters.png',mimeType:'image/png',buffer:quarters(600)},
   {name:'blue.png',mimeType:'image/png',buffer:png(600,600,[60,80,120])},
 ]);
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='2');
@@ -136,6 +155,87 @@ console.log('\n== Reset takes it all back, and the pill goes with it ==');
   await p.waitForTimeout(300);
   await rest();
   ok('undoing the Reset brings the edit, and the pill, back', await p.locator('#sheet-float').isVisible());
+}
+
+// Which colour is in each quarter of the page, top left, top right, bottom
+// left, bottom right, by name.
+const NAMES = [['red', RED], ['yellow', YELLOW], ['green', GREEN], ['blue', BLUE]];
+const quads = () => p.evaluate(() => {
+  const c = document.getElementById('canvas'); const g = c.getContext('2d');
+  return [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]].map(([x, y]) => [...g.getImageData(Math.round(c.width * x), Math.round(c.height * y), 1, 1).data].slice(0, 3));
+}).then((cs) => cs.map((c) => (NAMES.find(([, n]) => n.every((v, k) => Math.abs(v - c[k]) < 40)) || ['?'])[0]).join(' '));
+const AS_IT_CAME = 'red yellow green blue';
+
+console.log('\n== Crop rests until something changes ==');
+let resting;
+{
+  await p.click('#btn-reset');            // the Adjust edit, out of the way
+  await rest();
+  await p.click('#tile-tabs [data-tile="crop"]');
+  await rest();
+  resting = await rect('#canvas');
+  ok('Crop opens with Compare and Reset already there', await p.locator('#btn-compare').isVisible() && await p.locator('#btn-reset').isVisible());
+  ok('at 40%, and not yet anything to press', await p.evaluate(() => {
+    const r = document.getElementById('btn-reset');
+    return document.getElementById('sheet-float').classList.contains('is-resting') && r.disabled && Math.abs(Number(getComputedStyle(r).opacity) - 0.4) < 0.01;
+  }));
+  ok('the sheet opens 8 from the top, on its row of buttons', await p.evaluate(() => getComputedStyle(document.getElementById('dock-drawer')).paddingTop) === '8px');
+  ok('Zoom is what the dial turns, from 100%', (await p.textContent('#zoom-val')) === '100%' && await p.locator('#zoom-slide').isVisible());
+  ok('and at 100% the ruler starts under the needle', await p.evaluate(() => Number(document.getElementById('zoom').value) === Number(document.getElementById('zoom').min)));
+  ok('the photo is as it came', (await quads()) === AS_IT_CAME, await quads());
+}
+
+console.log('\n== Turn left and Turn right ==');
+{
+  await p.click('#btn-turn-right');
+  await rest();
+  ok('Turn right is a quarter clockwise', (await p.textContent('#cell-angle')) === '90°' && (await quads()) === 'green red blue yellow',
+    `${await p.textContent('#cell-angle')}, ${await quads()}`);
+  const moved = await rect('#canvas');
+  ok('and wakes Compare and Reset without moving the page under it',
+    !(await p.evaluate(() => document.getElementById('sheet-float').classList.contains('is-resting'))) && Math.abs(moved.top - resting.top) < 0.5,
+    `page top ${resting.top} -> ${moved.top}`);
+  await p.click('#btn-turn-left');
+  await p.click('#btn-turn-left');
+  await rest();
+  ok('Turn left is a quarter the other way', (await p.textContent('#cell-angle')) === '\u221290°' && (await quads()) === 'yellow blue red green',
+    `${await p.textContent('#cell-angle')}, ${await quads()}`);
+  await p.click('#btn-turn-right');
+  await rest();
+  ok('and one of each is square again, with nothing to reset', (await p.textContent('#cell-angle')) === '0°' && (await quads()) === AS_IT_CAME
+    && await p.evaluate(() => document.getElementById('sheet-float').classList.contains('is-resting')));
+  for (let k = 0; k < 4; k++) await p.click('#btn-turn-right');
+  await rest();
+  ok('four turns right read 0°, not 360°', (await p.textContent('#cell-angle')) === '0°');
+}
+
+console.log('\n== one Flip: across on a tap, down on a hold ==');
+{
+  await p.click('#btn-flip');
+  await rest();
+  ok('a tap flips across', (await quads()) === 'yellow red blue green', await quads());
+  await p.click('#btn-flip');
+  const f = await rect('#btn-flip');
+  await p.mouse.move(f.left + f.width / 2, f.top + f.height / 2);
+  await p.mouse.down();
+  await p.waitForTimeout(650);
+  await p.mouse.up();
+  await rest();
+  ok('a hold flips down, and only down', (await quads()) === 'green blue red yellow', await quads());
+}
+
+console.log('\n== Compare on Crop shows the framing it came with ==');
+{
+  await p.click('#btn-compare');
+  await p.waitForTimeout(150);
+  ok('on, the tile is framed as it arrived, and says so', (await quads()) === AS_IT_CAME && await p.locator('#tile-original').isVisible(), await quads());
+  await p.click('#btn-compare');
+  await p.waitForTimeout(150);
+  ok('off, the flip is back', (await quads()) === 'green blue red yellow', await quads());
+  await p.click('#btn-reset');
+  await rest();
+  ok('Reset puts the framing back and the pill rests again', (await quads()) === AS_IT_CAME
+    && await p.evaluate(() => document.getElementById('sheet-float').classList.contains('is-resting')), await quads());
 }
 
 await p.screenshot({ path: path.join(SHOTS, 'tiletools.png') });

@@ -198,7 +198,8 @@
 
   let pendingCell = null;
   // Compare is on: the chosen tile shows its photo as it came, until it is
-  // turned off again or the tool it was turned on in is left.
+  // turned off again or the tool it was turned on in is left. On Adjust that
+  // is without its look ('look'); on Crop, without its framing ('crop').
   let comparing = false;
   // Pop out's Subjects button is on: a tap on the selected tile chooses what
   // counts as its subject, and the chosen ones are tinted.
@@ -388,14 +389,17 @@
     rects.forEach((rect, i) => {
       const cell = pg.cells[i];
       const photo = photoFor(cell);
+      // Crop's Compare draws the tile framed as it arrived, and only that: the
+      // look and everything else about it are still its own.
+      const frame = opts.unframed === i && cell ? { ...cell, zoom: 1, rot: 0, ox: 0, oy: 0, flipX: false, flipY: false } : cell;
       let p = null;
       let drawn = null;
       const pose = () => {
         g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
-        g.rotate(cell.rot);
+        g.rotate(frame.rot);
         // About the photo's own centre, so the area covered is unchanged and
         // the cover clamp still holds.
-        if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
+        if (frame.flipX || frame.flipY) g.scale(frame.flipX ? -1 : 1, frame.flipY ? -1 : 1);
       };
 
       g.save();
@@ -403,7 +407,7 @@
       g.clip();
 
       if (photo && photo.bitmap) {
-        p = onWholePixels(place(cell, photo, rect, s), cell, rect);
+        p = onWholePixels(place(frame, photo, rect, s), frame, rect);
         pose();
         // cell.frame is set while a video is playing in the preview, and
         // while an export walks its frames. Failing that a clip draws as its
@@ -490,7 +494,13 @@
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
     const tinted = picking || performance.now() < tintUntil;
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing ? state.selected : -1, picking: tinted ? state.selected : -1 });
+    drawPage(ctx, page(), W, H, {
+      placeholders: true,
+      selected: state.selected,
+      original: comparing === 'look' ? state.selected : -1,
+      unframed: comparing === 'crop' ? state.selected : -1,
+      picking: tinted ? state.selected : -1,
+    });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
@@ -6723,17 +6733,25 @@
     syncFloat();
 
     const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
-    const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
+    const degrees = angleOf(cell);
 
-    $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
+    $('cell-angle').textContent = `${signedDegrees(degrees)}°`;
     $('zoom').min = Math.ceil(p.minZoom * 100);
     $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
     $('zoom').value = Math.round(p.zoom * 100);
     $('zoom-val').textContent = `${Math.round(p.zoom * 100)}%`;
-    $('angle').value = degrees > 180 ? degrees - 360 : degrees;
+    $('angle').value = degrees;
     paintSlider($('zoom'));
     paintSlider($('angle'));
   }
+
+  // A tile's turn as the Angle dial shows it, -180 to 180 however many quarter
+  // turns went into it: four turns right is square again, not 360°.
+  function angleOf(cell) {
+    const d = Math.round((((cell.rot * 180) / Math.PI) % 360 + 540) % 360 - 180);
+    return d === -180 ? 180 : d;
+  }
+  const signedDegrees = (d) => (d < 0 ? `\u2212${-d}` : String(d));
 
   function select(i) {
     if (picking && i !== state.selected) { picking = false; pickPress = null; }
@@ -6760,6 +6778,7 @@
   function resetCell(i) {
     const cell = page().cells[i];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot();
     cell.zoom = 1; cell.rot = 0; cell.ox = 0; cell.oy = 0;
     cell.flipX = false; cell.flipY = false;
@@ -6988,6 +7007,8 @@
     }
 
     if (pointers.size === 0) { endRun(); snapshot(); }
+    // A finger on the photo is an edit, and an edit is not made blind.
+    if (comparing) setCompare(false);
     // Choosing subjects: a tap chooses, and a drag still moves the photo, so
     // which it was is only known on letting go.
     if ((picking || sampling()) && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
@@ -8447,6 +8468,7 @@
     // Compare belongs to the tool it was turned on in.
     if (comparing) setCompare(false);
     if (name === 'adjust') { syncAdjust(); if (adjustReel) adjustReel.sync(); }
+    if (name === 'crop') syncCrop();
 
     // Choosing a photo wants room: the pages bar steps aside and the dock
     // takes two rows, so the options are large enough to judge at a glance.
@@ -8696,6 +8718,8 @@
     const cell = page().cells[state.selected];
     if (!cell || !photoFor(cell)) return null;
     if (tileSub === 'adjust') return plainLook(cell.adjust) ? null : { compare: true, resting: false };
+    // A clip has nothing to compare with: it is always playing.
+    if (tileSub === 'crop') return { compare: !isClip(photoFor(cell)), resting: !cropChanged(cell) };
     return null;
   }
 
@@ -8738,8 +8762,9 @@
   // stays on until it is tapped again, or until anything is changed: an edit
   // made while the original is on screen would be an edit made blind.
   function setCompare(on) {
-    if (comparing === on) return;
-    comparing = on;
+    const mode = on ? (tileSub === 'crop' ? 'crop' : 'look') : false;
+    if (comparing === mode) return;
+    comparing = mode;
     $('btn-compare').setAttribute('aria-pressed', String(on));
     $('btn-compare').setAttribute('aria-label', on ? 'Show the edit' : 'Show the original');
     render();
@@ -8748,6 +8773,7 @@
   function resetTool() {
     if (state.selected === -1) return;
     if (tileSub === 'adjust') resetAdjust();
+    else if (tileSub === 'crop') resetCell(state.selected);
   }
 
   /* ------------------------------------------------------------- trimming */
@@ -8850,11 +8876,76 @@
   function flipCell(axis) {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot();
     if (axis === 'x') cell.flipX = !cell.flipX;
     else cell.flipY = !cell.flipY;
     render();
+    syncFloat();
   }
+
+  /* ---------------------------------------------------------------- crop */
+
+  // Which the dial turns. Kept across tiles, like Adjust's setting: straight-
+  // ening one photo after another is the usual run.
+  let cropTurning = 'zoom';
+
+  function syncCrop() {
+    $('tile-crop').querySelectorAll('[data-turning]').forEach((btn) => {
+      const on = btn.dataset.turning === cropTurning;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', String(on));
+    });
+    $('zoom-slide').hidden = cropTurning !== 'zoom';
+    $('angle-slide').hidden = cropTurning !== 'angle';
+    // Measured at nothing while it was hidden.
+    paintSlider($(cropTurning));
+  }
+
+  // A quarter turn either way, carrying the photo's square with it. The app
+  // only ever turned right; left is the same turn the other way, so four of
+  // either is where it started.
+  function turnCell(dir) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    if (!cell) return;
+    if (comparing) setCompare(false);
+    snapshot();
+    cell.rot = snapAngle(cell.rot + (dir * Math.PI) / 2);
+    settle(i);
+    render();
+    syncPanel();
+  }
+
+  // Flip is across on a tap and down on a hold. The design has one Flip where
+  // the app had two, and across is the one reached for; down is still there,
+  // for a hold of half a second, or Shift with a key. The click a hold ends
+  // in is swallowed, or a hold would flip both ways.
+  const FLIP_HOLD_MS = 500;
+  function wireFlip() {
+    const btn = $('btn-flip');
+    let timer = 0;
+    let held = false;
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      held = false;
+      clearTimeout(timer);
+      timer = setTimeout(() => { held = true; buzz('pick'); flipCell('y'); }, FLIP_HOLD_MS);
+    });
+    const letGo = () => clearTimeout(timer);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => btn.addEventListener(t, letGo));
+    btn.addEventListener('click', (e) => {
+      if (held) { held = false; return; }
+      flipCell(e.shiftKey ? 'y' : 'x');
+    });
+    // A press held on a touch screen raises the system's own menu otherwise.
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  // Whether a tile's framing is anything but how it arrived: turned, flipped,
+  // zoomed in, or moved along the side it has room on.
+  const cropChanged = (cell) => Math.abs(Math.sin(cell.rot)) > 1e-6 || Math.cos(cell.rot) < 0
+    || !!cell.flipX || !!cell.flipY || cell.zoom > 1.0005 || Math.abs(cell.ox) > 0.5 || Math.abs(cell.oy) > 0.5;
 
   /* ------------------------------------------------------------ adjusting */
 
@@ -9590,7 +9681,7 @@
   // The tile's controls that open on a row of buttons rather than on words or
   // a number: their sheet comes 8 from the top instead of 16, so the space
   // above the row is the space beside it. See .buttons-on-top.
-  const BUTTONS_ON_TOP = ['adjust', 'replace'];
+  const BUTTONS_ON_TOP = ['adjust', 'crop', 'replace'];
 
   // The bar is hidden while a sheet is open, so a keyboard that opened one
   // from it would be left holding nothing; it goes to the sheet's control
@@ -11387,7 +11478,6 @@
   [...$('tile-tabs').children].forEach((btn) => {
     btn.addEventListener('click', () => chooseTool(btn.dataset.tile));
   });
-  $('btn-crop-reset').addEventListener('click', () => { if (state.selected !== -1) resetCell(state.selected); });
   $('choose-back').addEventListener('click', leaveReplace);
   $('choose-strip').addEventListener('scroll', onChooserScroll, { passive: true });
   $('choose-add').addEventListener('click', () => {
@@ -11404,23 +11494,20 @@
   });
   $('trim-reset').addEventListener('click', resetTrim);
 
-  $('btn-flip-h').addEventListener('click', () => flipCell('x'));
-  $('btn-flip-v').addEventListener('click', () => flipCell('y'));
-  $('btn-rot90').addEventListener('click', () => {
-    const cell = page().cells[state.selected];
-    if (!cell) return;
-    snapshot();
-    cell.rot = snapAngle(cell.rot + Math.PI / 2);
-    settle(state.selected);
-    render();
-    syncPanel();
+  wireFlip();
+  $('btn-turn-left').addEventListener('click', () => turnCell(-1));
+  $('btn-turn-right').addEventListener('click', () => turnCell(1));
+  $('tile-crop').querySelectorAll('[data-turning]').forEach((btn) => {
+    btn.addEventListener('click', () => { cropTurning = btn.dataset.turning; syncCrop(); });
   });
   feedback('angle');
+  valueDial('angle', { fromNought: true });
   $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
   $('angle').addEventListener('pointerup', endRun);
   $('angle').addEventListener('input', (e) => {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot('angle');
     cell.rot = (Number(e.target.value) * Math.PI) / 180;
     settle(state.selected);
@@ -11522,11 +11609,13 @@
   $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
   feedback('zoom');
+  valueDial('zoom');
   $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
   $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot('zoom');
     cell.zoom = Number(e.target.value) / 100;
     // The label in the corner was only ever brought up to date by syncPanel,
@@ -11536,6 +11625,7 @@
     $('zoom-val').textContent = `${Math.round(Number(e.target.value))}%`;
     settle(state.selected);
     render();
+    syncFloat();
   });
 
   $('sheet-close').addEventListener('click', closeSheet);

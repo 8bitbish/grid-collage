@@ -54,7 +54,7 @@ const DRAWERS = [
 ];
 // The tile's tools, each opened from its tab along the foot.
 const SUBS = [
-  ['crop',   '#tile-crop input, #tile-crop .btn'],
+  ['crop',   '#tile-crop .dock-tab, #tile-crop .circle, #tile-crop .dial-track'],
 ];
 
 const b=await chromium.launch({executablePath: CHROME});

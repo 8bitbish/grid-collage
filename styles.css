@@ -1760,11 +1760,21 @@ body.is-picking .tile::after {
 
 .dock-tile { gap: 12px; overflow: visible; padding: 0; }
 
-/* Crop, until it has a control of its own: the zoom slider over two rows of
-   buttons, Reset among them. */
-.tile-crop { flex-direction: column; align-items: stretch; gap: 6px; }
-.crop-row { display: flex; align-items: center; gap: 10px; }
-.crop-row .dock-slider { flex: 1; min-width: 0; }
+/* Crop: what the dial turns and the one-tap buttons in one row, 44 tall and
+   8 from the top of the sheet, and the dial 8 under them. Said with both
+   classes so it wins over .tile-sub's centred row, which is written later. */
+.tile-sub.tile-crop {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: var(--space-inset-sheet);
+  padding: 0;
+}
+.crop-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.crop-turning { display: flex; gap: var(--space-between); }
+.crop-quick { display: flex; gap: 6px; }
+/* On the sheet's own grey, like Back: they are part of the control. */
+.crop-btn { border-color: transparent; background: var(--background-control); }
 
 /* The tile drawer runs edge to edge so the actions row can scroll off the
    side; a sub-panel is ordinary content, so it puts the margins back. */

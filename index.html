@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.26c">
+<link rel="stylesheet" href="styles.css?v=2026.09.26d">
 </head>
 <body class="on-home">
 
@@ -370,28 +370,42 @@
            itself: see #tile-actions. -->
       <div class="dock-panel dock-tile" id="dp-tile" hidden>
 
-        <!-- Crop, for now the three controls it gathers stacked one above the
-             other, and the Reset that used to sit in the tile's row of tools. -->
+        <!-- Crop: Zoom or Angle chooses what the dial turns, and Flip and the
+             two turns are one tap each, staying put whichever the dial is on.
+             The turns draw the photo's square turning so they never read as
+             Reset, which floats just above them. Flip is across; held, it is
+             down, which is the one of the two the design leaves without a
+             button of its own. -->
         <div class="tile-sub tile-crop" id="tile-crop" hidden>
-          <div class="dock-slider" id="tile-zoom">
-            <label class="dock-label" for="zoom">Zoom <span class="val" id="zoom-val">100%</span></label>
-            <input type="range" id="zoom" min="100" max="800" step="1" value="100" data-read="%">
-            <span class="slider-read" aria-hidden="true">100%</span>
-          </div>
-          <div class="crop-row" id="tile-rotate">
-            <button class="btn btn-ghost btn-sm" id="btn-rot90" type="button">Turn 90&deg;</button>
-            <!-- The one slider whose fill runs from the middle: nought is square,
-                 and a bar growing out of the left end would say -180 was. -->
-            <div class="dock-slider from-centre">
-              <label class="dock-label" for="angle">Angle <span class="val" id="cell-angle">0&deg;</span></label>
-              <input type="range" id="angle" min="-180" max="180" step="1" value="0" data-read="&deg;">
-              <span class="slider-read" aria-hidden="true">0&deg;</span>
+          <div class="crop-head">
+            <div class="crop-turning" role="tablist" aria-label="What the dial turns">
+              <button class="dock-tab" type="button" role="tab" data-turning="zoom">Zoom</button>
+              <button class="dock-tab" type="button" role="tab" data-turning="angle">Angle</button>
+            </div>
+            <div class="crop-quick">
+              <button class="circle crop-btn" id="btn-flip" type="button" aria-label="Flip across" title="Flip across — hold to flip down">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M9 7L4 12l5 5V7zM15 7l5 5-5 5V7z"/></svg>
+              </button>
+              <button class="circle crop-btn" id="btn-turn-left" type="button" aria-label="Turn left" title="Turn left">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM19.5 14c0-5-3-8.5-7.5-8.5H9M11.5 3L9 5.5l2.5 2.5"/></svg>
+              </button>
+              <button class="circle crop-btn" id="btn-turn-right" type="button" aria-label="Turn right" title="Turn right">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM4.5 14c0-5 3-8.5 7.5-8.5h3M12.5 3L15 5.5 12.5 8"/></svg>
+              </button>
             </div>
           </div>
-          <div class="crop-row" id="tile-flip">
-            <button class="btn btn-ghost btn-sm" id="btn-flip-h" type="button">Flip across</button>
-            <button class="btn btn-ghost btn-sm" id="btn-flip-v" type="button">Flip down</button>
-            <button class="btn btn-ghost btn-sm" id="btn-crop-reset" type="button">Reset</button>
+          <!-- Up from 100%, where the ruler starts under the needle and runs
+               out: there is no zooming out past a tile full of photo. -->
+          <div class="dock-slider dial" id="zoom-slide">
+            <label class="dock-label" for="zoom"><span class="sr">Zoom</span> <span class="val" id="zoom-val">100%</span></label>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+            <input type="range" id="zoom" min="100" max="800" step="1" value="100">
+          </div>
+          <!-- Either side of nought, which is square to the page. -->
+          <div class="dock-slider dial" id="angle-slide" hidden>
+            <label class="dock-label" for="angle"><span class="sr">Angle</span> <span class="val" id="cell-angle">0&deg;</span></label>
+            <div class="dial-track"><canvas class="dial-ruler"></canvas><i class="dial-needle"></i></div>
+            <input type="range" id="angle" min="-180" max="180" step="1" value="0">
           </div>
         </div>
 
@@ -645,6 +659,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.26c"></script>
+<script src="app.js?v=2026.09.26d"></script>
 </body>
 </html>

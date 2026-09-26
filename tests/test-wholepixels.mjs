@@ -149,7 +149,7 @@ for (const turned of [false, true]) {
     await selectTile();
     await p.click('#tile-tabs [data-tile="crop"]');
     await p.waitForTimeout(200);
-    await p.click('#btn-rot90');
+    await p.click('#btn-turn-right');
     await p.waitForTimeout(400);
     await toPage();
   }
