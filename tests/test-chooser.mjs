@@ -47,25 +47,40 @@ await p.click('#tile-actions [data-tile="replace"]');
 await p.waitForTimeout(300);
 
 console.log('while choosing :', JSON.stringify(await dims()));
-console.log('  pages bar hidden:', (await dims()).pagesBar==='none' ? '✓' : '✗');
-console.log('  options offered:', await p.locator('.choose-item').count());
-console.log('  current one marked:', await p.locator('.choose-item.is-current').count()===1 ? '✓' : '✗');
+// The pages bar stays: which page the photo is being chosen for still
+// matters, and the reel is short enough to leave it room.
+console.log('  pages bar stays:', (await dims()).pagesBar!=='none' ? '✓' : '✗');
+// Add from your photos is the reel's first stop, then a stop per photo.
+console.log('  options offered:', await p.locator('#choose-strip .choose-item').count(),
+  (await p.locator('#choose-strip .choose-item').count())===5 ? '✓ Add and four photos' : '✗');
+console.log('  current one marked:', await p.locator('#choose-strip .choose-item.is-current').count()===1 ? '✓' : '✗');
+console.log('  the tile\'s own actions step aside:', await p.locator('#tile-actions').isHidden() ? '✓' : '✗');
 
 // the reel opens centred on what the tile already holds
-console.log('  opens centred on the current photo:', await p.evaluate(()=>{
-  const items=[...document.querySelectorAll('.choose-item')];
-  return items.findIndex(i=>i.classList.contains('is-current'));}) === 0 ? '✓' : '✗');
+const current = () => p.evaluate(()=>[...document.getElementById('choose-strip').children].findIndex(i=>i.classList.contains('is-current')));
+console.log('  opens centred on the current photo:', (await current()) === 1 ? '✓' : '✗');
 const centredIsMiddle = await p.evaluate(()=>{
-  const strip=document.getElementById('choose-strip');
-  const el=strip.querySelector('.choose-item.is-current');
-  const sm=strip.getBoundingClientRect().left+strip.clientWidth/2;
+  const reel=document.getElementById('choose-reel');
+  const el=document.querySelector('#choose-strip .choose-item.is-current');
+  const sm=reel.getBoundingClientRect().left+reel.clientWidth/2;
   const em=el.getBoundingClientRect().left+el.getBoundingClientRect().width/2;
   return Math.abs(sm-em) < 4;
 });
-console.log('  and it sits under the marker:', centredIsMiddle ? '✓' : '✗');
+console.log('  and it sits under the centre:', centredIsMiddle ? '✓' : '✗');
+console.log('  drawn larger and ringed:', await p.evaluate(()=>{
+  const el=document.querySelector('#choose-strip .choose-item.is-current');
+  return Math.round(el.getBoundingClientRect().width)===68 && getComputedStyle(el,'::after').borderTopStyle==='solid';}) ? '✓' : '✗');
 
-// scroll the reel — the centre one changes and the preview follows
-await p.evaluate(()=>{window.__buzz=[]; const o=navigator.vibrate;
+// scroll the reel — the centre one changes and the preview follows. As a
+// finger scrolls it: the reel only takes what passes under the centre as a
+// choice when something is scrolling it, and a wheel is something.
+const centreOn = (i) => p.evaluate((k)=>{
+  const reel=document.getElementById('choose-reel');
+  const el=document.getElementById('choose-strip').children[k];
+  reel.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+  reel.scrollLeft = el.offsetLeft - (reel.clientWidth - el.offsetWidth)/2;
+}, i);
+await p.evaluate(()=>{window.__buzz=[];
   Object.defineProperty(navigator,'vibrate',{configurable:true,value:(x)=>{window.__buzz.push(x);return true;}});});
 // A tile that is not on the current slide or one either side is drawn from
 // its proxy rather than the original, so a flat colour can come back a unit
@@ -75,43 +90,42 @@ await p.evaluate(()=>{window.__buzz=[]; const o=navigator.vibrate;
 const near=(a,b,slack=3)=>{const x=String(a).split(',').map(Number), y=String(b).split(',').map(Number);
   return x.length===3&&y.length===3&&x.every((v,i)=>Math.abs(v-y[i])<=slack);};
 const seen=[];
-for (const n of [1,2,3]) {
-  await p.evaluate((i)=>{
-    const strip=document.getElementById('choose-strip');
-    const el=strip.children[i];
-    strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth)/2;
-  }, n);
+for (const n of [2,3,4]) {
+  await centreOn(n);
   // Until the reel has taken this photo as the centred one, rather than a
-  // fixed 200ms. The fixed wait failed once in thirty CI runs — one photo
-  // missed, two ticks instead of three — and never here, even under 6x CPU
-  // throttling, so the cause is not pinned down. Waiting on the reel's own
-  // marker removes the timing from the question; a scroll the app really
-  // does not register still fails, on the assertions below.
-  await p.waitForFunction((i)=>document.querySelectorAll('.choose-item')[i]?.classList.contains('is-current'),
+  // fixed wait: waiting on the reel's own marker removes the timing from the
+  // question, and a scroll the app really does not register still fails on
+  // the assertions below.
+  await p.waitForFunction((i)=>document.getElementById('choose-strip').children[i]?.classList.contains('is-current'),
     n, {timeout:5000}).catch(()=>{});
   seen.push(await shot());
 }
 console.log('  preview after scrolling to 2,3,4:', seen.join(' -> '));
 console.log('  the middle one is what applies:',
   near(seen[0],'40,190,90') && near(seen[1],'50,90,230') && near(seen[2],'240,190,40') ? '✓' : '✗');
-console.log('  marker follows:', await p.evaluate(()=>{
-  const items=[...document.querySelectorAll('.choose-item')];
-  return items.findIndex(i=>i.classList.contains('is-current'));}) === 3 ? '✓' : '✗');
-console.log('  a tick per photo scrolled:', await p.evaluate(()=>window.__buzz.length),
-  (await p.evaluate(()=>window.__buzz.length)) === 3 ? '✓' : '✗');
+console.log('  marker follows:', (await current()) === 4 ? '✓' : '✗');
+const ticks = await p.evaluate(()=>window.__buzz.length);
+console.log('  a tick per photo scrolled:', ticks, ticks === 3 ? '✓' : '✗');
 
-// tapping one brings it to the middle
-await p.locator('.choose-item').nth(0).click();
+// Passing over Add chooses nothing and opens nothing: a picker comes up
+// because someone asked for it.
+const before = await shot();
+await centreOn(0);
+await p.waitForTimeout(500);
+console.log('  scrolling onto Add leaves the tile as it was:', near(await shot(), before) ? '✓' : '✗');
+
+// tapping one brings it to the middle, and into the tile
+await p.locator('#choose-strip .choose-item').nth(1).click();
 await p.waitForTimeout(450);
-console.log('  tapping an option centres it:', await shot(), (await shot())==='230,40,40' ? '✓' : '✗');
+console.log('  tapping an option chooses it:', await shot(), (await shot())==='230,40,40' ? '✓' : '✗');
 await p.screenshot({path:'/tmp/shot-chooser.png'});
 
 // back restores the layout
-await p.click('#choose-back');
+await p.click('#dock-back');
 await p.waitForTimeout(300);
 const back = await dims();
 console.log('after back     :', JSON.stringify(back));
-console.log('  pages bar returns:', back.pagesBar!=='none' ? '✓' : '✗',
+console.log('  pages bar still there:', back.pagesBar!=='none' ? '✓' : '✗',
             '| tile actions again:', await p.locator('#tile-actions').isVisible() ? '✓' : '✗');
 
 // undo walks back through the choices
@@ -127,11 +141,8 @@ await p.waitForTimeout(250);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(250);
 const cleared = await dims();
-// Fully reset is the pages bar back and the dock no taller than it stands
-// with the tile's own tools in it. That used to be a fixed 82 whatever was in
-// the dock, and this read `dock<100`; the bottom of the screen is a sheet now,
-// which is as tall as its contents, so the height to compare with is the one
-// measured on the way back out of the chooser above.
+// Fully reset is the dock no taller than it stands with the tile's own tools
+// in it, measured on the way back out of the chooser above.
 console.log('escape from the chooser:', JSON.stringify(cleared),
   cleared.pagesBar!=='none' && cleared.dock<=back.dock ? '✓ fully reset' : '✗ stuck');
 
@@ -139,15 +150,18 @@ console.log('escape from the chooser:', JSON.stringify(cleared),
 // to put itself on its start a frame after it opened, so anything that moved
 // it before that frame — a flick on a phone busy opening a long reel, where
 // scrolling carries on while the page cannot draw — was put straight back.
+await p.keyboard.press('Escape');
+await p.waitForTimeout(250);
 await p.mouse.click(box.x+box.width/2, box.y+box.height/2);
 await p.waitForTimeout(250);
 const kept = await p.evaluate(()=>new Promise((done)=>{
   document.querySelector('#tile-actions [data-tile="replace"]').click();
-  const strip=document.getElementById('choose-strip'); const el=strip.children[2];
-  strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth)/2;
-  setTimeout(()=>done([...strip.children].findIndex((c)=>c.classList.contains('is-current'))), 600);
+  const reel=document.getElementById('choose-reel'); const el=document.getElementById('choose-strip').children[3];
+  reel.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+  reel.scrollLeft = el.offsetLeft - (reel.clientWidth - el.offsetWidth)/2;
+  setTimeout(()=>done([...document.getElementById('choose-strip').children].findIndex((c)=>c.classList.contains('is-current'))), 600);
 }));
-console.log('  a scroll made as the reel opens is kept:', kept, kept===2 ? '✓' : '✗ undone');
+console.log('  a scroll made as the reel opens is kept:', kept, kept===3 ? '✓' : '✗ undone');
 await p.keyboard.press('Escape');
 
 console.log(errs.length?'✗ ERRORS: '+errs.join(' | '):'✓ no page errors');

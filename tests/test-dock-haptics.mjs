@@ -132,8 +132,8 @@ const item=await p.locator('.choose-item').nth(2).boundingBox();
 await p.touchscreen.tap(item.x+item.width/2, item.y+item.height/2);
 await p.waitForTimeout(600);
 const reel=await buzzes();
-console.log('tap a reel option  ->', JSON.stringify(reel), '(ticks as it scrolls, no extra tap tick)');
-await tap('#choose-back'); await buzzes();
+console.log('tap a reel option  ->', JSON.stringify(reel), '(the ordinary tap; the reel ticks only as it is scrolled)');
+await tap('#dock-back'); await buzzes();
 
 // Deleting is the one thing in the dock a tap cannot take back, and it used to
 // feel exactly like picking a colour. A pattern rather than a single number is

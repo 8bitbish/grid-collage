@@ -8035,13 +8035,19 @@
       return best;
     }
 
-    // How far each option is from the centre decides how big it is drawn;
-    // CSS does the rest from data-d.
+    // How far each option is from the centre decides how big it is drawn,
+    // and which side of it it is on lets the ones either side stand clear of
+    // an option drawn larger in the middle; CSS does the rest from data-d and
+    // data-side.
     function mark() {
       const mid = scroller.scrollLeft + scroller.clientWidth / 2;
       const all = nodes();
       const step = all[0] ? all[0].offsetWidth || 54 : 54;
-      all.forEach((el) => { el.dataset.d = String(Math.min(3, Math.round(Math.abs(centreOf(el) - mid) / step))); });
+      all.forEach((el) => {
+        const off = centreOf(el) - mid;
+        el.dataset.d = String(Math.min(3, Math.round(Math.abs(off) / step)));
+        el.dataset.side = off < -step / 2 ? 'l' : off > step / 2 ? 'r' : '';
+      });
       const here = nearest();
       if (!here) return;
       const real = realOf(here);
@@ -8470,11 +8476,8 @@
     if (name === 'adjust') { syncAdjust(); if (adjustReel) adjustReel.sync(); }
     if (name === 'crop') syncCrop();
 
-    // Choosing a photo wants room: the pages bar steps aside and the dock
-    // takes two rows, so the options are large enough to judge at a glance.
     const choosing = name === 'replace';
-    document.querySelector('.app').classList.toggle('is-choosing', choosing);
-    $('dock').classList.toggle('is-choosing', choosing);
+    if (!choosing) trayOpen = false;
     // Trimming wants the same room for a different reason: it is the one panel
     // with three rows to fit, and in the 62px a drawer normally gives they came
     // to 4px of bar apiece. The pages bar stays up for this one, unlike the
@@ -8487,9 +8490,9 @@
     // that is on.
     $('dock').classList.toggle('is-effecting', name === 'effects');
     if (choosing) renderChooser();
-    // Page thumbnails aren't visible while choosing, so they catch up on the
-    // way out rather than being redrawn for every photo scrolled past.
-    else if (centred !== -1) { centred = -1; renderFilmstrip(); }
+    // Page thumbnails catch up on the way out of choosing, rather than being
+    // redrawn for every photo scrolled past.
+    else if (choseAny) { choseAny = false; renderFilmstrip(); }
     setBackIcon();
     syncSheet();
     syncFades();
@@ -8497,121 +8500,153 @@
     syncFloat();
   }
 
-  // The photos already imported, run past a fixed marker: whichever sits in
-  // the middle is the one in the tile. Scrolling is the choosing.
-  let centred = -1;
-  let settlingScroll = false;
+  // The photos already imported, run round a reel past a fixed centre:
+  // whichever sits there is the one in the tile, so scrolling is the choosing.
+  // Or opened up into the whole tray, where a tap chooses. Either way the tile
+  // changes at once, and a whole run of choosing is one step to undo.
+  let chooseReel = null;
+  let trayOpen = false;
+  let choseAny = false;
+
+  // Where else on the deck a photo is, as the page it is on — not counting the
+  // tile it is being chosen for, which is the question being asked.
+  function pageOfPhoto(photoId) {
+    for (let k = 0; k < state.pages.length; k++) {
+      const others = state.pages[k].cells.some((c, j) => c && c.photo === photoId && !(k === state.current && j === state.selected));
+      if (others) return k + 1;
+    }
+    return 0;
+  }
+
+  function chooseItem(photo, className) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = className;
+    if (!photo) {
+      el.classList.add('is-add');
+      el.setAttribute('aria-label', 'Add from your photos');
+      el.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+      el.addEventListener('click', addForChooser);
+      return el;
+    }
+    el.dataset.photo = photo.id;
+    el.setAttribute('aria-label', photo.name || 'Photo');
+    const shot = document.createElement('img');
+    shot.src = photo.thumbUrl;
+    shot.alt = '';
+    el.appendChild(shot);
+    const on = pageOfPhoto(photo.id);
+    if (on) {
+      const mark = document.createElement('span');
+      mark.className = 'choose-page';
+      mark.textContent = String(on);
+      mark.title = `On page ${on}`;
+      el.appendChild(mark);
+    }
+    el.addEventListener('click', () => choosePhoto(photo.id));
+    return el;
+  }
 
   function renderChooser() {
-    const strip = $('choose-strip');
-    strip.innerHTML = '';
     const cell = page().cells[state.selected];
-    $('choose-focus').hidden = !state.photos.length;
-
-    if (!state.photos.length) {
-      strip.innerHTML = '<p class="choose-empty">No photos yet — add some with the button above.</p>';
-      return;
-    }
-
-    state.photos.forEach((photo, i) => {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'choose-item';
-      el.title = photo.name || 'Photo';
-      const shot = document.createElement('img');
-      shot.src = photo.thumbUrl;
-      shot.alt = '';
-      el.appendChild(shot);
-      // Tapping doesn't apply directly — it brings that photo to the middle,
-      // and the middle is what counts.
-      el.addEventListener('click', () => scrollChooserTo(i, true));
-      strip.appendChild(el);
-    });
-
-    // Open on whatever the tile already holds; on an empty tile, put the
-    // first photo in straight away so there's something to judge.
-    const start = Math.max(0, state.photos.findIndex((p) => cell && p.id === cell.photo));
-    centred = start;
-    markCentred(start);
-    if (!cell) { applyCentred(); markCentred(start); }
-    // Here, not a frame later. Reading the entry's position lays the reel out
-    // at the size it is about to be shown at, so there is nothing to wait for,
-    // and waiting had a cost: whatever scrolled the reel in between was undone
-    // when the frame came round and put it back on the start. A finger cannot
-    // manage that inside one frame, but on a phone busy opening a long reel
-    // the frame can be hundreds of milliseconds late while scrolling carries
-    // on without it — and a flick made then went back where it came from.
-    scrollChooserTo(start, false);
+    $('choose-strip').replaceChildren(chooseItem(null, 'choose-item'), ...state.photos.map((ph) => chooseItem(ph, 'choose-item')));
+    $('tray-grid').replaceChildren(chooseItem(null, 'tray-item'), ...state.photos.map((ph) => chooseItem(ph, 'tray-item')));
+    // An empty tile is given the first photo straight away, so there is
+    // something in it to judge.
+    if (!cell && state.photos.length) choosePhoto(state.photos[0].id);
+    markChosen();
+    syncTray();
+    if (chooseReel) chooseReel.sync();
   }
 
-  function markCentred(index) {
-    [...$('choose-strip').children].forEach((el, i) => {
-      el.classList.toggle('is-current', i === index);
+  function markChosen() {
+    const cell = page().cells[state.selected];
+    document.querySelectorAll('#choose-strip [data-photo], #tray-grid [data-photo]').forEach((el) => {
+      el.classList.toggle('is-current', !!cell && el.dataset.photo === cell.photo);
     });
   }
 
-  function scrollChooserTo(index, smooth) {
-    const strip = $('choose-strip');
-    const el = strip.children[index];
-    if (!el) return;
-    settlingScroll = true;
-    strip.scrollTo({
-      left: el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2,
-      behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
-    });
-    // Let the programmatic scroll finish before reading positions again,
-    // otherwise it reports its own intermediate frames as a choice.
-    setTimeout(() => { settlingScroll = false; onChooserScroll(); }, smooth ? 340 : 60);
-  }
-
-  function nearestToCentre() {
-    const strip = $('choose-strip');
-    const mid = strip.getBoundingClientRect().left + strip.clientWidth / 2;
-    let best = -1;
-    let closest = Infinity;
-    [...strip.children].forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      const d = Math.abs(r.left + r.width / 2 - mid);
-      if (d < closest) { closest = d; best = i; }
-    });
-    return best;
-  }
-
-  let scrollFrame = 0;
-  function onChooserScroll() {
-    if (scrollFrame) return;
-    scrollFrame = requestAnimationFrame(() => {
-      scrollFrame = 0;
-      if (tileSub !== 'replace' || settlingScroll) return;
-      const index = nearestToCentre();
-      if (index < 0 || index === centred) return;
-      centred = index;
-      markCentred(index);
-      buzz('snap');
-      applyCentred();
-    });
-  }
-
-  function applyCentred() {
-    const photo = state.photos[centred];
+  function choosePhoto(photoId) {
+    const photo = photoById(photoId);
     const i = state.selected;
     const cell = page().cells[i];
     if (!photo || (cell && cell.photo === photo.id)) return;
-    // One undo step for a run through the reel, not one per photo passed.
     snapshot('choose');
     // A fresh crop each time, so flicking between options compares like
     // with like rather than inheriting the last photo's framing.
     page().cells[i] = emptyCell(photo.id);
+    choseAny = true;
     render();
-    // What you have just scrolled onto is on screen now, so it has to be
-    // read back up to size. The reel itself is drawn from thumbnails; the
-    // preview underneath it must not be.
+    // What has just been chosen is on screen now, so it has to be read back
+    // up to size. The reel is drawn from thumbnails; the tile must not be.
     manageResidency();
-    // Scrolling onto a clip starts it, and scrolling off one stops it, so
-    // what you are choosing between is what you would get.
+    // Choosing a clip starts it and choosing away from one stops it, so what
+    // is being chosen between is what it would be.
     syncPlayback();
     ensurePosters(page(), () => { render(); redrawFilms(); });
     saveDeck();
+    markChosen();
+  }
+
+  function addForChooser() {
+    pendingCell = null;
+    importForChooser = true;
+    fileInput.click();
+  }
+
+  function syncTray() {
+    $('choose-reel').hidden = trayOpen;
+    $('choose-tray').hidden = !trayOpen;
+    $('dock-drawer').classList.toggle('is-tray', trayOpen);
+    document.querySelector('.app').classList.toggle('is-tray', trayOpen);
+  }
+
+  // The reel opening up into the whole tray, and folding back. The card grows
+  // through the same morph as every other change of sheet, so the page shrinks
+  // and moves up with it rather than being covered.
+  function setTray(open) {
+    if (trayOpen === open || tileSub !== 'replace') return;
+    morph(() => { trayOpen = open; syncTray(); syncSheet(); });
+    if (open) {
+      const on = $('tray-grid').querySelector('.is-current');
+      if (on) on.scrollIntoView({ block: 'nearest' });
+      $('tray-grid').dispatchEvent(new Event('scroll'));
+    } else if (chooseReel) {
+      chooseReel.sync();
+    }
+  }
+
+  // The grabber folds the tray on a tap or a pull downwards.
+  function wireTray() {
+    const grab = $('tray-grabber');
+    let press = null;
+    grab.addEventListener('pointerdown', (e) => {
+      press = { id: e.pointerId, y: e.clientY };
+      try { grab.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+    });
+    grab.addEventListener('pointermove', (e) => {
+      if (press && e.pointerId === press.id && e.clientY - press.y > 24) { press = null; setTray(false); }
+    });
+    grab.addEventListener('pointerup', () => { press = null; });
+    grab.addEventListener('pointercancel', () => { press = null; });
+    grab.addEventListener('click', () => setTray(false));
+    // The grid fades under the grabber once it has been scrolled, and under
+    // Back and the fold always, since there is always more below them to
+    // scroll up past.
+    $('tray-grid').addEventListener('scroll', (e) => {
+      $('choose-tray').classList.toggle('is-scrolled', e.target.scrollTop > 2);
+    }, { passive: true });
+    $('tray-back').addEventListener('click', leaveReplace);
+    $('tray-fold').addEventListener('click', () => setTray(false));
+    $('choose-open').addEventListener('click', () => setTray(true));
+    chooseReel = reel($('choose-reel'), $('choose-strip'), {
+      chosen: () => $('choose-strip').querySelector('.is-current') || $('choose-strip').children[1] || $('choose-strip').firstElementChild,
+      // Passing over a photo puts it in the tile; passing over Add does
+      // nothing, and settling there opens nothing either — a picker should
+      // only ever come up because someone asked for it.
+      previews: (el) => { if (el.dataset.photo) choosePhoto(el.dataset.photo); },
+      settles: (el) => !!el.dataset.photo,
+    });
   }
 
   // Back is an arrow everywhere. On a tile's tools the step back is letting go
@@ -9735,8 +9770,8 @@
     if (picking) setPicking(false);
     if (comparing) setCompare(false);
     syncFloat();
-    document.querySelector('.app').classList.remove('is-choosing');
-    $('dock').classList.remove('is-choosing');
+    trayOpen = false;
+    syncTray();
     cancelSwap();
     setBackIcon();
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
@@ -9757,7 +9792,8 @@
     const tabs = PAGE_TABS.includes(drawer);
     const sheet = $('dock-drawer');
     sheet.classList.toggle('has-tabs', tabs);
-    sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub));
+    sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub) && !(tileSub === 'replace' && trayOpen));
+    sheet.classList.toggle('has-replace-foot', drawer === 'tile' && tileSub === 'replace' && !trayOpen);
     sheet.classList.toggle('has-value', drawer === 'shape');
     sheet.classList.toggle('has-go', drawer === 'export');
     const single = layoutCells(page().layout).length < 2;
@@ -11425,7 +11461,7 @@
       // Tiles are left out: they have a hold as well as a tap, and the hold
       // already buzzed when it fired. The pointerup that ends it would tick a
       // second time for a gesture that wasn't a tap at all.
-      pending = btn && !btn.disabled && !btn.closest('.choose-strip') && !btn.classList.contains('tile')
+      pending = btn && !btn.disabled && !btn.classList.contains('tile')
         ? { btn, x: e.clientX, y: e.clientY }
         : null;
     });
@@ -11478,13 +11514,7 @@
   [...$('tile-tabs').children].forEach((btn) => {
     btn.addEventListener('click', () => chooseTool(btn.dataset.tile));
   });
-  $('choose-back').addEventListener('click', leaveReplace);
-  $('choose-strip').addEventListener('scroll', onChooserScroll, { passive: true });
-  $('choose-add').addEventListener('click', () => {
-    pendingCell = null;
-    importForChooser = true;
-    fileInput.click();
-  });
+  wireTray();
   ['start', 'end'].forEach((which) => {
     const el = $(`trim-${which}`);
     el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); trimHeld = false; });

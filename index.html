@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.26d">
+<link rel="stylesheet" href="styles.css?v=2026.09.26e">
 </head>
 <body class="on-home">
 
@@ -428,16 +428,28 @@
           </div>
         </div>
 
+        <!-- Replace opens on the reel: the tray round and round, the photo under
+             the needle larger, ringed and already in the tile, 10 between
+             every photo. Add from your photos is one of its stops. The chevron
+             in the foot opens the card up into the whole tray, four across,
+             Add first, with a grabber on top to fold it back down; Back and
+             the fold float over the bottom of the grid, which scrolls under
+             them. Both are written in by renderChooser. -->
         <div class="tile-sub tile-choose" id="tile-replace" hidden>
-          <div class="choose-head">
-            <button class="btn btn-ghost btn-sm" id="choose-back" type="button">&larr; Back</button>
-            <button class="btn btn-ghost btn-icon" id="choose-add" type="button" title="Add more photos" aria-label="Add more photos">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-            </button>
+          <div class="reel choose-reel" id="choose-reel">
+            <div class="reel-echoes" aria-hidden="true"></div>
+            <div class="reel-list choose-strip" id="choose-strip" role="group" aria-label="Photos"></div>
+            <div class="reel-echoes" aria-hidden="true"></div>
           </div>
-          <div class="choose-rail">
-            <div class="choose-strip" id="choose-strip"></div>
-            <span class="choose-focus" id="choose-focus" aria-hidden="true"></span>
+          <div class="choose-tray" id="choose-tray" hidden>
+            <div class="tray-grid" id="tray-grid" role="group" aria-label="Photos"></div>
+            <button class="tray-grabber" id="tray-grabber" type="button" aria-label="Fold back to the reel"><i></i></button>
+            <button class="circle crop-btn tray-back" id="tray-back" type="button" aria-label="Back">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+            </button>
+            <button class="circle crop-btn tray-fold" id="tray-fold" type="button" aria-label="Fold back to the reel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+            </button>
           </div>
         </div>
 
@@ -551,6 +563,11 @@
         <button class="dock-tab" type="button" role="tab" data-tile="trim">Trim</button>
         <button class="dock-tab" type="button" role="tab" data-tile="crop">Crop</button>
       </div>
+      <!-- Replace's foot is Back and this, which opens the reel up into the
+           whole tray. No title: the photos say what it is. -->
+      <button class="circle dock-back choose-open" id="choose-open" type="button" aria-label="Open the whole tray" title="Open the whole tray">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
+      </button>
       <p class="sheet-value" id="sheet-value" aria-live="polite"><span class="value-window"><strong id="sheet-value-main"></strong></span><span id="sheet-value-sub"></span></p>
       <button class="btn btn-primary sheet-go" id="btn-export" type="button">Export</button>
       <span class="sheet-balance" aria-hidden="true"></span>
@@ -659,6 +676,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.26d"></script>
+<script src="app.js?v=2026.09.26e"></script>
 </body>
 </html>

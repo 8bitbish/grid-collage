@@ -1336,7 +1336,8 @@ body.is-picking .tile::after {
    turning, the chooser scaling its centred option — so they brighten rather
    than move. */
 .film:active { filter: brightness(1.4); }
-.choose-item:active { filter: brightness(1.25); }
+.choose-item:active,
+.tray-item:active { filter: brightness(1.25); }
 .reel button:active { filter: brightness(1.3); }
 .btn:active:not(:disabled) { transform: translateY(1px) scale(0.97); }
 
@@ -1795,92 +1796,201 @@ body.is-picking .tile::after {
    weight and .tile-sub is written later. Both are put back here. */
 .tile-sub.dock-slider { align-items: stretch; gap: 4px; }
 
-/* Choosing a photo: the pages bar stands down to give the preview the room
-   the sheet takes for the reel, so the options are big enough to judge. */
-.app.is-choosing .pagesbar { display: none; }
-
-
-/* The reel is the exception: it wants the full width to slide through. */
-.tile-choose {
+/* Replace. The reel and the tray are the whole width of the sheet; each
+   carries its own fade. */
+.tile-sub.tile-choose {
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 0;
   padding: 0;
 }
 
-.choose-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+/* The reel: 56 photos, 10 apart, round and round. The one under the centre
+   is drawn at 68 and ringed, and the rest stand 6 further off either side,
+   so the space between every pair is 10 — the larger one included. All of
+   it is transforms, so turning the reel never moves what it is measuring. */
+.choose-reel {
+  height: 76px;
+  gap: 10px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
 }
-.choose-head .btn-icon { padding: 6px 9px; }
-.choose-head .btn-icon svg {
-  width: 19px; height: 19px;
-  fill: none; stroke: currentColor; stroke-width: 1.7;
-  stroke-linecap: round; stroke-linejoin: round;
-}
-
-/* A reel that runs under a fixed marker: whatever sits in the middle is the
-   photo in the tile. The end padding is what lets the first and last reach
-   the centre. */
-.choose-rail {
+.choose-reel .choose-item,
+.choose-reel .reel-echo {
   position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-thumb);
+  background: var(--background-control);
+  color: var(--content-primary);
+  scroll-snap-align: center;
+  cursor: pointer;
+  transition: transform 120ms ease-out;
 }
-
-.choose-strip {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 calc(50% - 31px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-}
-.choose-strip::-webkit-scrollbar { display: none; }
-
-.choose-focus {
+.choose-reel [data-side="l"] { transform: translateX(-6px); }
+.choose-reel [data-side="r"] { transform: translateX(6px); }
+.choose-reel [data-d="0"] { transform: scale(1.2143); }
+/* 2.5 once scaled up to 68, and inside its edge, as Figma draws it. */
+.choose-reel [data-d="0"]::after {
+  content: '';
   position: absolute;
-  left: 50%;
-  top: 50%;
-  translate: -50% -50%;
-  width: 70px;
-  height: 70px;
-  border: 2px solid var(--selection-indicator);
-  border-radius: 12px;
+  inset: 0;
+  border: 2.06px solid var(--selection-indicator);
+  border-radius: inherit;
   pointer-events: none;
 }
-
-.choose-item {
-  position: relative;
-  flex: none;
-  width: 62px;
-  height: 62px;
-  padding: 0;
-  border: none;
-  border-radius: 9px;
-  overflow: hidden;
-  background: var(--background-raised);
-  cursor: pointer;
-  scroll-snap-align: center;
-  opacity: 0.45;
-  transition: opacity 0.16s ease, transform 0.16s ease;
+/* Placed rather than sized: a percentage height inside a grid button did
+   not resolve, and a portrait thumbnail hung out under its tile. */
+.choose-item img,
+.tray-item img,
+.choose-reel .reel-echo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
 }
-.choose-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.choose-item.is-current { opacity: 1; transform: scale(1.04); }
-.choose-empty { color: var(--content-secondary); font-size: 13px; margin: 0 auto; }
+.is-add svg,
+.choose-reel .reel-echo > svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+/* Which page a photo is already on, where it is on one besides this tile. */
+.choose-page {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--background-raised);
+  color: var(--content-primary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The foot's other button, opposite Back: open the reel up into the tray. */
+.choose-open { display: none; margin-left: auto; }
+.has-replace-foot .choose-open { display: grid; }
+
+/* The whole tray: four across, Add first, scrolling under a grabber at the
+   top and under Back and the fold at the bottom, which float over it on a
+   fade 8 in from the card's edge, as everything in a sheet is. Its height is
+   the Figma card's 403 where the screen has the room and less where it does
+   not, so the page above can always stay in view. The foot goes: Back is
+   down here. */
+.dock-drawer.is-tray .sheet-foot { display: none; }
+/* With the tray open the page is short of height rather than width, and 12
+   above and below keep it off the pages bar and the card. */
+.app.is-tray .stage { padding: 12px 0; }
+.choose-tray {
+  position: relative;
+  height: min(403px, calc(100dvh - 420px));
+  min-height: 200px;
+}
+.tray-grid {
+  height: 100%;
+  display: grid;
+  /* minmax(0, …), not 1fr: a bare 1fr has an automatic minimum, the photo's
+     own width, and the thumbnails pushed it to three across. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 20px 0 60px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.tray-grid::-webkit-scrollbar { display: none; }
+.tray-item {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: 13px;
+  background: var(--background-control);
+  color: var(--content-primary);
+  cursor: pointer;
+}
+.tray-item.is-current::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--selection-indicator);
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* The fades are the sheet's grey written out, as the edge fades are
+   everywhere: a gradient cannot take a variable. */
+.choose-tray::before,
+.choose-tray::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.choose-tray::after {
+  bottom: 0;
+  height: 96px;
+  background: linear-gradient(rgba(26, 26, 26, 0), rgba(26, 26, 26, 0.9) 55%, #1a1a1a);
+}
+.choose-tray.is-scrolled::before {
+  top: 0;
+  height: 72px;
+  background: linear-gradient(#1a1a1a, rgba(26, 26, 26, 0.9) 45%, rgba(26, 26, 26, 0));
+}
+/* A 36 by 5 bar to see, on a target as wide as a thumb. */
+.tray-grabber {
+  position: absolute;
+  z-index: 3;
+  top: -5px;
+  left: 50%;
+  width: 88px;
+  height: 28px;
+  margin-left: -44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.tray-grabber i {
+  width: 36px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--border-subtle);
+}
+.tray-back,
+.tray-fold { position: absolute; z-index: 3; bottom: 0; }
+.tray-back { left: 0; }
+.tray-fold { right: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .choose-item { transition: none; }
+  .choose-reel .choose-item, .choose-reel .reel-echo { transition: none; }
 }
 
 /* -------------------------------------------------------- shared bits */

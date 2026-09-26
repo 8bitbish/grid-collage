@@ -238,6 +238,65 @@ console.log('\n== Compare on Crop shows the framing it came with ==');
     && await p.evaluate(() => document.getElementById('sheet-float').classList.contains('is-resting')), await quads());
 }
 
+console.log('\n== Replace: the reel, and the tile\'s own actions stepping aside ==');
+{
+  ok('the tile\'s actions ride the tile while a tool is open', await p.locator('#tile-actions').isVisible());
+  await p.click('#tile-actions [data-tile="replace"]');
+  await rest();
+  ok('and step aside while Replace is open', await p.locator('#tile-actions').isHidden());
+  ok('the reel opens on the photo already in the tile, with Add as a stop',
+    await p.evaluate(() => {
+      const strip = document.getElementById('choose-strip');
+      return strip.children[0].classList.contains('is-add') && strip.querySelector('.is-current')?.getAttribute('aria-label') === 'quarters.png';
+    }));
+  ok('its sheet sits 8 from the top, on the reel', await p.evaluate(() => getComputedStyle(document.getElementById('dock-drawer')).paddingTop) === '8px');
+  ok('and its foot is Back and the chevron up', await p.locator('#dock-back').isVisible() && await p.locator('#choose-open').isVisible()
+    && await p.locator('#tile-tabs').isHidden());
+}
+
+console.log('\n== the whole tray ==');
+{
+  const reelPage = await rect('#canvas');
+  await p.click('#choose-open');
+  await rest();
+  const cells = await p.evaluate(() => [...document.querySelectorAll('#tray-grid > *')].map((e) => {
+    const r = e.getBoundingClientRect(); return { add: e.classList.contains('is-add'), x: Math.round(r.left), w: Math.round(r.width) };
+  }));
+  ok('the card opens up into the tray, Add first', cells.length === 3 && cells[0].add, JSON.stringify(cells));
+  ok('four across the card, each a square the same size', new Set(cells.map((c) => c.w)).size === 1
+    && Math.abs(cells[0].w * 4 + 24 - (await rect('#tray-grid')).width) <= 2, `${cells[0].w} wide`);
+  const sheet = await rect('#dock-drawer');
+  const trayPage = await rect('#canvas');
+  ok('the page shrinks and moves up to stay above it, rather than being covered',
+    trayPage.bottom <= sheet.top && trayPage.height < reelPage.height, `page ${trayPage.top}..${trayPage.bottom}, card from ${sheet.top}`);
+  ok('the foot goes; Back and the fold float over the bottom of the grid', await p.locator('.sheet-foot').isHidden()
+    && await p.locator('#tray-back').isVisible() && await p.locator('#tray-fold').isVisible());
+  ok('the tile\'s actions are still out of the way', await p.locator('#tile-actions').isHidden());
+
+  await p.click('#tray-grid [aria-label="blue.png"]');
+  await p.waitForTimeout(200);
+  ok('choosing a photo changes the tile at once', await p.evaluate(() => {
+    const c = document.getElementById('canvas'); const d = c.getContext('2d').getImageData(c.width >> 1, c.height >> 1, 1, 1).data;
+    return Math.abs(d[0] - 60) < 6 && Math.abs(d[2] - 120) < 6;
+  }));
+  ok('and the tray rings it', await p.evaluate(() => document.querySelector('#tray-grid .is-current')?.getAttribute('aria-label') === 'blue.png'));
+
+  // The grabber folds it: a pull downwards, as a finger would.
+  const g = await rect('#tray-grabber');
+  await p.mouse.move(g.left + g.width / 2, g.top + g.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(g.left + g.width / 2, g.top + g.height / 2 + 40, { steps: 4 });
+  await p.mouse.up();
+  await rest();
+  ok('a pull down on the grabber folds it back to the reel', await p.locator('#choose-tray').isHidden() && await p.locator('#choose-reel').isVisible());
+  ok('with the new photo under the centre', await p.evaluate(() => document.querySelector('#choose-strip .is-current')?.getAttribute('aria-label') === 'blue.png'));
+  await p.click('#dock-back');
+  await rest();
+  await p.click('#btn-undo');
+  await p.waitForTimeout(300);
+  ok('and one undo puts the old photo back', (await quads()) === AS_IT_CAME, await quads());
+}
+
 await p.screenshot({ path: path.join(SHOTS, 'tiletools.png') });
 ok('no page errors', errs.length === 0, errs.join(' | ') || 'clean');
 await b.close(); srv.close();

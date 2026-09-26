@@ -54,18 +54,21 @@ if (!(await p.evaluate(()=>!document.getElementById('dp-tile').hidden))) await p
 await settle(()=>!document.getElementById('dp-tile').hidden);
 await p.click('#tile-actions [data-tile="replace"]');
 await settle(()=>!document.getElementById('tile-replace').hidden
-  && document.getElementById('choose-strip').children.length===5);
+  && document.getElementById('choose-strip').children.length===6);
 
 console.log('== the clip keeps playing while the slot beside it is chosen for ==');
 await settle(()=>{const v=document.querySelector('video'); return v && v.currentTime>1.4 && v.currentTime<1.6;});
 const run = await p.evaluate(()=>new Promise((done)=>{
   const c=document.getElementById('canvas'); const g=c.getContext('2d');
   const strip=document.getElementById('choose-strip');
+  const reel=document.getElementById('choose-reel');
   const t0=performance.now(); let step=0; let since=null; const spans=[]; let samples=0; let landed=0;
-  // The four photos, a quarter of a second each — the clip is entry 0, so the
-  // slot being chosen for never becomes the clip here.
-  const timer=setInterval(()=>{ step+=1; const el=strip.children[1+(step%4)];
-    strip.scrollLeft=el.offsetLeft-(strip.clientWidth-el.offsetWidth)/2; landed+=1; }, 250);
+  // The four photos, a quarter of a second each. Add is the reel's first stop
+  // and the clip its second, so the slot being chosen for never becomes the
+  // clip here. A wheel with each, as the reel only chooses while scrolled.
+  const timer=setInterval(()=>{ step+=1; const el=strip.children[2+(step%4)];
+    reel.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));
+    reel.scrollLeft=el.offsetLeft-(reel.clientWidth-el.offsetWidth)/2; landed+=1; }, 250);
   const look=()=>{
     const v=document.querySelector('video'); if(!v) return;
     const d=g.getImageData(Math.floor(c.width*0.25),Math.floor(c.height/2),1,1).data; samples+=1;
