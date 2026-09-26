@@ -196,10 +196,11 @@ await ctx.close();
 
   // Drive the start handle past the end one, which it is not allowed to pass.
   const bar=await q.locator('#trim-start').boundingBox();
+  const strip=await q.locator('#trim-strip').boundingBox();
   const y=Math.round(bar.y+bar.height/2);
-  await q.mouse.move(bar.x+4, y);
+  await q.mouse.move(bar.x+7, y);
   await q.mouse.down();
-  for (let x=Math.round(bar.x+4); x<bar.x+bar.width; x+=10) { await q.mouse.move(x,y); await q.waitForTimeout(8); }
+  for (let x=Math.round(bar.x+7); x<strip.x+strip.width+40; x+=10) { await q.mouse.move(x,y); await q.waitForTimeout(8); }
   await q.mouse.up();
   await q.waitForTimeout(300);
   const run=await q.evaluate(()=>{const v=window.__buzz;window.__buzz=[];return v;});

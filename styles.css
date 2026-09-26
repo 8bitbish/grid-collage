@@ -2827,108 +2827,122 @@ body.is-library .toast {
 }
 
 /* ------------------------------------------------------------ trimming */
-/* Two handles over one clip. They are stacked rather than side by side so
-   each spans the whole length — a half-width slider would mean the start and
-   the end were measured on different scales.
-   That stacking is why this is the tallest panel, three rows where the
-   sheet's control is 76: it once asked for 90px of a dock that gave 62 and
-   left two 4px bars pressed against the bottom of the screen. The sheet grows
-   to hold it instead, the way it does for choosing a photo. The pages bar
-   stays, unlike the chooser: which page you are cutting on still matters. */
-.tile-trim {
+/* The in and out times either side of how long the cut is, 10 over a 56 tall
+   filmstrip of the whole clip. It opens on words, not buttons, so its sheet
+   keeps the 16 at the top. */
+.tile-sub.tile-trim {
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 14px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 4px 0 0;
 }
-/* Whole clip rides the readout row rather than taking a fourth one. It is the
-   row's own subject — the times either side of it are what it puts back. */
 .trim-read {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 4px;
+  line-height: 27px;
   font-variant-numeric: tabular-nums;
 }
-.trim-arrow { color: var(--content-secondary); }
-.trim-span { margin-left: auto; color: var(--content-secondary); }
-.tile-trim .btn { flex: none; }
-
-/* The kept span, drawn on both rails rather than on either handle's own. Two
-   bars each filling from their own end read as two unrelated controls that
-   happen to be stacked; the same band on both, one above the other, reads as
-   the one stretch of clip they between them decide.
-   app.js writes --fa and --fb on every drag, the same way the dock sliders get
-   --frac: a range input's value is invisible to CSS. And the same correction
-   applies to both ends as --at makes for one — a handle travels between its own
-   two edges, so a band drawn to a plain percentage sat 24px clear of the very
-   handle setting it, and the two rows disagreed with each other by as much. */
-.trim-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  --knob: 20px;
-  --fa: 0;
-  --fb: 1;
-  --a: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fa));
-  --b: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--fb));
-  --band: linear-gradient(90deg,
-    var(--background-control) var(--a), var(--content-primary) var(--a),
-    var(--content-primary) var(--b), var(--background-control) var(--b));
-}
-
-/* 32px of reach each, where there were 4. Two 44s cannot both fit even the
-   taller dock, and of the two numbers a bar that can be caught at all beats a
-   pair that cannot. The rail itself stays thin — what grew is the box being
-   hit, exactly as it did for the dock sliders. */
-.trim-bars input[type="range"] {
-  position: relative;
+.trim-time { font-size: 15px; font-weight: 400; color: var(--content-secondary); }
+/* The time a handle is setting, while it is being set. */
+.trim-time.is-lit { color: var(--content-primary); }
+.trim-span { font-size: 22px; font-weight: 600; color: var(--content-primary); }
+/* Close up, the time being set is the big number, to a hundredth, and a
+   ruler in tenths takes a row of its own over the strip. */
+.trim-held {
   margin: 0;
-  height: 32px;
-  background: transparent;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 27px;
+  font-variant-numeric: tabular-nums;
 }
-.trim-bars input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--band);
-}
-.trim-bars input[type="range"]::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--band);
-}
-.trim-bars input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  margin-top: -7px;
-  border-radius: 50%;
-  border: 2px solid var(--background-screen);
-  background: var(--background-inverse);
-  cursor: grab;
-}
-.trim-bars input[type="range"]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--background-screen);
-  border-radius: 50%;
-  background: var(--background-inverse);
-  cursor: grab;
-}
-/* The end handle reads as the closing edge, so it takes the second colour. */
-.trim-bars input.trim-end::-webkit-slider-thumb { background: var(--content-secondary); }
-.trim-bars input.trim-end::-moz-range-thumb { background: var(--content-secondary); }
+.trim-ruler { display: block; width: 100%; height: 20px; }
 
-/* Trimming's own landscape rules, here rather than up in the block with the
-   rest of them: these selectors are no more specific than the ones they have
-   to beat, and those are written above — a rule in the earlier block lost to
-   the plain one below it and the dock stayed 152 on a 380px-tall screen.
-   What gives way is the reach on the bars, which is what the room is for. */
-@media (max-height: 520px) and (orientation: landscape) {
-  .trim-bars input[type="range"] { height: 24px; }
-  .trim-bars input[type="range"]::-webkit-slider-thumb { margin-top: -7px; }
+/* The strip. What is kept sits in a white bracket, 3 thick with rounded ends,
+   a 14 wide handle at either end of it; what is cut is dimmed. app.js places
+   all of it through --a and --b, where the cut starts and ends on the strip,
+   and --p, where the playhead is. */
+.trim-strip {
+  --a: 0px;
+  --b: 100%;
+  --p: 0px;
+  position: relative;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: none;
 }
+.trim-frames { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.trim-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+.trim-cut-before { left: 0; width: var(--a); }
+.trim-cut-after { left: var(--b); right: 0; }
+.trim-kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--a);
+  width: calc(var(--b) - var(--a));
+  border: 3px solid var(--background-inverse);
+  border-radius: 12px;
+  pointer-events: none;
+}
+.trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  padding: 0;
+  appearance: none;
+  border: none;
+  background: var(--background-inverse);
+  cursor: ew-resize;
+  touch-action: none;
+}
+/* 14 to see and 44 to catch: 15 more either side, where the strip has it. */
+.trim-handle::before { content: ''; position: absolute; top: 0; bottom: 0; left: -15px; right: -15px; }
+.trim-handle i {
+  position: absolute;
+  left: 6px;
+  top: 20px;
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--content-inverse);
+  opacity: 0.5;
+}
+.trim-handle-start { left: var(--a); border-radius: 12px 0 0 12px; }
+.trim-handle-end { left: calc(var(--b) - 14px); border-radius: 0 12px 12px 0; }
+/* The handle being held glows, the one thing on the strip that is live. */
+.trim-handle.is-held { box-shadow: 0 0 10px rgba(255, 255, 255, 0.45); }
+.trim-handle:focus-visible { outline: 2px solid var(--selection-indicator); outline-offset: 2px; }
+.trim-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--p) - 1.5px);
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--background-inverse);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* A clip's sound, at the end of its foot: the speaker, or crossed out. */
+.tile-sound { display: none; margin-left: auto; }
+.has-sound .tile-sound { display: grid; }
+.tile-sound .sound-off,
+.tile-sound.is-muted .sound-on { display: none; }
+.tile-sound.is-muted .sound-off { display: block; }
 
 /* ----------------------------------------------------------- adjusting */
 /* The settings across the top, turned under the centre like the other reels,
@@ -3155,6 +3169,9 @@ body.is-library .toast {
   white-space: nowrap;
   pointer-events: none;
 }
+/* The time under a trim handle is the Frame time component: a size smaller
+   and bold, since it changes under the finger and is read in a glance. */
+#frame-time { padding: 4px 10px; border-radius: 11px; font-size: 11px; font-weight: 700; line-height: 13px; }
 
 /* ------------------------------------------------------------- effects */
 /* Built like the Adjust panel, and the sheet grows for it the same way: the

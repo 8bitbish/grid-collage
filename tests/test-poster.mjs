@@ -79,6 +79,24 @@ const mid=(p)=>p.evaluate(()=>{const c=document.getElementById('canvas');
 const film=(p)=>p.evaluate(()=>{const c=document.querySelector('.film canvas'); if(!c) return null;
   const d=c.getContext('2d').getImageData(Math.floor(c.width/2),Math.floor(c.height/2),1,1).data;
   return [d[0],d[1],d[2]];});
+// Drag a trim handle so the cut lands a fraction of the way along the clip,
+// as a thumb does it: press on the handle, move across, and — unless asked
+// to keep holding — let go. The strip shows the whole clip, so a pixel is the
+// clip's length over the strip's width.
+async function dragHandle(p, which, fraction, { release = true } = {}) {
+  // Measured once the sheet has come to rest: mid-rise, the handle is not
+  // where it is about to be, and the press lands on nothing.
+  await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const strip = await p.locator('#trim-strip').boundingBox();
+  const handle = await p.locator(`#trim-${which}`).boundingBox();
+  const edge = which === 'start' ? handle.x : handle.x + handle.width;
+  const x0 = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+  const x1 = x0 + (strip.x + strip.width * fraction - edge);
+  await p.mouse.move(x0, y);
+  await p.mouse.down();
+  for (let k = 1; k <= 8; k++) { await p.mouse.move(x0 + ((x1 - x0) * k) / 8, y); await p.waitForTimeout(16); }
+  if (release) await p.mouse.up();
+}
 async function trimTo(p, seconds) {
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
@@ -88,10 +106,8 @@ async function trimTo(p, seconds) {
     await p.waitForFunction(()=>!document.getElementById('tile-trim').hidden,null,{timeout:5000}).catch(()=>{});
   }
   const before=name(await film(p));
-  await p.evaluate((s)=>{const el=document.getElementById('trim-start');
-    el.value=String(Math.round((s/3.07)*1000));
-    el.dispatchEvent(new Event('input',{bubbles:true}));
-    el.dispatchEvent(new Event('change',{bubbles:true}));}, seconds);
+  await p.waitForFunction(()=>document.getElementById('trim-strip').clientWidth>0,null,{timeout:5000}).catch(()=>{});
+  await dragHandle(p, 'start', seconds / 3.07);
   await until(async()=>{ const now=name(await film(p)); return drawn(await film(p)) && now!==before; });
 }
 
@@ -146,9 +162,9 @@ console.log('\n== put the cut back and the still goes back with it ==');
   const { ctx, p } = await open(false);
   await trimTo(p, 1.5);
   ok('moved to the trim', name(await film(p))==='blue', name(await film(p)));
-  await p.click('#trim-reset');
+  await p.click('#btn-reset');
   await until(async()=>name(await film(p))==='red');
-  ok('Whole clip puts the first frame back', name(await film(p))==='red', name(await film(p)));
+  ok('Reset puts the first frame back', name(await film(p))==='red', name(await film(p)));
   await ctx.close();
 }
 

@@ -7425,9 +7425,10 @@
     return c;
   }
 
-  // The sound comes from the longest clip on the page — with more than one
-  // running at once there is no honest way to choose, so the one that lasts
-  // is the one you hear.
+  // The sound comes from the longest clip on the page that has not been
+  // muted — with more than one running at once there is no honest way to
+  // choose, so the one that lasts is the one you hear, and muting the others
+  // is how to choose for yourself. Every clip muted is a silent slide.
   //
   // Untrimmed, its packets are already exactly what an mp4 wants, so they
   // are copied straight across: nothing lost, nothing spent. Trimmed, they
@@ -7436,7 +7437,7 @@
   // shape as what the video does two functions up.
   async function attachAudio(MB, output, clips) {
     let pick = null;
-    for (const clip of clips) if (!pick || clip.span > pick.span) pick = clip;
+    for (const clip of clips) if (!clip.cell.muted && (!pick || clip.span > pick.span)) pick = clip;
     if (!pick) return null;
 
     try {
@@ -8467,7 +8468,10 @@
   function showTileSubNow(name) {
     tileSub = name;
     TILE_SUBS.forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
-    if (name === 'trim') syncTrim();
+    if (name === 'trim') {
+      syncTrim();
+      if (!trim.playhead) trim.playhead = requestAnimationFrame(followPlayhead);
+    }
     if (name === 'effects') syncEffects();
     else if (picking) setPicking(false);
     if (name !== 'effects') edgeMode = false;
@@ -8727,6 +8731,15 @@
       original.style.left = `${Math.round(box.x + TILE_CHIP_INSET)}px`;
       original.style.top = `${Math.round(box.y + TILE_CHIP_INSET)}px`;
     }
+    const time = $('frame-time');
+    const d = trim.drag;
+    time.hidden = !box || !d || drawer !== 'tile' || tileSub !== 'trim';
+    if (!time.hidden) {
+      const { from, to } = clipRange(page().cells[i]);
+      time.textContent = trimClock(d.which === 'start' ? from : to, d.held ? 2 : 1);
+      time.style.left = `${Math.round(box.x + box.w / 2 - time.offsetWidth / 2)}px`;
+      time.style.top = `${Math.round(box.y + TILE_CHIP_INSET)}px`;
+    }
   }
   const TILE_CHIP_INSET = 12;
 
@@ -8755,6 +8768,7 @@
     if (tileSub === 'adjust') return plainLook(cell.adjust) ? null : { compare: true, resting: false };
     // A clip has nothing to compare with: it is always playing.
     if (tileSub === 'crop') return { compare: !isClip(photoFor(cell)), resting: !cropChanged(cell) };
+    if (tileSub === 'trim') return trimmed(cell) ? { compare: false, resting: false } : null;
     return null;
   }
 
@@ -8809,87 +8823,359 @@
     if (state.selected === -1) return;
     if (tileSub === 'adjust') resetAdjust();
     else if (tileSub === 'crop') resetCell(state.selected);
+    else if (tileSub === 'trim') resetTrim();
   }
 
   /* ------------------------------------------------------------- trimming */
   //
-  // Both handles run the whole length of the clip, stacked, so start and end
-  // are measured on the same scale. Moving either one seeks the preview to
-  // that exact moment and holds it there — cutting a clip you cannot see
-  // would be guesswork.
+  // The whole clip as a filmstrip, the kept part in a bracket with a handle at
+  // either end. Moving a handle parks the tile on the frame under it — cutting
+  // a clip you cannot see would be guesswork — and letting go plays the cut.
+  //
+  // The strip shows a window onto the clip, which is the whole of it except
+  // while a handle is held still: then it closes in on two seconds round the
+  // handle, so the same drag moves a finer amount. Everything on the strip is
+  // placed through xOfTime and read back through the drag's own anchor, so
+  // the two scales never disagree.
 
-  const TRIM_STEPS = 1000;
+  const TRIM_FLOOR = 0.2;          // a clip never goes to nothing
+  const TRIM_HOLD_MS = 500;        // held this still, the strip closes in
+  const TRIM_STILL_PX = 3;         // and this far counts as still
+  const TRIM_CLOSE = 2;            // seconds across the strip, close up
+  const TRIM_EASE_MS = 240;        // and back out on letting go
+  const trim = { window: null, drag: null, easing: 0, playhead: 0 };
 
-  function syncTrim() {
+  const trimCell = () => {
     const cell = page().cells[state.selected];
     const photo = photoFor(cell);
-    if (!cell || !photo || photo.kind !== 'video') return;
-    const { from, to, span, whole } = clipRange(cell);
-    const at = (t) => Math.round((t / (whole || 1)) * TRIM_STEPS);
-    $('trim-start').value = String(at(from));
-    $('trim-end').value = String(at(to));
-    $('trim-from').textContent = clockLabel(from);
-    $('trim-to').textContent = clockLabel(to);
-    $('trim-span').textContent = `${span.toFixed(1)}s of ${clockLabel(whole)}`;
-    $('trim-reset').disabled = from === 0 && Math.abs(to - whole) < 0.05;
-    // The kept span, drawn on both rails. CSS can see neither range input's
-    // value, so where that span starts and ends is handed over here — the same
-    // arrangement as --frac on the dock sliders.
-    const bars = document.querySelector('.trim-bars');
-    bars.style.setProperty('--fa', at(from) / TRIM_STEPS);
-    bars.style.setProperty('--fb', at(to) / TRIM_STEPS);
+    return cell && isClip(photo) ? { cell, photo } : null;
+  };
+  const trimWindow = (whole) => trim.window || [0, whole];
+  const stripWidth = () => $('trim-strip').clientWidth || 1;
+  const xOfTime = (t, [w0, w1]) => ((t - w0) / Math.max(0.001, w1 - w0)) * stripWidth();
+
+  // A time on the clip, to a tenth or, close up, a hundredth. A whole second
+  // at the ordinary scale reads as one, which is how the ends of an uncut
+  // clip read: 0:00 to 0:14.
+  function trimClock(t, places) {
+    const whole = places === 1 && Math.abs(t - Math.round(t)) < 0.05;
+    const secs = whole ? Math.round(t) : t;
+    const m = Math.floor(secs / 60);
+    const rest = secs - m * 60;
+    const text = whole ? String(Math.round(rest)).padStart(2, '0') : rest.toFixed(places).padStart(places + 3, '0');
+    return `${m}:${text}`;
   }
 
-  // Seconds from a slider position, against the clip's own length.
-  const trimAt = (el, whole) => (Number(el.value) / TRIM_STEPS) * whole;
+  const trimmed = (cell) => {
+    const { from, to, whole } = clipRange(cell);
+    return from > 0.01 || to < whole - 0.05;
+  };
+
+  function syncTrim() {
+    const got = trimCell();
+    if (!got) return;
+    const { cell, photo } = got;
+    const { from, to, span, whole } = clipRange(cell);
+    const win = trimWindow(whole);
+    const strip = $('trim-strip');
+    const held = !!(trim.drag && trim.drag.held);
+    const setting = trim.drag ? trim.drag.which : null;
+    strip.style.setProperty('--a', `${xOfTime(from, win)}px`);
+    strip.style.setProperty('--b', `${xOfTime(to, win)}px`);
+    strip.classList.toggle('is-held', held);
+    $('trim-start').classList.toggle('is-held', setting === 'start');
+    $('trim-end').classList.toggle('is-held', setting === 'end');
+    $('trim-from').textContent = trimClock(from, 1);
+    $('trim-to').textContent = trimClock(to, 1);
+    $('trim-span').textContent = `${span.toFixed(1)} s`;
+    // The time being set is the one lit.
+    $('trim-from').classList.toggle('is-lit', setting === 'start');
+    $('trim-to').classList.toggle('is-lit', setting === 'end');
+    $('trim-read').hidden = held;
+    $('trim-held').hidden = !held;
+    $('trim-ruler').hidden = !held;
+    if (held) $('trim-held').textContent = trimClock(setting === 'start' ? from : to, 2);
+    [['trim-start', from], ['trim-end', to]].forEach(([id, t]) => {
+      const el = $(id);
+      el.setAttribute('aria-valuemin', '0');
+      el.setAttribute('aria-valuemax', whole.toFixed(2));
+      el.setAttribute('aria-valuenow', t.toFixed(2));
+      el.setAttribute('aria-valuetext', trimClock(t, 1));
+    });
+    drawTrimFrames(photo, win);
+    if (held) drawTrimRuler(win);
+    placeTileOverlays();
+    syncFloat();
+  }
+
+  /* The frames, read once per clip off an element of its own, a handful across
+     the whole length and kept for as long as the clip is one of the last few
+     looked at. The strip draws whichever is nearest each slot's moment, and
+     draws the slots it has none for yet in the sheet's control grey. */
+  const stripFrames = new Map();
+  const STRIP_KEEP = 3;
+
+  function framesFor(photo) {
+    let f = stripFrames.get(photo.id);
+    if (f) return f;
+    f = { times: [], bitmaps: [] };
+    stripFrames.set(photo.id, f);
+    if (stripFrames.size > STRIP_KEEP) {
+      const [oldest] = stripFrames.keys();
+      stripFrames.get(oldest).bitmaps.forEach((bm) => { try { bm.close(); } catch { /* gone */ } });
+      stripFrames.delete(oldest);
+    }
+    readStripFrames(photo, f);
+    return f;
+  }
+
+  async function readStripFrames(photo, f) {
+    const whole = photo.duration || 0;
+    const count = clamp(Math.ceil(whole * 4), 12, 32);
+    const url = URL.createObjectURL(photo.blob);
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    // Handed back the moment it is done, as frameAt does: an element left to
+    // the collector holds a decoder until it is collected.
+    const release = () => { v.removeAttribute('src'); try { v.load(); } catch { /* nothing to unload */ } URL.revokeObjectURL(url); };
+    const until = (event) => new Promise((done, fail) => {
+      const timer = setTimeout(() => fail(new Error(`no ${event}`)), 8000);
+      v.addEventListener(event, () => { clearTimeout(timer); done(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(timer); fail(new Error('undecodable')); }, { once: true });
+    });
+    try {
+      v.src = url;
+      await until('loadeddata');
+      const h = 112;
+      const w = Math.max(1, Math.round((h * v.videoWidth) / Math.max(1, v.videoHeight)));
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      for (let k = 0; k < count; k++) {
+        if (stripFrames.get(photo.id) !== f) break;
+        const t = Math.min(Math.max(0, whole - 0.05), ((k + 0.5) * whole) / count);
+        v.currentTime = t;
+        await until('seeked');
+        g.drawImage(v, 0, 0, w, h);
+        f.times.push(t);
+        f.bitmaps.push(await createImageBitmap(c));
+        const got = trimCell();
+        if (tileSub === 'trim' && got && got.photo.id === photo.id) drawTrimFrames(photo, trimWindow(whole));
+      }
+    } catch { /* the strip keeps the slots it has, grey where it has none */ }
+    release();
+  }
+
+  function drawTrimFrames(photo, [w0, w1]) {
+    const c = $('trim-frames');
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--background-control').trim() || '#262626';
+    g.fillRect(0, 0, w, h);
+    const f = framesFor(photo);
+    // Ten across the whole clip; eight across two seconds close up, with a
+    // hairline between them, since each is then a moment of its own.
+    const close = !!trim.window;
+    const slots = close ? 8 : 10;
+    const sw = w / slots;
+    for (let k = 0; k < slots; k++) {
+      const t = w0 + ((k + 0.5) * (w1 - w0)) / slots;
+      let best = -1;
+      let near = Infinity;
+      f.times.forEach((ft, n) => { const d = Math.abs(ft - t); if (d < near) { near = d; best = n; } });
+      if (best === -1) continue;
+      const bm = f.bitmaps[best];
+      // Covering the slot, as a tile covers its cell.
+      const scale = Math.max(sw / bm.width, h / bm.height);
+      const dw = bm.width * scale;
+      const dh = bm.height * scale;
+      g.save();
+      g.beginPath();
+      g.rect(k * sw, 0, sw + 0.5, h);
+      g.clip();
+      g.drawImage(bm, k * sw + (sw - dw) / 2, (h - dh) / 2, dw, dh);
+      g.restore();
+      if (close && k) {
+        g.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        g.fillRect(k * sw, 0, 1, h);
+      }
+    }
+  }
+
+  // Close up, a ruler in tenths over the strip: a longer tick at each half
+  // second and the whole seconds named, so the hundredths above it have
+  // something to be read against.
+  function drawTrimRuler([w0, w1]) {
+    const c = $('trim-ruler');
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+    g.fillStyle = ink;
+    g.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif';
+    g.textBaseline = 'top';
+    for (let tenth = Math.ceil(w0 * 10); tenth <= Math.floor(w1 * 10); tenth++) {
+      const x = xOfTime(tenth / 10, [w0, w1]);
+      const second = tenth % 10 === 0;
+      const half = tenth % 5 === 0;
+      const th = second ? 8 : half ? 6 : 4;
+      g.globalAlpha = second ? 1 : 0.6;
+      g.fillRect(x - 0.75, h - th, 1.5, th);
+      if (second) {
+        g.globalAlpha = 1;
+        g.fillText(trimClock(tenth / 10, 1), x + 5.5, 0);
+      }
+    }
+    g.globalAlpha = 1;
+  }
 
   // Whether the handle being dragged is already sitting against the other one.
   let trimHeld = false;
 
-  function dragTrim(which) {
-    const i = state.selected;
-    const cell = page().cells[i];
-    const photo = photoFor(cell);
-    if (!cell || !photo || photo.kind !== 'video') return;
+  // Where a handle is being put, kept on the clip and clear of the other
+  // handle, and the tile parked on the frame under it.
+  function setHandle(which, t) {
+    const got = trimCell();
+    if (!got) return;
+    const { cell, photo } = got;
     const whole = photo.duration || 0;
-
-    let from = trimAt($('trim-start'), whole);
-    let to = trimAt($('trim-end'), whole);
-    // Never let the handles cross, and never let a clip go to nothing.
-    const floor = 0.2;
-    let held = false;
-    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); held = true; }
-    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); held = true; }
-    // The handle has stopped moving while the thumb has not, which is the one
-    // thing on this panel a screen cannot say quickly enough. Once per arrival:
-    // a drag that keeps pushing at the floor would otherwise buzz every frame.
-    if (held && !trimHeld) buzz('limit');
-    trimHeld = held;
-
+    const { from, to } = clipRange(cell);
+    let a = from;
+    let b = to;
+    let pressed = false;
+    if (which === 'start') {
+      a = clamp(t, 0, Math.max(0, b - TRIM_FLOOR));
+      pressed = t > b - TRIM_FLOOR;
+    } else {
+      b = clamp(t, Math.min(whole, a + TRIM_FLOOR), whole);
+      pressed = t < a + TRIM_FLOOR;
+    }
+    // The handle has stopped while the thumb has not, which is the one thing
+    // on this panel a screen cannot say quickly enough. Once per arrival: a
+    // drag that keeps pushing would otherwise buzz every frame.
+    if (pressed && !trimHeld) buzz('limit');
+    trimHeld = pressed;
     snapshot('trim');
-    cell.t0 = from;
-    cell.t1 = to;
-    syncTrim();
+    cell.t0 = a;
+    cell.t1 = b;
     saveDeck();
+    const player = players.get(state.selected);
+    if (player) {
+      player.el.pause();
+      try { player.el.currentTime = which === 'start' ? a : Math.max(a, b - 0.05); } catch { /* not seekable */ }
+    }
+    syncTrim();
+  }
 
-    // Park the preview on the frame being set, so the handle is showing you
-    // the cut rather than describing it.
-    const player = players.get(i);
+  function beginTrimDrag(which, e) {
+    const got = trimCell();
+    if (!got || e.button > 0) return;
+    e.preventDefault();
+    const { from, to } = clipRange(got.cell);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+    endRun();
+    snapshot('trim');
+    trimHeld = false;
+    cancelAnimationFrame(trim.easing);
+    trim.window = null;
+    trim.drag = { which, id: e.pointerId, anchorX: e.clientX, anchorT: which === 'start' ? from : to, stillX: e.clientX, held: false, timer: 0, lastX: e.clientX };
+    armTrimHold();
+    const player = players.get(state.selected);
     if (player) {
       player.el.pause();
       try { player.el.currentTime = which === 'start' ? from : Math.max(from, to - 0.05); } catch { /* not seekable */ }
     }
+    syncTrim();
   }
 
-  // Let go and it runs the trimmed clip, from the top.
-  function endTrimDrag() {
-    endRun();
-    // The cut has moved, so everywhere this tile is a still — the filmstrip,
-    // the cover, the slides either side — is now showing the wrong frame.
-    // Only on letting go: reading a frame means decoding up to it, and doing
-    // that on every pixel of the drag would be absurd.
-    ensurePosters(page(), () => { render(); redrawFilms(); });
+  function armTrimHold() {
+    const d = trim.drag;
+    if (!d || d.held) return;
+    clearTimeout(d.timer);
+    d.timer = setTimeout(closeInOnHandle, TRIM_HOLD_MS);
+  }
 
+  function moveTrimDrag(e) {
+    const d = trim.drag;
+    if (!d || e.pointerId !== d.id) return;
+    d.lastX = e.clientX;
+    if (Math.abs(e.clientX - d.stillX) > TRIM_STILL_PX) { d.stillX = e.clientX; armTrimHold(); }
+    const got = trimCell();
+    if (!got) return;
+    const [w0, w1] = trimWindow(got.photo.duration || 0);
+    setHandle(d.which, d.anchorT + ((e.clientX - d.anchorX) * (w1 - w0)) / stripWidth());
+  }
+
+  // Held still: two seconds round the handle across the whole strip, a tick
+  // to say so, and the drag measured afresh from here at the finer scale.
+  function closeInOnHandle() {
+    const d = trim.drag;
+    const got = trimCell();
+    if (!d || d.held || !got) return;
+    const whole = got.photo.duration || 0;
+    const { from, to } = clipRange(got.cell);
+    const t = d.which === 'start' ? from : to;
+    const span = Math.min(TRIM_CLOSE, whole);
+    const w0 = clamp(t - span / 2, 0, Math.max(0, whole - span));
+    d.held = true;
+    d.anchorX = d.lastX;
+    d.anchorT = t;
+    buzz('tick');
+    morph(() => { trim.window = [w0, w0 + span]; syncTrim(); });
+  }
+
+  function endTrimDrag(e) {
+    const d = trim.drag;
+    if (!d || (e && e.pointerId !== d.id)) return;
+    clearTimeout(d.timer);
+    trim.drag = null;
+    const got = trimCell();
+    const whole = got ? got.photo.duration || 0 : 0;
+    if (trim.window && got) {
+      // Back out to the whole clip over 240ms, the handle travelling with it.
+      const [a0, a1] = trim.window;
+      const start = performance.now();
+      morph(() => { syncTrim(); });
+      const step = (now) => {
+        const k = calmMotion.matches ? 1 : Math.min(1, (now - start) / TRIM_EASE_MS);
+        const ease = 1 - (1 - k) ** 3;
+        trim.window = k >= 1 ? null : [a0 * (1 - ease), a1 + (whole - a1) * ease];
+        syncTrim();
+        if (k < 1) trim.easing = requestAnimationFrame(step);
+      };
+      trim.easing = requestAnimationFrame(step);
+    } else {
+      syncTrim();
+    }
+    playCut();
+  }
+
+  // The cut is set: everywhere this tile is a still is showing the wrong
+  // frame now, and the tile plays what is kept, from the top. Only on letting
+  // go — reading a frame means decoding up to it, and doing that on every
+  // pixel of a drag would be absurd.
+  function playCut() {
+    endRun();
+    ensurePosters(page(), () => { render(); redrawFilms(); });
     const player = players.get(state.selected);
     if (!player) return;
     const { from } = clipRange(page().cells[state.selected]);
@@ -8897,15 +9183,64 @@
     player.el.play().catch(() => {});
   }
 
+  // A tenth either way from the keyboard, a second with Shift.
+  function nudgeHandle(which, e) {
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+    const got = trimCell();
+    if (!step || !got) return;
+    e.preventDefault();
+    const { from, to } = clipRange(got.cell);
+    setHandle(which, (which === 'start' ? from : to) + step * (e.shiftKey ? 1 : 0.1));
+    playCut();
+  }
+
   function resetTrim() {
-    const cell = page().cells[state.selected];
-    if (!cell) return;
+    const got = trimCell();
+    if (!got || !trimmed(got.cell)) return;
     snapshot();
-    cell.t0 = 0;
-    cell.t1 = 0;
-    syncTrim();
+    got.cell.t0 = 0;
+    got.cell.t1 = 0;
     saveDeck();
-    endTrimDrag();
+    syncTrim();
+    playCut();
+  }
+
+  // The playhead follows the tile's own player while Trim is open, and stands
+  // down while a handle is held, when the tile is parked rather than playing.
+  function followPlayhead() {
+    trim.playhead = 0;
+    if (tileSub !== 'trim' || drawer !== 'tile') return;
+    const got = trimCell();
+    const player = players.get(state.selected);
+    const head = $('trim-playhead');
+    head.hidden = !got || !player || !!trim.drag;
+    if (!head.hidden) head.style.setProperty('--p', `${xOfTime(player.el.currentTime, trimWindow(got.photo.duration || 0))}px`);
+    trim.playhead = requestAnimationFrame(followPlayhead);
+  }
+
+  /* --------------------------------------------------------------- sound */
+
+  // A clip's sound is on or off per tile, like its trim: the same clip can be
+  // on two slides, heard on one. Muting is also how a slide's sound is chosen
+  // between clips — the export takes the longest one left on.
+  function toggleSound() {
+    const got = trimCell();
+    if (!got) return;
+    snapshot();
+    got.cell.muted = !got.cell.muted;
+    saveDeck();
+    syncSound();
+    buzz('tap');
+  }
+
+  function syncSound() {
+    const got = trimCell();
+    const on = !(got && got.cell.muted);
+    const btn = $('btn-sound');
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', on ? 'Sound on' : 'Muted');
+    btn.title = on ? 'Sound on' : 'Muted';
+    btn.classList.toggle('is-muted', !on);
   }
 
   function flipCell(axis) {
@@ -9818,8 +10153,10 @@
     // foot of its own.
     const tileTabs = drawer === 'tile' && tileSub !== 'replace';
     sheet.classList.toggle('has-tile-tabs', tileTabs);
+    sheet.classList.toggle('has-sound', tileTabs && isClip(photoFor(page().cells[state.selected])));
     if (tileTabs) {
       const photo = photoFor(page().cells[state.selected]);
+      syncSound();
       [...$('tile-tabs').children].forEach((t) => {
         const on = t.dataset.tile === tileSub;
         t.hidden = !toolFits(t.dataset.tile, photo);
@@ -10136,6 +10473,7 @@
         cells: pg.cells.map((c) => (c ? {
           photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy,
           flipX: !!c.flipX, flipY: !!c.flipY, t0: c.t0 || 0, t1: c.t1 || 0,
+          ...(c.muted ? { muted: true } : {}),
           // Only when there is something to keep, so an unedited deck's JSON
           // is the same as it was before edits existed.
           ...(plainLook(c.adjust) ? {} : { adjust: { ...c.adjust } }),
@@ -11517,12 +11855,16 @@
   wireTray();
   ['start', 'end'].forEach((which) => {
     const el = $(`trim-${which}`);
-    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); trimHeld = false; });
-    el.addEventListener('input', () => dragTrim(which));
+    el.addEventListener('pointerdown', (e) => beginTrimDrag(which, e));
+    el.addEventListener('pointermove', moveTrimDrag);
     el.addEventListener('pointerup', endTrimDrag);
-    el.addEventListener('change', endTrimDrag);
+    el.addEventListener('pointercancel', endTrimDrag);
+    el.addEventListener('keydown', (e) => nudgeHandle(which, e));
   });
-  $('trim-reset').addEventListener('click', resetTrim);
+  // Laid out at nothing while the sheet was hidden, so the strip finds its
+  // frames and its handles once it has a width.
+  if (window.ResizeObserver) new ResizeObserver(() => { if (tileSub === 'trim') syncTrim(); }).observe($('trim-strip'));
+  $('btn-sound').addEventListener('click', toggleSound);
 
   wireFlip();
   $('btn-turn-left').addEventListener('click', () => turnCell(-1));
