@@ -127,7 +127,7 @@ const selectTile = async () => {
 };
 const blackPoint = async (value) => {
   await selectTile();
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
   await p.click('.adjust-tool[data-adjust="blackPoint"]');
   await p.evaluate((v) => {
@@ -147,7 +147,7 @@ for (const turned of [false, true]) {
   const how = turned ? 'turned a quarter' : 'square';
   if (turned) {
     await selectTile();
-    await p.click('.dock-item[data-tile="rotate"]');
+    await p.click('#tile-tabs [data-tile="crop"]');
     await p.waitForTimeout(200);
     await p.click('#btn-rot90');
     await p.waitForTimeout(400);

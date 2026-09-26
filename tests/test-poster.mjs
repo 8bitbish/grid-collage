@@ -84,7 +84,7 @@ async function trimTo(p, seconds) {
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.waitForFunction(()=>!document.getElementById('dp-tile').hidden,null,{timeout:5000}).catch(()=>{});
   if (await p.evaluate(()=>document.getElementById('tile-trim').hidden)) {
-    await p.click('#tile-trim-btn');
+    await p.click('#tile-tabs [data-tile="trim"]');
     await p.waitForFunction(()=>!document.getElementById('tile-trim').hidden,null,{timeout:5000}).catch(()=>{});
   }
   const before=name(await film(p));

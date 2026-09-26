@@ -99,7 +99,7 @@ console.log('\n== it keeps playing while Replace is open ==');
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await settle(()=>!document.getElementById('dp-tile').hidden);
-  await p.click('.dock-item[data-tile="replace"]');
+  await p.click('#tile-actions [data-tile="replace"]');
   await settle(()=>!document.getElementById('tile-replace').hidden);
   ok('the Replace panel is open', await p.evaluate(()=>!document.getElementById('tile-replace').hidden));
   const seen = await colours('with the chooser up');
@@ -119,7 +119,7 @@ console.log('\n== scrolling onto a photo stops it, scrolling back starts it agai
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await settle(()=>!document.getElementById('dp-tile').hidden || !document.getElementById('tile-replace').hidden);
   if (await p.evaluate(()=>document.getElementById('tile-replace').hidden)) {
-    await p.click('.dock-item[data-tile="replace"]');
+    await p.click('#tile-actions [data-tile="replace"]');
     await settle(()=>!document.getElementById('tile-replace').hidden
       && document.getElementById('choose-strip').children.length>=2);
   }

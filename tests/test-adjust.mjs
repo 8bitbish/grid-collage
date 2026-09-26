@@ -100,8 +100,8 @@ check(near(untouched.bands, BANDS, 1) && near(untouched.red, RED, 1), 'an untouc
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(await p.locator('#tile-adjust-btn').isVisible(), 'a photo tile offers Adjust');
-await p.click('.dock-item[data-tile="adjust"]');
+check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'a photo tile offers Adjust');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
 check(await p.locator('#tile-adjust').isVisible() && tools.length >= 2, 'the panel opens with a tool per adjustment', tools.join(', '));
@@ -263,7 +263,7 @@ await p.click('#dock-back');
 
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 await p.click('#adjust-reset');
 await p.waitForTimeout(300);
@@ -281,7 +281,7 @@ check(near((await read()).bands, bpDown.bands, 1), 'and Reset can be undone');
 if (!(await p.locator('#tile-adjust').isVisible())) {
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
 }
 await p.click('#adjust-reset');
@@ -325,11 +325,11 @@ check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').i
 // step in the history, and the undo, reload and export checks above count on
 // the black point being the last thing done. From the photo as it came, so
 // what sharpening does is measured against nothing else. Undo leaves the dock where it was, so the tile is chosen afresh.
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 // Only if there is something to reset: after the tone curves there is not, and
 // a disabled button is one Playwright waits on until it gives up.
@@ -381,7 +381,7 @@ check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && ha
 
 // The export carries it too: flat bands untouched, the edge overshooting.
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="export"]');
 await p.selectOption('#format', 'image/png');
@@ -409,7 +409,7 @@ await p.click('#dock-back');
 // And back to nought, which is the photo again and nothing left to reset.
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 await choose('sharpen');
 await slide(0);
@@ -424,7 +424,7 @@ await p.setInputFiles('#file-input', [path.join(ROOT, 'tests/fixtures/clip.webm'
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 15000 });
 await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x1"]');
@@ -435,11 +435,11 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(!(await p.locator('#tile-adjust-btn').isVisible()), 'a clip does not offer Adjust');
+check(!(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible()), 'a clip does not offer Adjust');
 await p.click('#dock-back');
 await p.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(await p.locator('#tile-adjust-btn').isVisible(), 'the photo beside it still does');
+check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'the photo beside it still does');
 
 /* ------------------------------------------- Shadows on a bright photo */
 
@@ -459,7 +459,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await choose('shadows');
 await slide(100);
 const bright = await read();
@@ -507,10 +507,10 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
   await p.waitForTimeout(400);
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await choose('sharpen');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
   await p.click('.dock-item[data-drawer="export"]');
   await p.selectOption('#quality', '2160');
@@ -823,10 +823,10 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await choose('sharpen');
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="export"]');
 await p.selectOption('#quality', '2160');
@@ -894,11 +894,11 @@ const tonedChart = async (amount) => {
   await p.waitForTimeout(400);
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await choose('tone');
   const oneWay = await p.$eval('#adjust', (e) => e.min === '0');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
   await p.click('.dock-item[data-drawer="export"]');
   await p.selectOption('#quality', '2160');

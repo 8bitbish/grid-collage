@@ -120,14 +120,13 @@ await p.locator('#dock-root').evaluate(el=>el.scrollLeft=0);
 const box=await p.locator('#canvas').boundingBox();
 await p.touchscreen.tap(box.x+box.width*0.3, box.y+box.height*0.3);
 await p.waitForTimeout(300); await buzzes();
-await tap('.dock-item[data-tile="rotate"]');
-console.log('a tile action      ->', JSON.stringify(await buzzes()));
+await tap('#tile-tabs [data-tile="crop"]');
+console.log('a tile tab         ->', JSON.stringify(await buzzes()));
 await tap('#btn-rot90');
 console.log('turn 90            ->', JSON.stringify(await buzzes()), '(one tick, not two)');
-await tap('#dock-back'); await buzzes();
 
 // the reel still ticks per photo, and not twice for a tap on an option
-await tap('.dock-item[data-tile="replace"]');
+await tap('#tile-actions [data-tile="replace"]');
 await p.waitForTimeout(400); await buzzes();
 const item=await p.locator('.choose-item').nth(2).boundingBox();
 await p.touchscreen.tap(item.x+item.width/2, item.y+item.height/2);
@@ -141,7 +140,7 @@ await tap('#choose-back'); await buzzes();
 // what makes it unmistakable — a longer buzz reads as a slow tap.
 {
   const dbl = (v)=>Array.isArray(v) && v.length===4 && v[1]===14;
-  await tap('.dock-item[data-tile="delete"]');
+  await tap('#tile-actions [data-tile="delete"]');
   const tile=await buzzes();
   console.log('delete a tile      ->', JSON.stringify(tile), tile.some(dbl)?'✓ the double':'✗ wanted the double');
   if(!tile.some(dbl)) process.exitCode=1;
@@ -191,7 +190,7 @@ await ctx.close();
   const box=await q.locator('#canvas').boundingBox();
   await q.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await q.waitForTimeout(500);
-  await q.click('#tile-trim-btn');
+  await q.click('#tile-tabs [data-tile="trim"]');
   await q.waitForTimeout(400);
   await q.evaluate(()=>{window.__buzz=[];});
 

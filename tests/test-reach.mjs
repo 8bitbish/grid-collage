@@ -52,10 +52,9 @@ const DRAWERS = [
   ['page',       '#dp-page .btn'],
   ['export',     '#dp-export .select, #btn-export'],
 ];
+// The tile's tools, each opened from its tab along the foot.
 const SUBS = [
-  ['zoom',   '#tile-zoom input'],
-  ['rotate', '#btn-rot90'],
-  ['flip',   '#tile-flip .btn'],
+  ['crop',   '#tile-crop input, #tile-crop .btn'],
 ];
 
 const b=await chromium.launch({executablePath: CHROME});
@@ -150,18 +149,17 @@ for (const [label, vp, floor] of [
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width*0.3), Math.round(box.y+box.height*0.3));
   await p.waitForSelector('#dp-tile',{state:'visible'});
-  const act = await worst('#tile-actions .dock-item');
+  const act = await worst('#tile-actions .tile-act');
   ok('tile actions: smallest control', act.side >= floor, `${act.id} at ${act.side}px`);
+  const toolTabs = await worst('#tile-tabs .dock-tab:not([hidden])');
+  ok('tile tabs: smallest control', toolTabs.side >= floor, `${toolTabs.id} at ${toolTabs.side}px`);
   for (const [name, sel] of SUBS) {
-    await p.click(`.dock-item[data-tile="${name}"]`);
+    await p.click(`#tile-tabs [data-tile="${name}"]`);
     const w = await worst(sel);
     ok(`tile/${name}: smallest control`, w && w.side >= floor, `${w ? w.id : 'nothing found'} at ${w ? w.side : '-'}px`);
-    await p.click('#dock-back');
   }
 
-  // Back once more: inside the tile drawer the first press steps out of a
-  // sub-panel and the second lets go of the tile, which is what puts the
-  // settings list back.
+  // Back lets go of the tile, which is what puts the settings list back.
   await p.click('#dock-back');
 
   // Nothing may hang out of the bar. A panel that overflows downward is a
@@ -169,6 +167,10 @@ for (const [label, vp, floor] of [
   // trim panel arrived — 90px of content in 62px of dock.
   for (const name of ['shape','background','page','export']) {
     await open(name);
+    // Measured at rest. A sheet rises from wherever the last one fell to,
+    // so mid-flight its panel is below the dock by however far that was:
+    // a tall sheet closing just before made this read 89px outside.
+    await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
     const fits = await p.evaluate((n) => {
       const dock = document.querySelector('.dock').getBoundingClientRect();
       const panel = document.getElementById(`dp-${n}`).getBoundingClientRect();

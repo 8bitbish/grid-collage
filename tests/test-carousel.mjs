@@ -123,14 +123,21 @@ console.log('✓ tray usage badges after filling:', badges.join(','));
 
 // 6. aim at a specific tile, then pick the photo for it. Dragging a photo
 // onto a tile went with the tray — the library is a modal over the canvas,
-// so there is nothing to drop onto. You select the tile and choose instead.
+// so there is nothing to drop onto. You choose the tile, then Replace on it,
+// and the photo comes off the reel.
 await page.click('#pm-close');
 await page.waitForTimeout(250);
 await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.25);
 await page.waitForTimeout(250);
-await page.click('#btn-photos');
+await page.click('#tile-actions [data-tile="replace"]');
+await page.waitForTimeout(400);
+await page.locator('#choose-strip .choose-item').nth(4).click();
+await page.waitForTimeout(700);
+await page.click('#dock-back');            // out of Replace
 await page.waitForTimeout(250);
-await page.locator('.pm-item').nth(5).click();
+await page.click('#dock-back');            // and let go of the tile
+await page.waitForTimeout(250);
+await page.click('#btn-photos');
 await page.waitForTimeout(250);
 console.log('✓ chose a photo for the selected tile; badges now:',
   (await page.evaluate(() => [...document.querySelectorAll('.pm-badge')].map((b) => b.textContent))).join(','));

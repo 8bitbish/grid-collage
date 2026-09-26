@@ -157,7 +157,7 @@ const hold = async (fx, fy, ms = 700) => {
 await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.click('.effect-item[data-effect="popOut"]');
 await settle();
 const guessed = (await at([[0.35, 0.47]]))[0];
@@ -197,7 +197,7 @@ await p.waitForTimeout(300);
 await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 await p.click('#pop-edge');
 await p.waitForTimeout(200);
@@ -247,7 +247,7 @@ check(Math.abs(reopened.spread - soft.spread) <= 1 && near((await at([[0.35, 0.4
 await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 await p.click('#pop-edge');
 await p.click('#edge-reset');
@@ -283,7 +283,6 @@ await p.click('#edge-reset');
 await p.waitForTimeout(600);
 await p.click('#edge-done');
 await p.click('#dock-back');
-await p.click('#dock-back');
 
 /* -------------------------------------------------------------- turning */
 
@@ -292,7 +291,7 @@ await p.click('#dock-back');
 await fresh();
 await p.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
-await p.click('.dock-item[data-tile="rotate"]');
+await p.click('#tile-tabs [data-tile="crop"]');
 await p.waitForTimeout(300);
 const turn = await p.evaluate(async () => {
   const el = document.getElementById('angle');

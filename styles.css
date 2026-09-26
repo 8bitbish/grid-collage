@@ -1151,6 +1151,50 @@ body.is-picking .tile::after {
   .page-x:hover { background: var(--background-control); }
 }
 
+/* The chosen tile's own actions, floating on it: three 44 circles in a pill
+   built like the bar's, 4 inside and 2 between, so the corners nest — 26 on
+   the pill less its 4 is the circles' 22. It rides the tile rather than the
+   sheet because what it does is to the tile, not to whichever tool is open.
+   Placed in app.js, since the tile's rect is only known there. */
+.tile-actions {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-between);
+  height: 52px;
+  padding: 0 var(--space-inset-pill);
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--background-raised);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.5);
+}
+.tile-act {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--content-primary);
+  cursor: pointer;
+}
+.tile-act svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Red at rest, not only when pressed: it is the one of the three that loses
+   something, and that should not have to be read off a label. */
+.tile-act-danger { color: var(--content-danger); }
+
 .dropzone {
   position: fixed;
   inset: 10px;
@@ -1246,6 +1290,7 @@ body.is-picking .tile::after {
 .pb-btn,
 .pm-close,
 .pm-pick,
+.tile-act,
 .tile {
   transition: background-color 140ms, color 140ms, border-color 140ms,
               transform 140ms, filter 140ms;
@@ -1264,11 +1309,14 @@ body.is-picking .tile::after {
 .pm-x:active,
 .film:active,
 .choose-item:active,
+.tile-act:active,
 .btn:active:not(:disabled) {
   transition-duration: 0s;
 }
 
 .dock-item:active { color: var(--content-primary); transform: scale(0.92); }
+/* Lit inside the pill rather than moving, like the chips in the bar's. */
+.tile-act:active { background: var(--background-control); }
 .circle:active { filter: brightness(1.3); transform: scale(0.92); }
 /* The chips and the history buttons light up inside their pill rather than
    moving, drawn 36 inside the 44 and 42 they take to press. */
@@ -1457,22 +1505,21 @@ body.is-picking .tile::after {
   min-width: 0;
 }
 
-/* Back, in the corner, on the sheet's own grey. It is a cross at the top of
-   a tile's tools, where the next thing it does is let go of the tile. */
+/* Back, in the corner, on the sheet's own grey. On a tile it lets go of the
+   tile, which is a step back like any other now that the tile's tools are
+   tabs: it used to be a cross there, over a row of tools that had no tab. */
 .dock-back {
   border-color: transparent;
   background: var(--background-control);
 }
-.dock-back .back-cross,
-.dock-back.is-cross .back-arrow { display: none; }
-.dock-back.is-cross .back-cross { display: block; }
 
 /* The page's settings as words. Words read at a glance where icons have to
    be learnt, and five of them cannot fit beside Back at 390px, so the row
    scrolls, fades at whichever edge has more, and is kept scrolled so the
    chosen one is in view. 16 inside each, so the next word shows through the
    fade rather than sitting out of sight. */
-.dock-tabs {
+.dock-tabs,
+.tile-tabs {
   --fade: 44px;
   flex: 1;
   min-width: 0;
@@ -1482,8 +1529,10 @@ body.is-picking .tile::after {
   overflow-y: hidden;
   scrollbar-width: none;
 }
-.dock-tabs::-webkit-scrollbar { display: none; }
-.has-tabs .dock-tabs { display: flex; }
+.dock-tabs::-webkit-scrollbar,
+.tile-tabs::-webkit-scrollbar { display: none; }
+.has-tabs .dock-tabs,
+.has-tile-tabs .tile-tabs { display: flex; }
 .dock-tab {
   flex: none;
   height: 44px;
@@ -1527,11 +1576,6 @@ body.is-picking .tile::after {
 .sheet-value span { font-size: 12px; color: var(--content-secondary); }
 .sheet-balance { flex: none; width: 44px; display: none; }
 .has-value .sheet-balance { display: block; }
-/* On a tile, the photos stand opposite Back instead — see syncSheet — and
-   are on the sheet's grey rather than the screen's black. */
-.is-tile-foot .sheet-balance { display: none; }
-.sheet-foot .photos-btn { border-color: transparent; background: var(--background-control); }
-.sheet-foot .photos-count { box-shadow: 0 0 0 2px var(--background-raised); }
 
 /* The button a sheet exists for takes the rest of the foot. */
 .sheet-go { display: none; flex: 1; min-height: 44px; border-radius: var(--radius-control); font-size: 15px; }
@@ -1716,20 +1760,11 @@ body.is-picking .tile::after {
 
 .dock-tile { gap: 12px; overflow: visible; padding: 0; }
 
-.tile-actions {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.tile-actions::-webkit-scrollbar { display: none; }
-.tile-actions .dock-item { min-width: 64px; }
-.dock-item-danger { color: var(--content-danger); }
-.dock-item-danger:hover { color: var(--content-danger); background: var(--background-danger); }
+/* Crop, until it has a control of its own: the zoom slider over two rows of
+   buttons, Reset among them. */
+.tile-crop { flex-direction: column; align-items: stretch; gap: 6px; }
+.crop-row { display: flex; align-items: center; gap: 10px; }
+.crop-row .dock-slider { flex: 1; min-width: 0; }
 
 /* The tile drawer runs edge to edge so the actions row can scroll off the
    side; a sub-panel is ordinary content, so it puts the margins back. */

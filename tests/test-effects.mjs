@@ -128,8 +128,8 @@ check(asBefore(before), 'without an effect each tile shows only its own photo', 
 const box = await p.locator('#canvas').boundingBox();
 const tapTile = async () => { await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8); await p.waitForTimeout(200); };
 await tapTile();
-check(await p.locator('#tile-effects-btn').isVisible(), 'a photo tile offers Effects');
-await p.click('.dock-item[data-tile="effects"]');
+check(await p.locator('#tile-tabs [data-tile="effects"]').isVisible(), 'a photo tile offers Effects');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 const effects = await p.$$eval('.effect-item', (els) => els.map((e) => e.dataset.effect));
 check(await p.locator('#tile-effects').isVisible() && effects.includes('popOut'), 'the panel lists the effects', effects.join(', '));
@@ -231,7 +231,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.locator('#filmstrip canvas').first().click();
 await p.waitForTimeout(400);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x3"]');
@@ -242,11 +242,11 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.84);
 await p.waitForTimeout(300);
-check(await p.locator('#tile-trim-btn').isVisible() && !(await p.locator('#tile-effects-btn').isVisible()), 'a clip does not offer Effects');
+check(await p.locator('#tile-tabs [data-tile="trim"]').isVisible() && !(await p.locator('#tile-tabs [data-tile="effects"]').isVisible()), 'a clip does not offer Effects');
 await p.click('#dock-back');
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.5);
 await p.waitForTimeout(300);
-check(await p.locator('#tile-effects-btn').isVisible(), 'the photo above it still does');
+check(await p.locator('#tile-tabs [data-tile="effects"]').isVisible(), 'the photo above it still does');
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 

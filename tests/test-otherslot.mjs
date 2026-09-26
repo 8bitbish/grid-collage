@@ -52,7 +52,7 @@ await p.mouse.click(right.x, right.y);
 await p.waitForFunction(()=>!document.getElementById('dp-tile').hidden,null,{timeout:2000}).catch(()=>{});
 if (!(await p.evaluate(()=>!document.getElementById('dp-tile').hidden))) await p.mouse.click(right.x, right.y);
 await settle(()=>!document.getElementById('dp-tile').hidden);
-await p.click('.dock-item[data-tile="replace"]');
+await p.click('#tile-actions [data-tile="replace"]');
 await settle(()=>!document.getElementById('tile-replace').hidden
   && document.getElementById('choose-strip').children.length===5);
 

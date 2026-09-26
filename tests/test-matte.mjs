@@ -125,7 +125,7 @@ await p.waitForTimeout(400);
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 const t0 = Date.now();
 await p.click('.effect-item[data-effect="popOut"]');
 await p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 120000 });
@@ -133,7 +133,6 @@ await p.waitForTimeout(500);
 check(fetched.some((f) => /vitmatte/.test(f)) && fetched.some((f) => /ort/.test(f)), 'with WebGPU here, the subject is matted by ViTMatte',
   `${Date.now() - t0}ms, fetched ${[...new Set(fetched)].join(', ')}`);
 
-await p.click('#dock-back');
 await p.click('#dock-back');
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="export"]');

@@ -496,6 +496,7 @@
     // have gone stale from a render.
     page().rev = (page().rev || 0) + 1;
     placePageX();
+    placeTileActions();
   }
 
   // The delete-page button rides the top-right corner of the page itself. The
@@ -6704,16 +6705,11 @@
     else if (drawer && PAGE_TABS.includes(drawer)) syncSheet();
     if (drawer === 'layout' && layoutReel) layoutReel.sync();
 
-    // Only a tile with a clip in it can be trimmed, so the action is only
-    // there when it means something.
-    $('tile-trim-btn').hidden = !(photo && photo.kind === 'video');
-    if (tileSub === 'trim' && !(photo && photo.kind === 'video')) showTileSub(null);
-    // And edits are photos only, so the reverse.
-    $('tile-adjust-btn').hidden = !photo || photo.kind === 'video';
-    if (tileSub === 'adjust' && (!photo || photo.kind === 'video')) showTileSub(null);
+    // A tool the tile has no use for — Trim on a photo, Adjust or Effects on
+    // a clip, which is what choosing another photo for it can leave open —
+    // gives way to the one this kind of tile opens on.
+    if (drawer === 'tile' && photo && tileSub !== 'replace' && !toolFits(tileSub, photo)) showTileSub(toolFor(photo));
     else if (tileSub === 'adjust') syncAdjust();
-    $('tile-effects-btn').hidden = !photo || photo.kind === 'video';
-    if (tileSub === 'effects' && (!photo || photo.kind === 'video')) showTileSub(null);
     else if (tileSub === 'effects') syncEffects();
 
     if (!photo) {
@@ -6754,8 +6750,7 @@
   // picker, so the photos already imported are the first thing offered.
   function fillEmptyTile(i) {
     state.selected = i;
-    openDrawer('tile');
-    showTileSub('replace');
+    morph(() => { openDrawerNow('tile'); showTileSubNow('replace'); });
     render();
   }
 
@@ -7000,6 +6995,7 @@
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
+    placeTileActions();
   });
 
   stageInput.addEventListener('pointermove', (e) => {
@@ -8383,16 +8379,47 @@
     'background', 'page', 'export', 'tile'];
   let drawer = null;
 
-  // Which sub-panel of the tile drawer is showing, and the tile waiting to be
-  // swapped with another.
+  // Which of the tile's tools is open, and the tile waiting to be swapped with
+  // another. While the tile drawer is open one of them always is: they are
+  // tabs, and there is no row of tools to come back to any more.
   let tileSub = null;
   let swapFrom = null;
+  const TILE_SUBS = ['crop', 'replace', 'trim', 'adjust', 'effects'];
+
+  // The tool a tile opens on is the one last used on that kind of tile, kept
+  // apart for photos and clips: going from photo to photo wanting the same
+  // correction is the usual case, and a clip cannot open on Adjust.
+  let photoTool = 'adjust';
+  let clipTool = 'trim';
+  const isClip = (photo) => !!photo && photo.kind === 'video';
+  const toolFits = (tool, photo) => (isClip(photo)
+    ? ['trim', 'crop', 'replace'].includes(tool)
+    : ['adjust', 'effects', 'crop', 'replace'].includes(tool));
+  const toolFor = (photo) => (isClip(photo) ? clipTool : photoTool);
+  // What Replace goes back to, which is whichever tool was open when it was
+  // asked for.
+  let replaceFrom = null;
+
+  function chooseTool(tool) {
+    const photo = photoFor(page().cells[state.selected]);
+    if (!toolFits(tool, photo) || tool === tileSub) return;
+    if (isClip(photo)) clipTool = tool; else photoTool = tool;
+    showTileSub(tool);
+  }
+
+  function leaveReplace() {
+    endRun();
+    const photo = photoFor(page().cells[state.selected]);
+    // Nothing was chosen for an empty tile, so there is no tool to go back
+    // to: let go of it.
+    if (!photo) { tileSub = null; select(-1); return; }
+    showTileSub(replaceFrom && toolFits(replaceFrom, photo) ? replaceFrom : toolFor(photo));
+  }
 
   function showTileSub(name) { morph(() => showTileSubNow(name)); }
   function showTileSubNow(name) {
     tileSub = name;
-    $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust', 'effects'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    TILE_SUBS.forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
     if (name === 'trim') syncTrim();
     if (name === 'effects') syncEffects();
     else if (picking) setPicking(false);
@@ -8426,6 +8453,7 @@
     setBackIcon();
     syncSheet();
     syncFades();
+    placeTileActions();
   }
 
   // The photos already imported, run past a fixed marker: whichever sits in
@@ -8545,14 +8573,11 @@
     saveDeck();
   }
 
-  // The tile bar drops the tile with a cross, as sketched; everything else
-  // steps back up a level with an arrow.
+  // Back is an arrow everywhere. On a tile's tools the step back is letting go
+  // of the tile, and it says so to a screen reader.
   function setBackIcon() {
-    const cross = drawer === 'tile' && !tileSub;
-    // Via a class, not `.hidden`: that property belongs to HTMLElement, and
-    // setting it on an <svg> quietly creates a useless expando instead.
-    $('dock-back').classList.toggle('is-cross', cross);
-    $('dock-back').setAttribute('aria-label', cross ? 'Done with this tile' : 'Back');
+    const letsGo = drawer === 'tile' && tileSub !== 'replace';
+    $('dock-back').setAttribute('aria-label', letsGo ? 'Done with this tile' : 'Back');
     $('dock-drawer').classList.toggle('is-tile', drawer === 'tile');
   }
 
@@ -8571,12 +8596,14 @@
     if (action === 'swap') {
       swapFrom = i;
       $('canvas-wrap').classList.add('is-swapping');
+      placeTileActions();
       toast('Tap another tile to swap them over');
       return;
     }
     if (action === 'replace') {
       // Straight to the device picker when there's nothing to choose between.
       if (!state.photos.length) { pendingCell = i; fileInput.click(); return; }
+      replaceFrom = tileSub;
       showTileSub('replace');
       return;
     }
@@ -8585,10 +8612,36 @@
       page().cells[i] = null;
       select(-1);
       refresh();
-      return;
     }
-    if (action === 'reset') { resetCell(i); return; }
-    showTileSub(action);
+  }
+
+  // The chosen tile's own actions ride the tile, bottom centre and 12 up. Laid
+  // out from offsetLeft and friends rather than from getBoundingClientRect,
+  // which a sheet's arrival is scaling mid-flight: those numbers would put it
+  // wherever the animation had got to, in the track's unscaled coordinates.
+  //
+  // Out of the way whenever it would be in the way: while Replace is open,
+  // which is choosing what goes in the tile rather than acting on it; while a
+  // finger is on the photo, which the pill would otherwise sit under; and
+  // while a swap waits for its second tile, whose hint sits where it would.
+  const TILE_ACTIONS_LIFT = 12;
+  function tileBox(i) {
+    const r = cellRects()[i];
+    if (!r || !canvas.width) return null;
+    const k = canvas.clientWidth / canvas.width;
+    return { x: canvas.offsetLeft + r.x * k, y: canvas.offsetTop + r.y * k, w: r.w * k, h: r.h * k };
+  }
+  function placeTileActions() {
+    const pill = $('tile-actions');
+    const i = state.selected;
+    const box = i === -1 ? null : tileBox(i);
+    pill.hidden = !box || drawer !== 'tile' || tileSub === 'replace' || pointers.size > 0
+      || swapFrom !== null || !photoFor(page().cells[i]);
+    if (pill.hidden) return;
+    const room = $('track').clientWidth;
+    const left = clamp(box.x + box.w / 2 - pill.offsetWidth / 2, 4, Math.max(4, room - pill.offsetWidth - 4));
+    pill.style.left = `${Math.round(left)}px`;
+    pill.style.top = `${Math.round(box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight)}px`;
   }
 
   /* ------------------------------------------------------------- trimming */
@@ -9416,7 +9469,6 @@
   // The page's own settings share one sheet, as words along its foot; the
   // others each have a sheet to themselves and a foot of their own.
   const PAGE_TABS = ['layout', 'gap', 'padding', 'corners', 'background', 'page'];
-  const TILE_TOOL = { zoom: 'Zoom', rotate: 'Rotate', flip: 'Flip', replace: 'Replace', trim: 'Trim', adjust: 'Adjust', effects: 'Effects' };
   // The tile's controls that open on a row of buttons rather than on words or
   // a number: their sheet comes 8 from the top instead of 16, so the space
   // above the row is the space beside it. See .buttons-on-top.
@@ -9443,7 +9495,8 @@
     if (fromBar) sheetOpener = document.activeElement;
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
-    if (name === 'tile') showTileSub(null); else tileSub = null;
+    if (name === 'tile') showTileSubNow(toolFor(photoFor(page().cells[state.selected])));
+    else tileSub = null;
     if (name !== 'background') { $('bg-custom').hidden = true; $('bg-ticker').hidden = false; }
     setBackIcon();
     $('dock-root').hidden = true;
@@ -9479,7 +9532,7 @@
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
     $('dock').classList.remove('is-open');
-    if ($('btn-photos').parentElement !== $('btn-add').parentElement) $('btn-add').parentElement.appendChild($('btn-photos'));
+    placeTileActions();
     if (sheetHadFocus) (sheetOpener && sheetOpener.isConnected ? sheetOpener : $('btn-add')).focus({ preventScroll: true });
     sheetOpener = null;
     popSheet();
@@ -9494,7 +9547,7 @@
     const sheet = $('dock-drawer');
     sheet.classList.toggle('has-tabs', tabs);
     sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub));
-    sheet.classList.toggle('has-value', drawer === 'shape' || drawer === 'tile');
+    sheet.classList.toggle('has-value', drawer === 'shape');
     sheet.classList.toggle('has-go', drawer === 'export');
     const single = layoutCells(page().layout).length < 2;
     [...$('dock-tabs').children].forEach((t) => {
@@ -9514,19 +9567,20 @@
         else if (row.scrollLeft < hi) row.scrollLeft = hi;
       }
     }
-    // A chosen tile is filled from the library — choose the tile, then the
-    // photo — so the way into it cannot be under the sheet the tile opened.
-    // The one button moves to the foot, opposite Back, rather than there being
-    // two of them; it goes back beside Add when the sheet closes.
-    const photos = $('btn-photos');
-    const home = drawer === 'tile' ? sheet.querySelector('.sheet-foot') : $('btn-add').parentElement;
-    if (photos.parentElement !== home) home.appendChild(photos);
-    sheet.classList.toggle('is-tile-foot', drawer === 'tile');
-    if (drawer === 'shape') syncSheetValue(state.ratio);
-    else if (drawer === 'tile') {
-      $('sheet-value-main').textContent = tileSub ? TILE_TOOL[tileSub] || '' : '';
-      $('sheet-value-sub').textContent = '';
+    // A tile's tools, as tabs, for whatever kind of tile it is. Replace has a
+    // foot of its own.
+    const tileTabs = drawer === 'tile' && tileSub !== 'replace';
+    sheet.classList.toggle('has-tile-tabs', tileTabs);
+    if (tileTabs) {
+      const photo = photoFor(page().cells[state.selected]);
+      [...$('tile-tabs').children].forEach((t) => {
+        const on = t.dataset.tile === tileSub;
+        t.hidden = !toolFits(t.dataset.tile, photo);
+        t.classList.toggle('is-active', on);
+        t.setAttribute('aria-selected', String(on));
+      });
     }
+    if (drawer === 'shape') syncSheetValue(state.ratio);
   }
 
   // The bar's two settings say what is set: Ratio by its number, Layout by a
@@ -9588,7 +9642,7 @@
     // nothing would say there was more. The reels are not here: they run round
     // without an end, so there is always more, and they fade both edges in the
     // stylesheet for good.
-    ...['filmstrip', 'dock-tabs', 'tile-actions', 'export-settings', 'adjust-tools', 'effect-list'].map($),
+    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'export-settings', 'adjust-tools', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -11178,6 +11232,7 @@
   }
 
   buzzTaps($('dock'));
+  buzzTaps($('tile-actions'));
   // The library gets the tick the button into it gets — that button is in the
   // dock now, so the dock's own listener covers it. The grid scrolls, so the
   // same tap test applies.
@@ -11199,10 +11254,9 @@
   });
   $('btn-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('dock-back').addEventListener('click', () => {
-    // Inside a tile sub-panel, step back to the tile's actions. At the top of
-    // the tile bar the cross lets go of the tile, which puts the canvas back
-    // into swiping.
-    if (drawer === 'tile' && tileSub) { showTileSub(null); return; }
+    // Replace steps back to the tool it was opened from. Anywhere else on a
+    // tile, Back lets go of it, which puts the canvas back into swiping.
+    if (drawer === 'tile' && tileSub === 'replace') { leaveReplace(); return; }
     if (drawer === 'tile') { cancelSwap(); select(-1); return; }
     closeDrawer();
   });
@@ -11210,7 +11264,11 @@
   [...$('tile-actions').children].forEach((btn) => {
     btn.addEventListener('click', () => tileAction(btn.dataset.tile));
   });
-  $('choose-back').addEventListener('click', () => showTileSub(null));
+  [...$('tile-tabs').children].forEach((btn) => {
+    btn.addEventListener('click', () => chooseTool(btn.dataset.tile));
+  });
+  $('btn-crop-reset').addEventListener('click', () => { if (state.selected !== -1) resetCell(state.selected); });
+  $('choose-back').addEventListener('click', leaveReplace);
   $('choose-strip').addEventListener('scroll', onChooserScroll, { passive: true });
   $('choose-add').addEventListener('click', () => {
     pendingCell = null;
@@ -11403,7 +11461,7 @@
     if (libraryOpen && e.key === 'Escape') { closeLibrary(); return; }
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && swapFrom !== null) { cancelSwap(); return; }
-    if (e.key === 'Escape' && drawer === 'tile' && tileSub) { showTileSub(null); return; }
+    if (e.key === 'Escape' && drawer === 'tile' && tileSub === 'replace') { leaveReplace(); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
     if (e.key === 'Escape' && drawer) { closeDrawer(); return; }
     if (e.key === 'ArrowLeft' && state.selected === -1) slidePage(-1);

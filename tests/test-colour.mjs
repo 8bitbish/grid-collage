@@ -111,7 +111,7 @@ check(fetched === 0, 'nothing has fetched the colour tables yet', `${fetched} re
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
 const WANT = ['brightness', 'contrast', 'whitePoint', 'highlights', 'shadows', 'blackPoint', 'saturation', 'warmth', 'tint', 'skinTone', 'blueTone'];

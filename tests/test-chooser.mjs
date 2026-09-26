@@ -43,7 +43,7 @@ console.log('before choosing:', JSON.stringify(await dims()));
 const box=await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x+box.width/2, box.y+box.height/2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="replace"]');
+await p.click('#tile-actions [data-tile="replace"]');
 await p.waitForTimeout(300);
 
 console.log('while choosing :', JSON.stringify(await dims()));
@@ -122,7 +122,7 @@ console.log('undo once ->', await shot());
 // (undo drops the selection, so pick the tile up again first)
 await p.mouse.click(box.x+box.width/2, box.y+box.height/2);
 await p.waitForTimeout(250);
-await p.click('.dock-item[data-tile="replace"]');
+await p.click('#tile-actions [data-tile="replace"]');
 await p.waitForTimeout(250);
 await p.keyboard.press('Escape');
 await p.waitForTimeout(250);
@@ -142,7 +142,7 @@ console.log('escape from the chooser:', JSON.stringify(cleared),
 await p.mouse.click(box.x+box.width/2, box.y+box.height/2);
 await p.waitForTimeout(250);
 const kept = await p.evaluate(()=>new Promise((done)=>{
-  document.querySelector('.dock-item[data-tile="replace"]').click();
+  document.querySelector('#tile-actions [data-tile="replace"]').click();
   const strip=document.getElementById('choose-strip'); const el=strip.children[2];
   strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth)/2;
   setTimeout(()=>done([...strip.children].findIndex((c)=>c.classList.contains('is-current'))), 600);

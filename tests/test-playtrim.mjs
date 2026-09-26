@@ -106,9 +106,9 @@ console.log('\n== Trim is offered for a clip, and only for a clip ==');
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.waitForTimeout(600);
   ok('the tile panel opened', await p.evaluate(()=>!document.getElementById('dp-tile').hidden));
-  ok('Trim is there for a video', await p.evaluate(()=>!document.getElementById('tile-trim-btn').hidden));
+  ok('Trim is there for a video', await p.evaluate(()=>!document.querySelector('#tile-tabs [data-tile="trim"]').hidden));
 
-  await p.click('#tile-trim-btn');
+  await p.click('#tile-tabs [data-tile="trim"]');
   await p.waitForTimeout(500);
   const panel = await p.evaluate(()=>({
     open: !document.getElementById('tile-trim').hidden,
@@ -182,7 +182,7 @@ console.log('\n== Whole clip puts it back ==');
   const box = await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width/2), Math.round(box.y+box.height/2));
   await p.waitForTimeout(500);
-  await p.click('#tile-trim-btn');
+  await p.click('#tile-tabs [data-tile="trim"]');
   await p.waitForTimeout(400);
   await p.click('#trim-reset');
   await p.waitForTimeout(800);
@@ -228,7 +228,7 @@ console.log('\n== a photo tile has no Trim ==');
   await p.waitForTimeout(700);
   console.log('  selected tile holds:', await p.evaluate(()=>{
     const el=document.querySelector('#tile-actions'); return el && !document.getElementById('dp-tile').hidden ? 'a tile' : 'nothing';}));
-  const hidden = await p.evaluate(()=>document.getElementById('tile-trim-btn').hidden);
+  const hidden = await p.evaluate(()=>document.querySelector('#tile-tabs [data-tile="trim"]').hidden);
   console.log('  Trim hidden on a photo tile:', hidden);
   ok('Trim is not offered for a still', hidden);
 }

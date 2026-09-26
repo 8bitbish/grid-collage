@@ -128,7 +128,7 @@ const settle = () => p.waitForFunction(() => !/Finding/.test(document.getElement
 
 await tap(0.5, 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.click('.effect-item[data-effect="popOut"]');
 await settle();
 const first = await chosen();
@@ -178,7 +178,7 @@ check(undone.yellow === before.yellow && near(undone.left, BLUE), 'and undoing t
 check(!(await p.locator('#tile-effects').isVisible()), 'undo lets go of the tile, and stops choosing');
 await tap(0.5, 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 check(await p.getAttribute('#pop-pick', 'aria-pressed') === 'false', 'coming back to the panel, it is not choosing');
 await p.click('#pop-pick');
