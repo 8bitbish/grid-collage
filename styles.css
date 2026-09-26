@@ -36,6 +36,9 @@
   --space-bar-edge: 8px;
   --space-dock-top: 10px;
   --space-stack: 12px;
+  /* Either side of a word on a tab: enough that the row breathes, and that
+     the next word along still shows through the fade at the row's edge. */
+  --space-inset-tab: 16px;
   --space-sheet-top: 16px;
   --space-screen-edge: 16px;
   --space-sheet-lift: 26px;
@@ -1428,6 +1431,13 @@ body.is-picking .tile::after {
   box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.55);
 }
 
+/* A control that opens on a row of buttons sits 8 from the top, the same as
+   it sits from the sides. The 16 above is for a number or a line of words,
+   which want the room under a rounded corner; above a row of 40 and 44 tall
+   buttons it read as a gap nobody had meant, twice the space beside them.
+   app.js says which controls these are — see BUTTONS_ON_TOP. */
+.dock-drawer.buttons-on-top { padding-top: var(--space-inset-sheet); }
+
 /* One control at a time, never shorter than 76 so moving between tabs never
    moves the sheet. The tile's tools and a custom colour are the controls
    taller than that, and the sheet grows with them while they are open. */
@@ -1460,7 +1470,7 @@ body.is-picking .tile::after {
 /* The page's settings as words. Words read at a glance where icons have to
    be learnt, and five of them cannot fit beside Back at 390px, so the row
    scrolls, fades at whichever edge has more, and is kept scrolled so the
-   chosen one is in view. 12 inside each, so the next word shows through the
+   chosen one is in view. 16 inside each, so the next word shows through the
    fade rather than sitting out of sight. */
 .dock-tabs {
   --fade: 44px;
@@ -1477,7 +1487,7 @@ body.is-picking .tile::after {
 .dock-tab {
   flex: none;
   height: 44px;
-  padding: 0 var(--space-stack);
+  padding: 0 var(--space-inset-tab);
   appearance: none;
   border: none;
   border-radius: var(--radius-control);

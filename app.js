@@ -9417,6 +9417,10 @@
   // others each have a sheet to themselves and a foot of their own.
   const PAGE_TABS = ['layout', 'gap', 'padding', 'corners', 'background', 'page'];
   const TILE_TOOL = { zoom: 'Zoom', rotate: 'Rotate', flip: 'Flip', replace: 'Replace', trim: 'Trim', adjust: 'Adjust', effects: 'Effects' };
+  // The tile's controls that open on a row of buttons rather than on words or
+  // a number: their sheet comes 8 from the top instead of 16, so the space
+  // above the row is the space beside it. See .buttons-on-top.
+  const BUTTONS_ON_TOP = ['adjust', 'replace'];
 
   // The bar is hidden while a sheet is open, so a keyboard that opened one
   // from it would be left holding nothing; it goes to the sheet's control
@@ -9489,6 +9493,7 @@
     const tabs = PAGE_TABS.includes(drawer);
     const sheet = $('dock-drawer');
     sheet.classList.toggle('has-tabs', tabs);
+    sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub));
     sheet.classList.toggle('has-value', drawer === 'shape' || drawer === 'tile');
     sheet.classList.toggle('has-go', drawer === 'export');
     const single = layoutCells(page().layout).length < 2;
