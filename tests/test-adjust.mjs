@@ -56,7 +56,13 @@ function png(w, h, bottom = RED) {
 // A headless Chromium on a machine with no GPU only offers WebGL through
 // SwiftShader, and recent builds no longer fall back to it unasked.
 const b = await chromium.launch({ executablePath: CHROME, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
-const ctx = await b.newContext({ viewport: { width: 1000, height: 900 }, hasTouch: true, acceptDownloads: true });
+// 960 tall, where it was 900: an edit brings Compare and Reset up over the
+// sheet in a row of their own, which takes 60 from the stage. The Sharpen
+// checks read pixels either side of an edge in the preview, and how far its
+// ring ripples depends on the preview's scale — at 900 the ring moved a pixel
+// and a ripple of 3 became 4. At 960 the preview is the size those numbers
+// were measured at whenever an edit is on screen.
+const ctx = await b.newContext({ viewport: { width: 1000, height: 960 }, hasTouch: true, acceptDownloads: true });
 const p = await ctx.newPage();
 await autoEnter(p);
 const errs = [];
@@ -100,21 +106,33 @@ check(near(untouched.bands, BANDS, 1) && near(untouched.red, RED, 1), 'an untouc
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(await p.locator('#tile-adjust-btn').isVisible(), 'a photo tile offers Adjust');
-await p.click('.dock-item[data-tile="adjust"]');
+check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'a photo tile offers Adjust');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
-const tools = await p.$$eval('.adjust-tool', (els) => els.map((e) => e.dataset.adjust));
+const tools = await p.$$eval('.setting[data-adjust]', (els) => els.map((e) => e.dataset.adjust));
 check(await p.locator('#tile-adjust').isVisible() && tools.length >= 2, 'the panel opens with a tool per adjustment', tools.join(', '));
-check(await p.locator('#adjust-reset').isDisabled(), 'Reset has nothing to put back on an unedited tile');
+check(await p.locator('#sheet-float').isHidden(), 'nothing floats over the sheet on an unedited tile: no Compare, no Reset');
 // Each icon in the middle of its ring. `.dock-item span` once outranked the
 // ring's own centring and put every icon five pixels left of it.
-const offCentre = await p.$$eval('.adjust-tool .adjust-ring', (rings) => Math.max(...rings.map((r) => {
-  const a = r.getBoundingClientRect(), b = r.querySelector('svg').getBoundingClientRect();
+const offCentre = await p.$$eval('.setting[data-adjust] .setting-ring', (rings) => Math.max(...rings.map((r) => {
+  const a = r.getBoundingClientRect(), b = r.querySelector('.setting-icon').getBoundingClientRect();
   return Math.max(Math.abs(a.x + a.width / 2 - b.x - b.width / 2), Math.abs(a.y + a.height / 2 - b.y - b.height / 2));
 })));
 check(offCentre <= 0.5, 'every tool\'s icon sits in the middle of its ring', `worst ${offCentre.toFixed(2)}px off`);
 
-const choose = (id) => p.click(`.adjust-tool[data-adjust="${id}"]`);
+const choose = (id) => p.click(`.setting[data-adjust="${id}"]`);
+// The export is a JPEG at 0.92 now, which is what Instagram is sent. A check
+// on what the app draws — rather than on what the encoder makes of it — reads
+// the one export it needs as a PNG of the very canvas the app drew, by asking
+// the next toBlob for a PNG and then putting toBlob back.
+const readDrawnNotEncoded = () => p.evaluate(() => {
+  const toBlob = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb, type, q) {
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    return toBlob.call(this, cb, 'image/png', q);
+  };
+});
+
 // A drag, as far as the app can tell: input while moving, change on letting go.
 const slide = async (value) => {
   await p.evaluate((v) => {
@@ -138,7 +156,7 @@ await choose('whitePoint');
 await slide(3);
 const tiny = await read();
 check(near(tiny.bands, [30, 101, 171, 232], 1) && near(tiny.red, [222, 40, 40], 1), 'the GPU round trip is lossless', show(tiny));
-check(await p.locator('#adjust-reset').isEnabled(), 'Reset wakes once there is an edit');
+check(await p.locator('#btn-reset').isVisible() && await p.locator('#btn-compare').isVisible(), 'Compare and Reset arrive with the first edit');
 
 // What Google Photos made of the bands and the red, read off its own copies of
 // the calibration chart. The grey is what the curves are built from, so it has
@@ -179,19 +197,19 @@ await slide(100);
 const wpUp = await read();
 likeGoogle(wpUp, 'whitePoint+100', 'White point +100 is a straight gain of a third, white from 192 up');
 check(wpUp.red[0] > 250 && wpUp.red[1] < 80, 'the bottom of the photo is still the bottom', `red ${wpUp.red.join(',')}`);
-check(await p.$eval('.adjust-tool[data-adjust="whitePoint"]', (e) => e.classList.contains('is-set')), 'the tool shows it is in use');
+check(await p.$eval('.setting[data-adjust="whitePoint"]', (e) => e.classList.contains('is-set')), 'the tool shows it is in use');
 
-// Compare: held, the preview shows the photo as it came; let go, the edit.
-const cmp = await p.locator('#adjust-compare').boundingBox();
-await p.mouse.move(cmp.x + cmp.width / 2, cmp.y + cmp.height / 2);
-await p.mouse.down();
+// Compare: on, the tile shows the photo as it came and says so; off, the edit.
+await p.click('#btn-compare');
 await p.waitForTimeout(150);
 const held = await read();
-await p.mouse.up();
+check(await p.locator('#tile-original').isVisible(), 'the tile says it is showing the original');
+await p.click('#btn-compare');
 await p.waitForTimeout(150);
 const released = await read();
-check(near(held.bands, BANDS, 1), 'holding Compare shows the original', show(held));
-check(near(released.bands, wpUp.bands, 1), 'letting go brings the edit back', show(released));
+check(near(held.bands, BANDS, 1), 'Compare shows the original', show(held));
+check(near(released.bands, wpUp.bands, 1), 'and tapped again brings the edit back', show(released));
+check(await p.locator('#tile-original').isHidden(), 'and the tile stops saying so');
 
 // The filmstrip is redrawn on letting go of the slider, so it has the edit too.
 const film = await p.evaluate(() => {
@@ -209,7 +227,7 @@ likeGoogle(wpDown, 'whitePoint-100', 'White point -100 bends the top over, white
 await slide(2);
 check(await p.$eval('#adjust', (e) => e.value) === '0', 'the slider catches nought on the way past');
 const zero = await read();
-check(near(zero.bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'nought is the photo again, with nothing left to reset', show(zero));
+check(near(zero.bands, BANDS, 1) && await p.locator('#sheet-float').isHidden(), 'nought is the photo again, with nothing left to reset', show(zero));
 
 /* ------------------------------------------------------------- Black point */
 
@@ -239,16 +257,16 @@ check(near(reopened.bands, bpDown.bands, 2), 'the edit survives closing and reop
 
 /* ------------------------------------------------------------------ export */
 
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const got = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const out = await p.evaluate(async (b64) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -257,15 +275,14 @@ else {
   }, bytes);
   check(near(out, bpDown.bands, 2), 'the exported file has the edit the preview had', `bands ${out.join('/')}`);
 }
-await p.click('#dock-back');
 
 /* ------------------------------------------------------------------- reset */
 
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
-await p.click('#adjust-reset');
+await p.click('#btn-reset');
 await p.waitForTimeout(300);
 check(near((await read()).bands, BANDS, 1), 'Reset puts the photo back as it came');
 await p.click('#btn-undo');
@@ -281,10 +298,10 @@ check(near((await read()).bands, bpDown.bands, 1), 'and Reset can be undone');
 if (!(await p.locator('#tile-adjust').isVisible())) {
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await p.waitForTimeout(200);
 }
-await p.click('#adjust-reset');
+await p.click('#btn-reset');
 await p.waitForTimeout(300);
 const plain = await read();
 check(near(plain.bands, BANDS, 1) && near(plain.red, RED, 1), 'back to the photo as it came before the tone curves', show(plain));
@@ -317,7 +334,7 @@ likeGoogle(shDown, 'shadows-100', 'Shadows -100 crushes everything below 32');
 check(Math.abs(shDown.bands[3] - 230) <= 2, 'and leaves the bright tones alone', `230 -> ${shDown.bands[3]}`);
 
 await slide(0);
-check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').isDisabled(), 'Shadows back at nought is the photo again, with nothing to reset');
+check(near((await read()).bands, BANDS, 1) && await p.locator('#sheet-float').isHidden(), 'Shadows back at nought is the photo again, with nothing to reset');
 
 /* ----------------------------------------------------------------- Sharpen */
 
@@ -325,15 +342,15 @@ check(near((await read()).bands, BANDS, 1) && await p.locator('#adjust-reset').i
 // step in the history, and the undo, reload and export checks above count on
 // the black point being the last thing done. From the photo as it came, so
 // what sharpening does is measured against nothing else. Undo leaves the dock where it was, so the tile is chosen afresh.
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 // Only if there is something to reset: after the tone curves there is not, and
 // a disabled button is one Playwright waits on until it gives up.
-if (await p.locator('#adjust-reset').isEnabled()) await p.click('#adjust-reset');
+if (await p.locator('#btn-reset').isVisible()) await p.click('#btn-reset');
 await p.waitForTimeout(300);
 await choose('sharpen');
 check(await p.$eval('#adjust', (e) => e.min) === '0', 'Sharpen only goes one way');
@@ -381,18 +398,18 @@ check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && ha
 
 // The export carries it too: flat bands untouched, the edge overshooting.
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
 const gotSharp = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const sharpDownload = await gotSharp;
 if (!sharpDownload) check(false, 'the sharpened export arrives');
 else {
   const bytes = fs.readFileSync(await sharpDownload.path()).toString('base64');
   const out = await p.evaluate(async (b64) => {
-    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
     const bmp = await createImageBitmap(blob);
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
@@ -404,17 +421,16 @@ else {
   check(near(out.bands, BANDS, 1) && 100 - Math.min(...out.run) >= 8 && Math.max(...out.run) - 170 >= 8,
     'the exported file is sharpened as the preview was', `bands ${out.bands.join('/')}, edge ${Math.min(...out.run)}..${Math.max(...out.run)}`);
 }
-await p.click('#dock-back');
 
 // And back to nought, which is the photo again and nothing left to reset.
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await p.waitForTimeout(200);
 await choose('sharpen');
 await slide(0);
 const unsharp = await across();
-check(unsharp.every((v, i) => Math.abs(v - plainRun[i]) <= 1) && await p.locator('#adjust-reset').isDisabled(),
+check(unsharp.every((v, i) => Math.abs(v - plainRun[i]) <= 1) && await p.locator('#sheet-float').isHidden(),
   'Sharpen back at nought is the photo as it came', unsharp.join(' '));
 
 /* ------------------------------------------------------------ clips opt out */
@@ -424,7 +440,7 @@ await p.setInputFiles('#file-input', [path.join(ROOT, 'tests/fixtures/clip.webm'
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 15000 });
 await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x1"]');
@@ -435,11 +451,11 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(!(await p.locator('#tile-adjust-btn').isVisible()), 'a clip does not offer Adjust');
+check(!(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible()), 'a clip does not offer Adjust');
 await p.click('#dock-back');
 await p.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
 await p.waitForTimeout(200);
-check(await p.locator('#tile-adjust-btn').isVisible(), 'the photo beside it still does');
+check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'the photo beside it still does');
 
 /* ------------------------------------------- Shadows on a bright photo */
 
@@ -459,7 +475,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await choose('shadows');
 await slide(100);
 const bright = await read();
@@ -507,21 +523,20 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
   await p.waitForTimeout(400);
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await choose('sharpen');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-  await p.click('.dock-item[data-drawer="export"]');
-  await p.selectOption('#quality', '2160');
-  await p.selectOption('#format', 'image/png');
+  await p.click('#btn-export-open');
+  await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const download = await got;
-  await p.click('#dock-back');
   if (!download) return null;
   return p.evaluate(async ({ b64, L, P, kind }) => {
-    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);
@@ -557,10 +572,7 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
       for (let i = 0; i < d.length; i += 4) { s1 += d[i + 1]; s2 += d[i + 1] ** 2; n++; }
       return Math.sqrt(s2 / n - (s1 / n) ** 2);
     };
-    const jpeg = await createImageBitmap(await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 }));
-    const jg = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d');
-    jg.drawImage(jpeg, 0, 0);
-    return { size: bmp.width, fundamentals, edge, steps, noise: spread(g), noiseJpeg: spread(jg) };
+    return { size: bmp.width, fundamentals, edge, steps, noise: spread(g) };
   }, { b64: fs.readFileSync(await download.path()).toString('base64'), L: layout, P: PATCH, kind });
 };
 const gainsOf = (fundamentals, base) => fundamentals.map((v, i) => v / base.gratings[i].fundamental);
@@ -594,14 +606,17 @@ else {
   // Google's noise patch came out at 3.01, its own q90 JPEG included; the
   // chart as it came reads 3.02, and 2.59 through the same JPEG. This is
   // grain at the pixel, finer than anything in a photograph's own detail,
-  // and it is where keeping the finest detail costs most: 3.25 through the
+  // and it is where keeping the finest detail costs most: 3.25 through a
   // JPEG, where trading it had 3.10 and keeping it with the lift at 1.55
   // throughout 3.75. On the photos the app's soft ground came out no
   // grainier than Google's (the fox's soft background 1.20 in the fine band
-  // against Google's 1.28), so this holds it to not much worse.
-  check(sharpChart.noiseJpeg - googlePhone['sharpen+100'].noise <= 0.8,
-    'and the noise patch comes out no more than 0.8 louder than Google\'s once both are JPEGs',
-    `${sharpChart.noiseJpeg.toFixed(2)} (${sharpChart.noise.toFixed(2)} before the JPEG); Google ${googlePhone['sharpen+100'].noise}`);
+  // against Google's 1.28), so this holds it to not much worse. The export
+  // is itself a JPEG at 0.92 now, so it is compared as it comes: until the
+  // PNG went, this test made its own q90 JPEG of a lossless export, and
+  // doing that to a JPEG is a second generation Google's never had.
+  check(sharpChart.noise - googlePhone['sharpen+100'].noise <= 0.8,
+    'and the noise patch comes out no more than 0.8 louder than Google\'s, both as JPEGs',
+    `${sharpChart.noise.toFixed(2)}; Google ${googlePhone['sharpen+100'].noise}`);
   // Google's rings 10 under and 7 over at this edge. The app's rings 5 and
   // 11 (1 and 4 while the finest detail was traded), and what matters more
   // is that it goes no further out than Google's by much.
@@ -823,18 +838,21 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="adjust"]');
+await p.click('#tile-tabs [data-tile="adjust"]');
 await choose('sharpen');
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#quality', '2160');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
+await p.click('#export-card [data-quality=\"2160\"]');
 const gotTexture = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+// Detail at 2.5px is what a JPEG spends first, and this is a check on the
+// sharpening: read what was drawn. Through the export's own JPEG the same
+// stand-in reads ×0.55 and ×0.95 at 2.5 and 3px.
+await readDrawnNotEncoded();
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const textureDownload = await gotTexture;
-await p.click('#dock-back');
 if (!textureDownload) check(false, 'the sharpened stand-in arrives');
 else {
   // Brightness of the stand-in drawn into the export as the app draws it,
@@ -894,25 +912,24 @@ const tonedChart = async (amount) => {
   await p.waitForTimeout(400);
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await p.waitForTimeout(200);
-  await p.click('.dock-item[data-tile="adjust"]');
+  await p.click('#tile-tabs [data-tile="adjust"]');
   await choose('tone');
   const oneWay = await p.$eval('#adjust', (e) => e.min === '0');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); await p.click('#dock-back'); }
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
   if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-  await p.click('.dock-item[data-drawer="export"]');
-  await p.selectOption('#quality', '2160');
-  await p.selectOption('#format', 'image/png');
+  await p.click('#btn-export-open');
+  await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const download = await got;
-  await p.click('#dock-back');
   if (!download) return null;
   return {
     oneWay,
     ...await p.evaluate(async ({ b64, original, L, points }) => {
       const read = async (data) => {
-        const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+        const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${data}`)).blob());
         const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d', { willReadFrequently: true });
         g.drawImage(bmp, 0, 0);
         return g;

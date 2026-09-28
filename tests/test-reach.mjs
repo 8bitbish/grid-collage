@@ -46,14 +46,14 @@ const ok=(what,good,detail='')=>{ if(good){pass++;console.log(`  ✓ ${what}${de
 const DRAWERS = [
   ['layout',     '.layout-btn'],
   ['shape',      '#ratios button'],
-  ['background', '.swatch, #bg'],
+  ['background', '.swatch'],
+  ['padding',    '#dp-padding .dial-track'],
+  ['corners',    '#dp-corners .dial-track'],
   ['page',       '#dp-page .btn'],
-  ['export',     '#dp-export .select, #btn-export'],
 ];
+// The tile's tools, each opened from its tab along the foot.
 const SUBS = [
-  ['zoom',   '#tile-zoom input'],
-  ['rotate', '#btn-rot90'],
-  ['flip',   '#tile-flip .btn'],
+  ['crop',   '#tile-crop .dock-tab, #tile-crop .circle, #tile-crop .dial-track'],
 ];
 
 const b=await chromium.launch({executablePath: CHROME});
@@ -81,69 +81,92 @@ for (const [label, vp, floor] of [
       return {id: el.id || el.dataset.id || el.className, side: Math.round(Math.min(r.width, r.height))};})
     .sort((a,c)=>a.side-c.side)[0]);
 
+  // The bar holds only Ratio, Layout and Export now; the page's other
+  // settings are tabs along the foot of the sheet Layout opens.
+  const open = async (name) => {
+    if (await p.locator(`.dock-root [data-drawer="${name}"]`).count()) return p.click(`.dock-root [data-drawer="${name}"]`);
+    await p.click('.dock-root [data-drawer="layout"]');
+    await p.click(`.dock-tab[data-drawer="${name}"]`);
+  };
+
+  // Those two rows are controls too, and new ones.
+  const bar = await worst('.dock-root button');
+  ok('the bar: smallest control', bar.side >= floor, `${bar.id} at ${bar.side}px`);
+  await open('layout');
+  const tabs = await worst('.dock-tab');
+  ok('the tabs: smallest control', tabs.side >= floor, `${tabs.id} at ${tabs.side}px`);
+  await p.click('#dock-back');
+
   for (const [name, sel] of DRAWERS) {
-    await p.click(`.dock-item[data-drawer="${name}"]`);
+    await open(name);
     const w = await worst(sel);
     ok(`${name}: smallest control`, w && w.side >= floor, `${w ? w.id : 'nothing found'} at ${w ? w.side : '-'}px`);
     await p.click('#dock-back');
   }
 
-  await p.click('.dock-item[data-drawer="gap"]');
+  await open('background');
   const back = await worst('#dock-back');
   ok('the back button', back.side >= floor, `${back.side}px`);
   await p.click('#dock-back');
 
   // The two pinned controls, which must be on screen whatever the width.
-  await p.click('.dock-item[data-drawer="background"]');
+  // The colour well is no longer pinned beside the presets: any colour is the
+  // last stop on the colour reel, which runs round, so it is never out of
+  // reach — and what it opens is what has to fit. Measured on the hex field,
+  // the one control there for a colour that no swatch and no ruler offers.
+  await open('background');
+  await p.click('#swatches .swatch.is-custom');
   const well = await p.evaluate(() => {
-    const r = document.getElementById('bg').getBoundingClientRect();
-    return { right: Math.round(r.right), width: window.innerWidth, scrolls: document.getElementById('dp-background').scrollWidth - document.getElementById('dp-background').clientWidth };
+    const r = document.getElementById('bg-hex').getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), width: window.innerWidth, scrolls: document.getElementById('dp-background').scrollWidth - document.getElementById('dp-background').clientWidth };
   });
-  ok('the colour well is on screen', well.right <= well.width, `right edge ${well.right} of ${well.width}`);
+  ok('any colour opens its hex field on screen', well.left >= 0 && well.right > well.left && well.right <= well.width, `${well.left}–${well.right} of ${well.width}`);
   ok('and the panel around it does not scroll', well.scrolls <= 2, `${well.scrolls}px of slack`);
+  const customs = await worst('#bg-presets, .hex-field, #bg, .colour-ruler');
+  ok('any colour: smallest control', customs.side >= floor, `${customs.id} at ${customs.side}px`);
   await p.click('#dock-back');
 
-  await p.click('.dock-item[data-drawer="export"]');
+  // Export is a card off the bar rather than a sheet: its sizes and its
+  // button are controls like any other, and all of it has to be on screen.
+  await p.click('#btn-export-open');
+  // At rest: it rises off the button from 96%, and measured on the way it
+  // is 42 of its 44.
+  await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const sizes = await worst('#export-card button');
+  ok('export: smallest control', sizes.side >= floor, `${sizes.id} at ${sizes.side}px`);
   const exp = await p.evaluate(() => {
-    const r = document.getElementById('btn-export').getBoundingClientRect();
-    const panel = document.getElementById('dp-export');
-    const cs = getComputedStyle(panel);
-    return { right: Math.round(r.right), width: window.innerWidth,
-             scrolls: panel.scrollWidth - panel.clientWidth,
-             masked: (cs.maskImage || cs.webkitMaskImage || 'none') !== 'none' };
+    const r = document.getElementById('export-card').getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), width: window.innerWidth };
   });
-  ok('Export is on screen', exp.right <= exp.width, `right edge ${exp.right} of ${exp.width}`);
-  // The panel sets overflow: visible so its settings rail can scroll inside it,
-  // which means the panel itself never can — and a row that cannot scroll must
-  // not be wearing the sideways-scroll fade. That is the fault 059493d found on
-  // the sliders, and the mask would take the right-hand edge of Export with it.
-  ok('and the panel around it is not masked', !exp.masked && exp.scrolls <= 2,
-     `${exp.scrolls}px of slack, mask ${exp.masked ? 'on' : 'off'}`);
-  await p.click('#dock-back');
+  ok('the export card is on screen', exp.left >= 0 && exp.right <= exp.width && exp.top >= 0, `${exp.left}–${exp.right} of ${exp.width}, top ${exp.top}`);
+  await p.click('#btn-export-open');
 
   // The tile drawer and its sub-panels.
   const box=await p.locator('#canvas').boundingBox();
   await p.mouse.click(Math.round(box.x+box.width*0.3), Math.round(box.y+box.height*0.3));
   await p.waitForSelector('#dp-tile',{state:'visible'});
-  const act = await worst('#tile-actions .dock-item');
+  const act = await worst('#tile-actions .tile-act');
   ok('tile actions: smallest control', act.side >= floor, `${act.id} at ${act.side}px`);
+  const toolTabs = await worst('#tile-tabs .dock-tab:not([hidden])');
+  ok('tile tabs: smallest control', toolTabs.side >= floor, `${toolTabs.id} at ${toolTabs.side}px`);
   for (const [name, sel] of SUBS) {
-    await p.click(`.dock-item[data-tile="${name}"]`);
+    await p.click(`#tile-tabs [data-tile="${name}"]`);
     const w = await worst(sel);
     ok(`tile/${name}: smallest control`, w && w.side >= floor, `${w ? w.id : 'nothing found'} at ${w ? w.side : '-'}px`);
-    await p.click('#dock-back');
   }
 
-  // Back once more: inside the tile drawer the first press steps out of a
-  // sub-panel and the second lets go of the tile, which is what puts the
-  // settings list back.
+  // Back lets go of the tile, which is what puts the settings list back.
   await p.click('#dock-back');
 
   // Nothing may hang out of the bar. A panel that overflows downward is a
   // control pressed against the bottom edge of the screen, which is how the
   // trim panel arrived — 90px of content in 62px of dock.
-  for (const name of ['shape','background','page','export']) {
-    await p.click(`.dock-item[data-drawer="${name}"]`);
+  for (const name of ['shape','background','page']) {
+    await open(name);
+    // Measured at rest. A sheet rises from wherever the last one fell to,
+    // so mid-flight its panel is below the dock by however far that was:
+    // a tall sheet closing just before made this read 89px outside.
+    await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
     const fits = await p.evaluate((n) => {
       const dock = document.querySelector('.dock').getBoundingClientRect();
       const panel = document.getElementById(`dp-${n}`).getBoundingClientRect();

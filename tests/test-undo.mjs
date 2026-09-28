@@ -12,7 +12,13 @@ const PORT=srv.address().port;
 const _pages = (pg) => pg.evaluate(()=>document.querySelectorAll('.film').length);
 const _photos = (pg) => pg.evaluate(()=>document.querySelectorAll('.pm-item').length);
 const _current = (pg) => pg.evaluate(()=>[...document.querySelectorAll('.film')].findIndex(f=>f.classList.contains('is-current'))+1);
-const _openDrawer = (pg, name) => pg.click(`.dock-item[data-drawer="${name}"]`);
+// The bar holds only Ratio, Layout and Export now; the page's other settings
+// are tabs along the foot of the sheet Layout opens, so reach them that way.
+const _openDrawer = async (pg, name) => {
+  if (await pg.locator(`.dock-root [data-drawer="${name}"]`).count()) return pg.click(`.dock-root [data-drawer="${name}"]`);
+  await pg.click('.dock-root [data-drawer="layout"]');
+  await pg.click(`.dock-tab[data-drawer="${name}"]`);
+};
 function png(w,h,[r0,g0,b0]){const raw=Buffer.alloc((w*3+1)*h);
   for(let y=0;y<h;y++){const o=y*(w*3+1);for(let x=0;x<w;x++){raw[o+1+x*3]=r0;raw[o+2+x*3]=g0;raw[o+3+x*3]=b0;}}
   const TB=[...Array(256)].map((_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c;});
@@ -41,7 +47,7 @@ await p.waitForFunction(()=>document.querySelectorAll('.film').length===4);
 console.log('after import:', await pages(), 'pages,', await photos(), 'photos | undo enabled:', await undoOn());
 
 // delete a page, undo it
-await p.click('.dock-item[data-drawer="page"]'); await p.click('#btn-delete-page'); await p.click('#dock-back');
+await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#dock-back');
 const afterDelete = await pages();
 await p.click('#btn-undo');
 console.log(`delete page: ${afterDelete} -> undo -> ${await pages()}`, (await pages())===4?'✓':'✗');
@@ -76,7 +82,7 @@ const settled = await p.evaluate(()=>{const c=document.getElementById('canvas');
 console.log('  and settles to the original, exactly:', settled, settled==='220,40,40'?'✓':'✗');
 
 // keyboard
-await p.click('.dock-item[data-drawer="page"]'); await p.click('#btn-delete-page'); await p.click('#dock-back');
+await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#dock-back');
 await p.keyboard.press('Control+z');
 console.log('Ctrl+Z:', await pages(), (await pages())===4?'✓':'✗');
 await p.keyboard.press('Control+Shift+z');
@@ -106,7 +112,7 @@ console.log('after exhausting redo — pages:', await pages(), 'photos:', await 
 
 // new edit clears the redo stack
 if (await undoOn()) await p.click('#btn-undo');
-await p.click('.dock-item[data-drawer="layout"]');
+await _openDrawer(p, 'layout');
 await p.click('.layout-btn[data-id="3x3"]');
 console.log('new edit clears redo:', !(await redoOn())?'✓':'✗');
 

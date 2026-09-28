@@ -110,9 +110,10 @@ await page.setInputFiles('#file-input', [
 ]);
 await page.waitForFunction(() => document.querySelectorAll('.pm-item').length===2);
 const dl = page.waitForEvent('download');
-await page.click('.dock-item[data-drawer="export"]');
+await page.click('#btn-export-open');
 await page.waitForTimeout(300);
 await page.click('#btn-export');
+await page.click('#export-share', { timeout: 120000 });
 const download = await dl;
 await download.saveAs('/tmp/offline-export.jpg');
 console.log('✓ OFFLINE export:', download.suggestedFilename(), fs.statSync('/tmp/offline-export.jpg').size, 'bytes');

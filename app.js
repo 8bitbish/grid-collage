@@ -48,7 +48,21 @@
     { id: '9:16', label: '9:16', w: 9, h: 16 },
   ];
 
-  const SWATCHES = ['#ffffff', '#000000', '#f2efe9', '#e8d9c5', '#1e2a3a', '#ff4d8d', '#a8c7a0', '#c9c9d4'];
+  // What a ratio is for, said under its number in the sheet's foot. Nobody
+  // posting a carousel thinks of it as 4:5; they think of where it is going.
+  const RATIO_USES = {
+    '1:1': 'Square',
+    '4:5': 'Instagram portrait',
+    '3:4': 'Instagram, taller',
+    '9:16': 'Stories, Reels and TikTok',
+  };
+
+  // The background presets, light to dark, so turning the reel moves steadily
+  // through them. A preset is named; anything else is known by its hex.
+  const SWATCHES = [
+    ['#ffffff', 'White'], ['#f2efe9', 'Bone'], ['#e8d9c5', 'Sand'], ['#c9c9d4', 'Mist'],
+    ['#a8c7a0', 'Sage'], ['#ff4d8d', 'Pink'], ['#1e2a3a', 'Navy'], ['#000000', 'Black'],
+  ];
 
   const BASE_WIDTH = 1080;   // slider values are authored against a 1080px post
   const MAX_PAGES = 20;      // Instagram's carousel limit
@@ -106,7 +120,6 @@
     radius: 0,
     bg: '#ffffff',
     quality: 1080,
-    format: 'image/jpeg',
     // contents
     photos: [],
     pages: [],
@@ -183,8 +196,9 @@
   document.addEventListener('touchstart', () => {}, { passive: true });
 
   let pendingCell = null;
-  // The compare button is held down: the preview shows the photos as they
-  // came, without their edits, until it is let go.
+  // Compare is on: the chosen tile shows its photo as it came, until it is
+  // turned off again or the tool it was turned on in is left. On Adjust that
+  // is without its look ('look'); on Crop, without its framing ('crop').
   let comparing = false;
   // Pop out's Subjects button is on: a tap on the selected tile chooses what
   // counts as its subject, and the chosen ones are tinted.
@@ -374,14 +388,17 @@
     rects.forEach((rect, i) => {
       const cell = pg.cells[i];
       const photo = photoFor(cell);
+      // Crop's Compare draws the tile framed as it arrived, and only that: the
+      // look and everything else about it are still its own.
+      const frame = opts.unframed === i && cell ? { ...cell, zoom: 1, rot: 0, ox: 0, oy: 0, flipX: false, flipY: false } : cell;
       let p = null;
       let drawn = null;
       const pose = () => {
         g.translate(rect.x + rect.w / 2 + p.ox, rect.y + rect.h / 2 + p.oy);
-        g.rotate(cell.rot);
+        g.rotate(frame.rot);
         // About the photo's own centre, so the area covered is unchanged and
         // the cover clamp still holds.
-        if (cell.flipX || cell.flipY) g.scale(cell.flipX ? -1 : 1, cell.flipY ? -1 : 1);
+        if (frame.flipX || frame.flipY) g.scale(frame.flipX ? -1 : 1, frame.flipY ? -1 : 1);
       };
 
       g.save();
@@ -389,7 +406,7 @@
       g.clip();
 
       if (photo && photo.bitmap) {
-        p = onWholePixels(place(cell, photo, rect, s), cell, rect);
+        p = onWholePixels(place(frame, photo, rect, s), frame, rect);
         pose();
         // cell.frame is set while a video is playing in the preview, and
         // while an export walks its frames. Failing that a clip draws as its
@@ -401,12 +418,12 @@
         const still = cell.frame || cell.poster || photo.bitmap;
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
-        // the preview's compare button, held down.
-        drawn = photo.kind === 'video' || opts.original ? still : lookOf(cell, photo, still, p.dw, p.dh);
+        // the tile Compare is showing as it came.
+        drawn = photo.kind === 'video' || opts.original === i ? still : lookOf(cell, photo, still, p.dw, p.dh);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
         if (opts.picking === i && photo.subject) g.drawImage(tintOf(photo.subject), -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
-        g.fillStyle = 'rgba(125,125,145,0.16)';
+        g.fillStyle = 'rgba(142, 142, 142, 0.16)';
         g.fillRect(rect.x, rect.y, rect.w, rect.h);
         plusSign(g, rect, s);
       }
@@ -421,17 +438,48 @@
     // visible whatever lands on top of it.
     popped.forEach((draw) => draw());
 
+    // The chosen tile is ringed in white, like everything chosen, over a
+    // darker ring a little wider: white alone vanishes against a white page
+    // or a bright photo, and the pair reads on anything.
     if (opts.selected >= 0 && rects[opts.selected]) {
       g.save();
-      g.strokeStyle = '#ff4d8d';
-      g.lineWidth = Math.max(2, 4 * s);
       roundedPath(g, rects[opts.selected], radius);
+      g.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+      g.lineWidth = Math.max(4, 8 * s);
+      g.stroke();
+      g.strokeStyle = '#f5f5f5';
+      g.lineWidth = Math.max(2, 4 * s);
       g.stroke();
       g.restore();
     }
   }
 
+  // Redraw the preview when the room for it has changed. The observer calls
+  // this, and so does a sheet opening or closing, straight after the change,
+  // so the one redraw happens at the final size before anything moves — and
+  // the observer, arriving after, finds nothing left to do.
+  let fitW = 0;
+  let fitH = 0;
+  function fitPreview() {
+    const box = $('canvas-wrap');
+    const w = box.clientWidth;
+    const h = box.clientHeight;
+    if (!w || !h) return;
+    if (Math.abs(w - fitW) < 8 && Math.abs(h - fitH) < 8) return;
+    fitW = w;
+    fitH = h;
+    render();
+  }
+
+  // What a dial is passing over, drawn in place of the page until it settles
+  // — see renderAs.
+  let previewing = null;
   function render() {
+    const putBack = previewing ? previewing() : null;
+    try { drawPreview(); } finally { if (putBack) putBack(); }
+  }
+
+  function drawPreview() {
     const { w: W, h: H } = previewSize();
     if (canvas.width !== W || canvas.height !== H) {
       canvas.width = W;
@@ -445,12 +493,19 @@
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
     const tinted = picking || performance.now() < tintUntil;
-    drawPage(ctx, page(), W, H, { placeholders: true, selected: state.selected, original: comparing, picking: tinted ? state.selected : -1 });
+    drawPage(ctx, page(), W, H, {
+      placeholders: true,
+      selected: state.selected,
+      original: comparing === 'look' ? state.selected : -1,
+      unframed: comparing === 'crop' ? state.selected : -1,
+      picking: tinted ? state.selected : -1,
+    });
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
     page().rev = (page().rev || 0) + 1;
     placePageX();
+    placeTileOverlays();
   }
 
   // The delete-page button rides the top-right corner of the page itself. The
@@ -559,8 +614,9 @@
     g.restore();
   }
 
-  // What is chosen as the subject while choosing: the accent, at half
-  // strength, wherever the mask is. Made once per mask.
+  // What is chosen as the subject while choosing: white, a little under half
+  // strength, wherever the mask is — lit, the way everything chosen is.
+  // Made once per mask.
   function tintOf(subject) {
     if (subject.tint) return subject.tint;
     const { mask } = subject;
@@ -568,7 +624,7 @@
     c.width = mask.width;
     c.height = mask.height;
     const g = c.getContext('2d');
-    g.fillStyle = 'rgba(255, 77, 141, 0.5)';
+    g.fillStyle = 'rgba(255, 255, 255, 0.45)';
     g.fillRect(0, 0, c.width, c.height);
     g.globalCompositeOperation = 'destination-in';
     g.drawImage(mask, 0, 0);
@@ -580,7 +636,7 @@
     const arm = Math.min(r.w, r.h) * 0.09;
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
-    g.strokeStyle = 'rgba(140,140,165,0.75)';
+    g.strokeStyle = 'rgba(142, 142, 142, 0.75)';
     g.lineWidth = 3 * s;
     g.lineCap = 'round';
     g.beginPath();
@@ -4112,15 +4168,65 @@
     goTo(Math.min(state.current, state.pages.length - 1));
   }
 
+  // The photos already placed, in order, into the cells of another layout.
+  // A layout previewed under the dial's needle is drawn from this and so is
+  // the one it settles on, so the two are the same picture.
+  function cellsFor(pg, layout) {
+    const kept = pg.cells.filter(Boolean);
+    return blankCells(layout).map((_, i) => kept[i] || null);
+  }
+
   function setLayout(layout) {
     snapshot();
     const pg = page();
-    // Keep the photos that were already placed, in order.
-    const kept = pg.cells.filter(Boolean);
     pg.layout = layout;
-    pg.cells = blankCells(layout).map((_, i) => kept[i] || null);
+    pg.cells = cellsFor(pg, layout);
     if (state.selected >= pg.cells.length) state.selected = -1;
     refresh();
+  }
+
+  // Draw the preview as if something were already so. A dial passing over
+  // an option shows it this way: the photos are the ones already decoded,
+  // the drawing is drawPage's own, and nothing is saved, recorded or
+  // re-thumbnailed until the dial comes to rest on one. The change is made
+  // for the length of each redraw and undone straight after, so nothing but
+  // the preview ever sees it; and it is kept for every redraw until then, so
+  // a poster landing mid-drag does not flick the page back.
+  function renderAs(apply) {
+    previewing = apply;
+    render();
+  }
+
+  function previewLayout(btn) {
+    const layout = LAYOUTS.find((l) => l.id === btn.dataset.id);
+    const pg = page();
+    if (!layout || layout.id === pg.layout.id) { renderAs(null); return; }
+    renderAs(() => {
+      const was = { layout: pg.layout, cells: pg.cells };
+      pg.layout = layout;
+      pg.cells = cellsFor(pg, layout);
+      return () => { pg.layout = was.layout; pg.cells = was.cells; };
+    });
+  }
+
+  function previewRatio(btn) {
+    const ratio = RATIOS.find((r) => r.id === btn.dataset.id);
+    if (!ratio || ratio.id === state.ratio.id) { renderAs(null); return; }
+    renderAs(() => {
+      const was = state.ratio;
+      state.ratio = ratio;
+      return () => { state.ratio = was; };
+    });
+  }
+
+  function previewColour(btn) {
+    const colour = btn.dataset.id;
+    if (!/^#[0-9a-f]{6}$/i.test(colour) || colour === state.bg.toLowerCase()) { renderAs(null); return; }
+    renderAs(() => {
+      const was = state.bg;
+      state.bg = colour;
+      return () => { state.bg = was; };
+    });
   }
 
   function goTo(i) {
@@ -4130,6 +4236,7 @@
   }
 
   function refresh() {
+    previewing = null;
     saveDeck();
     render();
     renderFilmstrip();
@@ -5963,8 +6070,10 @@
     // is still means the slot you are aiming at changes under you — so the
     // strip takes on exactly that width as padding and the contents stay put.
     const bar = document.querySelector('.pagesbar');
-    bar.style.setProperty('--fold-left', `${$('btn-home').offsetWidth + $('btn-photos').offsetWidth}px`);
-    bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth}px`);
+    // Each end gives up its own width and the gap it kept from the strip.
+    const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+    bar.style.setProperty('--fold-left', `${$('btn-home').offsetWidth + gap}px`);
+    bar.style.setProperty('--fold-right', `${bar.querySelector('.pagesbar-end').offsetWidth + gap}px`);
     bar.classList.add('is-reordering');
     el.classList.add('is-lifted');
     el.style.transition = 'none';
@@ -6098,6 +6207,13 @@
   function redrawFilms() {
     if (state.pages.some((pg) => !pg.thumb || !pg.thumb.isConnected)) { renderFilmstrip(); return; }
     state.pages.forEach(drawThumb);
+    markEmptyPages();
+  }
+
+  // Empty is a page with no photo on it anywhere, whatever its layout.
+  function markEmptyPages() {
+    const films = $('filmstrip').querySelectorAll('.film');
+    state.pages.forEach((pg, i) => { if (films[i]) films[i].classList.toggle('is-empty', !pg.cells.some(Boolean)); });
   }
 
   function renderFilmstrip() {
@@ -6126,7 +6242,14 @@
       num.className = 'film-num';
       num.textContent = i + 1;
 
-      el.append(thumb, num);
+      // A page nobody has put a photo on yet is shown as a place to fill,
+      // not as a blank picture; see markEmptyPages.
+      const empty = document.createElement('span');
+      empty.className = 'film-empty';
+      empty.setAttribute('aria-hidden', 'true');
+      empty.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM10.75 10a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM20.5 15.5l-3.9-3.9a1.5 1.5 0 0 0-2.1 0l-8 7.9"/></svg>';
+
+      el.append(thumb, num, empty);
       el.addEventListener('contextmenu', (e) => e.preventDefault());
       armReorder(el, i);
 
@@ -6136,7 +6259,7 @@
     const add = document.createElement('button');
     add.className = 'film-add';
     add.type = 'button';
-    add.textContent = '+';
+    add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
     add.setAttribute('aria-label', 'Add a page');
     add.title = state.pages.length >= MAX_PAGES
       ? `A carousel tops out at ${MAX_PAGES} pages`
@@ -6146,6 +6269,7 @@
     strip.appendChild(add);
 
     markCurrent(state.current);
+    markEmptyPages();
   }
 
   // Which page the strip shows as current, kept apart from a full re-render so
@@ -6584,17 +6708,17 @@
       c.classList.toggle('is-active', on);
       c.setAttribute('aria-pressed', String(on));
     });
+    syncChips();
+    // A page that has just become a single photo has no gap to set.
+    if (drawer === 'gap' && layoutCells(pg.layout).length < 2) openDrawer('layout');
+    else if (drawer && PAGE_TABS.includes(drawer)) syncSheet();
+    if (drawer === 'layout' && layoutReel) layoutReel.sync();
 
-    // Only a tile with a clip in it can be trimmed, so the action is only
-    // there when it means something.
-    $('tile-trim-btn').hidden = !(photo && photo.kind === 'video');
-    if (tileSub === 'trim' && !(photo && photo.kind === 'video')) showTileSub(null);
-    // And edits are photos only, so the reverse.
-    $('tile-adjust-btn').hidden = !photo || photo.kind === 'video';
-    if (tileSub === 'adjust' && (!photo || photo.kind === 'video')) showTileSub(null);
+    // A tool the tile has no use for — Trim on a photo, Adjust or Effects on
+    // a clip, which is what choosing another photo for it can leave open —
+    // gives way to the one this kind of tile opens on.
+    if (drawer === 'tile' && photo && tileSub !== 'replace' && !toolFits(tileSub, photo)) showTileSub(toolFor(photo));
     else if (tileSub === 'adjust') syncAdjust();
-    $('tile-effects-btn').hidden = !photo || photo.kind === 'video';
-    if (tileSub === 'effects' && (!photo || photo.kind === 'video')) showTileSub(null);
     else if (tileSub === 'effects') syncEffects();
 
     if (!photo) {
@@ -6604,22 +6728,33 @@
       return;
     }
     if (drawer !== 'tile') openDrawer('tile');
+    // An undo can put back or take away the change the pill is there for.
+    syncFloat();
 
     const p = place(cell, photo, cellRects()[i], canvas.width / BASE_WIDTH);
-    const degrees = Math.round(((cell.rot * 180) / Math.PI) % 360);
+    const degrees = angleOf(cell);
 
-    $('cell-angle').textContent = `${degrees > 180 ? degrees - 360 : degrees}°`;
+    $('cell-angle').textContent = `${signedDegrees(degrees)}°`;
     $('zoom').min = Math.ceil(p.minZoom * 100);
     $('zoom').max = Math.max(800, Math.ceil(p.minZoom * 100));
     $('zoom').value = Math.round(p.zoom * 100);
     $('zoom-val').textContent = `${Math.round(p.zoom * 100)}%`;
-    $('angle').value = degrees > 180 ? degrees - 360 : degrees;
+    $('angle').value = degrees;
     paintSlider($('zoom'));
     paintSlider($('angle'));
   }
 
+  // A tile's turn as the Angle dial shows it, -180 to 180 however many quarter
+  // turns went into it: four turns right is square again, not 360°.
+  function angleOf(cell) {
+    const d = Math.round((((cell.rot * 180) / Math.PI) % 360 + 540) % 360 - 180);
+    return d === -180 ? 180 : d;
+  }
+  const signedDegrees = (d) => (d < 0 ? `\u2212${-d}` : String(d));
+
   function select(i) {
     if (picking && i !== state.selected) { picking = false; pickPress = null; }
+    if (comparing && i !== state.selected) setCompare(false);
     state.selected = i;
     render();
     syncPanel();
@@ -6635,14 +6770,14 @@
   // picker, so the photos already imported are the first thing offered.
   function fillEmptyTile(i) {
     state.selected = i;
-    openDrawer('tile');
-    showTileSub('replace');
+    morph(() => { openDrawerNow('tile'); showTileSubNow('replace'); });
     render();
   }
 
   function resetCell(i) {
     const cell = page().cells[i];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot();
     cell.zoom = 1; cell.rot = 0; cell.ox = 0; cell.oy = 0;
     cell.flipX = false; cell.flipY = false;
@@ -6871,6 +7006,8 @@
     }
 
     if (pointers.size === 0) { endRun(); snapshot(); }
+    // A finger on the photo is an edit, and an edit is not made blind.
+    if (comparing) setCompare(false);
     // Choosing subjects: a tap chooses, and a drag still moves the photo, so
     // which it was is only known on letting go.
     if ((picking || sampling()) && pointers.size === 0) pickPress = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, at: p, i };
@@ -6881,6 +7018,7 @@
     stageInput.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, p);
     rebase();
+    placeTileOverlays();
   });
 
   stageInput.addEventListener('pointermove', (e) => {
@@ -7140,7 +7278,11 @@
 
   /* ---------------------------------------------------------------- export */
 
-  function renderToBlob(pg, type) {
+  // A photo page goes out as a JPEG at 0.92, whatever it is. Instagram
+  // re-encodes everything it is sent as JPEG, so a PNG's losslessness never
+  // reached a post, and the choice went. The clipboard is the one thing that
+  // still asks for a PNG.
+  function renderToBlob(pg, type = 'image/jpeg') {
     const { w, h } = outputSize();
     const off = document.createElement('canvas');
     off.width = w;
@@ -7182,7 +7324,7 @@
   // both, in the background behind the tiles.
   const bitrateFor = (w, h) => Math.round(Math.min(24e6, Math.max(2e6, w * h * EXPORT_FPS * 0.1)));
 
-  async function renderVideoPage(pg, onProgress) {
+  async function renderVideoPage(pg, onProgress, job = null) {
     const MB = await loadMediabunny();
     const { w: W, h: H } = outputSize();
 
@@ -7233,7 +7375,7 @@
     });
 
     try {
-      return await composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress);
+      return await composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress, job);
     } finally {
       // Whatever happened, nothing is left holding a decoder open or a frame
       // undrained — abandoning an iterator mid-flight leaves both.
@@ -7243,8 +7385,14 @@
     }
   }
 
-  async function composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress) {
+  async function composeFrames(pg, g, W, H, frames, clips, videoOut, output, target, onProgress, job) {
     for (let i = 0; i < frames; i += 1) {
+      // Cancel stops between frames, not at the end of a clip that could be
+      // a minute long. What was written so far is thrown away with the file.
+      if (job && job.cancelled) {
+        try { await output.cancel(); } catch { /* nothing to undo */ }
+        throw new DOMException('Export cancelled', 'AbortError');
+      }
       const open = [];
       for (const clip of clips) {
         const { value: sample } = await clip.reader.next();
@@ -7286,9 +7434,10 @@
     return c;
   }
 
-  // The sound comes from the longest clip on the page — with more than one
-  // running at once there is no honest way to choose, so the one that lasts
-  // is the one you hear.
+  // The sound comes from the longest clip on the page that has not been
+  // muted — with more than one running at once there is no honest way to
+  // choose, so the one that lasts is the one you hear, and muting the others
+  // is how to choose for yourself. Every clip muted is a silent slide.
   //
   // Untrimmed, its packets are already exactly what an mp4 wants, so they
   // are copied straight across: nothing lost, nothing spent. Trimmed, they
@@ -7297,7 +7446,7 @@
   // shape as what the video does two functions up.
   async function attachAudio(MB, output, clips) {
     let pick = null;
-    for (const clip of clips) if (!pick || clip.span > pick.span) pick = clip;
+    for (const clip of clips) if (!clip.cell.muted && (!pick || clip.span > pick.span)) pick = clip;
     if (!pick) return null;
 
     try {
@@ -7342,98 +7491,209 @@
     }
   }
 
+  /* ------------------------------------------------------ the export card */
+
+  // The sizes, and the button that goes, on a card off the Export button. The
+  // bar stays: the card sits over the stage rather than taking its place.
+  function syncSizes() {
+    $('export-card').querySelectorAll('[data-quality]').forEach((btn) => {
+      const on = Number(btn.dataset.quality) === state.quality;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-checked', String(on));
+    });
+  }
+
+  function openExportCard() {
+    const card = $('export-card');
+    if (!card.hidden) return;
+    syncSizes();
+    card.hidden = false;
+    $('btn-export-open').classList.add('is-open');
+    $('btn-export-open').setAttribute('aria-expanded', 'true');
+    $('btn-export-open').setAttribute('aria-label', 'Close');
+    if (!calmMotion.matches) {
+      card.animate([{ opacity: 0, transform: 'translateY(8px) scale(0.96)' }, { opacity: 1, transform: 'none' }],
+        { duration: FLOAT_MS, easing: 'ease-out' });
+    }
+  }
+
+  function closeExportCard() {
+    const card = $('export-card');
+    if (card.hidden) return;
+    card.hidden = true;
+    $('btn-export-open').classList.remove('is-open');
+    $('btn-export-open').setAttribute('aria-expanded', 'false');
+    $('btn-export-open').setAttribute('aria-label', 'Export');
+  }
+
+  function chooseSize(q) {
+    if (q === state.quality) return;
+    snapshot();
+    state.quality = q;
+    restyle();
+    refresh();
+    saveDeck();
+    syncSizes();
+  }
+
+  /* ------------------------------------------------------- the export run */
+  //
+  // One run at a time, held while its screen is up: what it made, how many
+  // video slides had to go out as stills, and whether Cancel was tapped.
+  let exportJob = null;
+
   // Nothing plays while an export is running. The preview and the export
   // both hand a frame to the same cell and both want the decoder, and the
-  // preview is the one nobody is watching once the overlay is up.
+  // preview is the one nobody is watching once the screen is up.
   async function exportDeck() {
+    closeExportCard();
     stopPlayers();
     try { await runExport(); } finally { syncPlayback(); }
   }
 
+  const slideName = (i, ext) => `${String(i + 1).padStart(2, '0')}.${ext}`;
+  const shareable = (files) => !!(navigator.canShare && navigator.canShare({ files }));
+
   async function runExport() {
     const filled = state.pages.filter((pg) => pg.cells.some(Boolean));
     if (!filled.length) { toast('Add a photo first'); return; }
-
-    const ext = state.format === 'image/png' ? 'png' : 'jpg';
-    const out = outputSize();
+    const job = { cancelled: false, files: [], failed: 0, total: filled.length };
+    exportJob = job;
+    showExportScreen();
     const skipped = state.pages.length - filled.length;
-    const moving = filled.filter(hasVideo).length;
-    toast(skipped
-      ? `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''} — skipping ${skipped} empty`
-      : `Rendering ${filled.length} page${filled.length > 1 ? 's' : ''}…`);
-
-    // A page of video is the one thing here that takes long enough to need
-    // saying so: every frame has to be decoded, composed and encoded again.
-    if (moving) showOpening('Rendering', 'Reading the video…');
+    if (skipped) toast(`Skipping ${plural(skipped, 'empty page')}`);
     // Every page's, before any is drawn, video pages' stills included.
     await tablesForPages(filled);
-    let failed = 0;
 
-    const files = [];
-    for (let i = 0; i < filled.length; i++) {
-      const page = filled[i];
-      if (hasVideo(page)) {
-        if (moving) {
-          $('op-name').textContent = filled.length > 1
-            ? `Slide ${i + 1} of ${filled.length}` : 'Rendering';
-        }
+    for (let i = 0; i < filled.length && !job.cancelled; i++) {
+      const pg = filled[i];
+      const moving = hasVideo(pg);
+      exportProgress(job, i, 0, moving);
+      if (moving) {
         let clip = null;
         try {
-          clip = await renderVideoPage(page, (done) => {
-            $('op-fill').style.width = `${Math.round(done * 100)}%`;
-            $('op-step').textContent = `${Math.round(done * 100)}% of this slide`;
-          });
+          clip = await renderVideoPage(pg, (done) => exportProgress(job, i, done, true), job);
         } catch (err) {
-          console.warn('Video export failed', { page: i + 1, error: err });
+          if (!job.cancelled) console.warn('Video export failed', { page: i + 1, error: err });
         }
-        if (clip) {
-          files.push(new File([clip], `${String(i + 1).padStart(2, '0')}.mp4`, { type: 'video/mp4' }));
-          continue;
-        }
+        if (job.cancelled) break;
+        if (clip) { job.files.push(new File([clip], slideName(i, 'mp4'), { type: 'video/mp4' })); continue; }
         // Rather than drop the slide, send the frame it opens on. A carousel
         // missing its third slide is worse than one whose third slide is a
         // still, and it is obvious which happened.
-        failed += 1;
+        job.failed += 1;
       }
       // Never export a proxy. Whatever is on screen, the file that comes out
       // is rendered from the photo as it arrived.
-      await Promise.all(photosOn(page).map(ensureFull));
-      await subjectsFor(page);
-      const blob = await renderToBlob(page, state.format);
-      if (!blob) continue;
+      await Promise.all(photosOn(pg).map(ensureFull));
+      await subjectsFor(pg);
+      if (job.cancelled) break;
+      const blob = await renderToBlob(pg);
       // Instagram imports by filename, so the order has to be in the name.
-      files.push(new File([blob], `${String(i + 1).padStart(2, '0')}.${ext}`, { type: state.format }));
+      if (blob) job.files.push(new File([blob], slideName(i, 'jpg'), { type: 'image/jpeg' }));
     }
-    if (moving) hideOpening();
-    if (!files.length) { toast("Couldn't render the pages"); return; }
 
-    // Said at the end rather than here. Everything below toasts something
-    // routine on its way out, and a routine message replacing this one is
-    // how you would come to post a still where you meant a video.
-    const warn = failed
-      ? () => toast(`${failed} video slide${failed > 1 ? 's' : ''} wouldn't render — sent as stills`)
-      : null;
+    if (exportJob !== job) return;
+    if (job.cancelled) { closeExportScreen(); toast('Export cancelled'); return; }
+    if (!job.files.length) { closeExportScreen(); toast("Couldn't render the pages"); return; }
+    setExportState('ready');
+  }
 
-    // Share sheet takes the whole carousel at once and lands it in Photos.
-    if (navigator.canShare && navigator.canShare({ files })) {
+  function showExportScreen() {
+    const screen = $('export-screen');
+    screen.dataset.state = 'exporting';
+    screen.hidden = false;
+    document.body.classList.add('is-exporting');
+    $('export-cancel').disabled = false;
+    $('export-count').textContent = '';
+    $('export-fill').style.strokeDasharray = '0 100';
+  }
+
+  function closeExportScreen() {
+    $('export-screen').hidden = true;
+    document.body.classList.remove('is-exporting');
+    exportJob = null;
+  }
+
+  // One ring for the whole deck: the slides done, and how far through the one
+  // being made, which for a video is its frames.
+  function exportProgress(job, i, done, moving) {
+    if (exportJob !== job) return;
+    $('export-fill').style.strokeDasharray = `${(((i + done) / job.total) * 100).toFixed(2)} 100`;
+    $('export-count').textContent = `${i + 1}/${job.total}`;
+    $('export-title').textContent = `Exporting slide ${i + 1} of ${job.total}`;
+    $('export-sub').textContent = moving ? 'A video, so this one takes longer' : '';
+  }
+
+  function setExportState(stateName) {
+    const job = exportJob;
+    if (!job) return;
+    const n = job.files.length;
+    const screen = $('export-screen');
+    screen.dataset.state = stateName;
+    $('export-fill').style.strokeDasharray = '100 100';
+    if (stateName === 'ready') {
+      const share = shareable(job.files);
+      $('export-title').textContent = `${plural(n, 'slide')}, ready`;
+      // What to do in the share sheet, since a web app cannot open Instagram
+      // or post for anyone; with no share sheet, where they will land.
+      $('export-sub').textContent = share
+        ? (n === 1 ? 'Choose Instagram in the share sheet to post it' : 'Choose Instagram in the share sheet to post them as one carousel')
+        : 'They save as numbered files, so they stay in order';
+      $('export-share').textContent = `${share ? 'Share' : 'Save'} ${plural(n, 'slide')}`;
+      $('export-share').focus({ preventScroll: true });
+    } else if (stateName === 'shared') {
+      $('export-title').textContent = 'Shared';
+      $('export-sub').textContent = n === 1 ? 'Sent the slide' : `Sent all ${n} in order`;
+      $('export-done').focus({ preventScroll: true });
+    }
+  }
+
+  // The share sheet opens here and only here, on a tap. A browser allows
+  // navigator.share only within a few seconds of one, and a deck with video
+  // takes longer than that to render, so opening it at the end of the run
+  // failed on exactly the slow decks and fell back to saving files one by one.
+  //
+  // Worth a test on a phone: the title below. One report has iOS sharing the
+  // text instead of the files to some apps when a title is given.
+  async function shareExport() {
+    const job = exportJob;
+    if (!job) return;
+    const { files } = job;
+    if (shareable(files)) {
       try {
         await navigator.share({ files, title: 'Carousel' });
-        if (warn) warn();
-        return;
+        if (exportJob === job) setExportState('shared');
       } catch (err) {
-        if (err.name === 'AbortError') { if (warn) warn(); return; }
+        // Dismissed: back where it was, nothing lost.
+        if (err && err.name === 'AbortError') { if (exportJob === job) setExportState('ready'); return; }
+        saveExport(job);
       }
-    }
-
-    if (FRAMED) {
-      // Downloads are blocked in an embedded frame; offer the current page.
-      const url = URL.createObjectURL(files[Math.min(state.current, files.length - 1)]);
-      openSheet(url, files[0].name, `${out.w}×${out.h}`, ext.toUpperCase());
-      toast(warn ? '' : 'Embedded preview can only save one page at a time');
-      if (warn) warn();
       return;
     }
+    saveExport(job);
+  }
 
+  // Said once the screen has gone rather than while it is up. A routine
+  // message replacing this one is how you would come to post a still where
+  // you meant a video.
+  function warnStills(job) {
+    if (job && job.failed) toast(`${plural(job.failed, 'video slide')} wouldn't render — sent as stills`);
+  }
+
+  function saveExport(job) {
+    const { files } = job;
+    const out = outputSize();
+    closeExportScreen();
+    if (FRAMED) {
+      // Downloads are blocked in an embedded frame; offer the current page.
+      const file = files[Math.min(state.current, files.length - 1)];
+      const url = URL.createObjectURL(file);
+      openSheet(url, file.name, `${out.w}×${out.h}`, file.name.split('.').pop().toUpperCase());
+      if (job.failed) warnStills(job);
+      else toast('Embedded preview can only save one page at a time');
+      return;
+    }
     // No share sheet here (most desktop browsers): save them one by one,
     // numbered, so they still import in order.
     files.forEach((file, i) => {
@@ -7448,8 +7708,23 @@
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       }, i * 250);
     });
-    if (warn) warn();
-    else toast(`Saving ${files.length} page${files.length > 1 ? 's' : ''} as ${out.w}×${out.h} ${ext.toUpperCase()}`);
+    if (job.failed) warnStills(job);
+    else toast(`Saving ${plural(files.length, 'page')} as ${out.w}×${out.h}`);
+  }
+
+  function leaveExport() {
+    const job = exportJob;
+    const shared = $('export-screen').dataset.state === 'shared';
+    closeExportScreen();
+    if (shared) warnStills(job);
+  }
+
+  // Cancel stops between slides, and between frames of a video; the loop
+  // drops the black itself once it has.
+  function cancelExport() {
+    if (!exportJob) return;
+    exportJob.cancelled = true;
+    $('export-cancel').disabled = true;
   }
 
   function openSheet(url, name, size, ext) {
@@ -7487,6 +7762,27 @@
 
   /* ------------------------------------------------------------- controls */
 
+  // A layout drawn the way its icon is: one rounded outline with the cells
+  // divided inside it. The glyph is a grid whose own colour shows through the
+  // gaps between its cells, so the outline and the dividers are the same
+  // stroke for nothing, and it follows currentColor like any other icon.
+  function layoutGlyph(layout, into = document.createElement('i')) {
+    into.className = 'layout-glyph';
+    into.replaceChildren();
+    into.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
+    into.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+    layoutCells(layout).forEach((c) => {
+      const s = document.createElement('span');
+      s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
+      into.appendChild(s);
+    });
+    return into;
+  }
+
+  let layoutReel = null;
+  let ratioReel = null;
+  let colourReel = null;
+
   function buildLayouts() {
     const wrap = $('layouts');
     LAYOUTS.forEach((layout) => {
@@ -7495,38 +7791,42 @@
       btn.className = 'layout-btn';
       btn.title = layout.id === '1x1' ? 'Single image' : layout.id;
       btn.dataset.id = layout.id;
-      btn.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
-      btn.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
-      layoutCells(layout).forEach((c) => {
-        const s = document.createElement('span');
-        s.style.gridArea = `${c.y + 1} / ${c.x + 1} / span ${c.h} / span ${c.w}`;
-        btn.appendChild(s);
-      });
+      btn.appendChild(layoutGlyph(layout));
       btn.setAttribute('aria-label', layout.id === '1x1' ? 'Single image' : `Layout ${layout.id}`);
       btn.setAttribute('aria-pressed', 'false');
-      btn.addEventListener('click', () => setLayout(layout));
+      btn.addEventListener('click', () => { if (page().layout.id !== layout.id) setLayout(layout); });
       wrap.appendChild(btn);
+    });
+    layoutReel = reel($('layout-reel'), wrap, {
+      chosen: () => wrap.querySelector(`[data-id="${page().layout.id}"]`),
+      previews: previewLayout,
     });
   }
 
   function buildRatios() {
     const wrap = $('ratios');
-    RATIOS.forEach((ratio) => {
+    // Tallest to widest, through square: a swipe changes the page steadily and
+    // the direction always means the same thing.
+    [...RATIOS].sort((a, b) => a.w / a.h - b.w / b.h).forEach((ratio) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      // A rectangle in the option's own proportion, above the numbers. Every
-      // ratio here is square or taller, so the height is the constant and the
-      // width is what says which is which: 15px for 1:1 down to 8 for 9:16.
+      // A rectangle in the option's own proportion. The numbers stay in the
+      // button for a screen reader and for anything looking for them by name;
+      // the one you can see is under the dial, in the sheet's foot.
       const shape = document.createElement('span');
       shape.className = 'seg-shape';
-      shape.style.width = `${Math.round((15 * ratio.w) / ratio.h)}px`;
+      shape.style.setProperty('--rw', ratio.w);
+      shape.style.setProperty('--rh', ratio.h);
       shape.setAttribute('aria-hidden', 'true');
-      btn.appendChild(shape);
-      btn.appendChild(document.createTextNode(ratio.label));
+      const label = document.createElement('span');
+      label.className = 'sr';
+      label.textContent = ratio.label;
+      btn.append(shape, label);
       btn.dataset.id = ratio.id;
       btn.setAttribute('aria-label', `Post shape ${ratio.label}`);
       btn.setAttribute('aria-pressed', String(ratio.id === state.ratio.id));
       btn.addEventListener('click', () => {
+        if (state.ratio.id === ratio.id) return;
         snapshot();
         state.ratio = ratio;
         markActive(wrap, btn);
@@ -7537,28 +7837,142 @@
       wrap.appendChild(btn);
     });
     markActive(wrap, wrap.querySelector(`[data-id="${state.ratio.id}"]`));
+    ratioReel = reel($('ratio-reel'), wrap, {
+      chosen: () => wrap.querySelector(`[data-id="${state.ratio.id}"]`),
+      centred: (btn) => syncSheetValue(RATIOS.find((r) => r.id === btn.dataset.id)),
+      previews: previewRatio,
+    });
   }
 
+  // Four colours the page's own photos are made of, for the front of the
+  // reel. Read off the preview as drawn, inside the tiles only, so the
+  // background already chosen is not offered back as a colour of the photos.
+  // A few rounds of k-means on a 24px sample is enough to find the colours
+  // that stand out, and cheap enough to do every time the sheet opens.
+  function pagePalette() {
+    if (!page().cells.some(Boolean) || !canvas.width) return [];
+    const k = 24 / Math.max(canvas.width, canvas.height);
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(canvas.width * k));
+    off.height = Math.max(1, Math.round(canvas.height * k));
+    const g2 = off.getContext('2d', { willReadFrequently: true });
+    try { g2.drawImage(canvas, 0, 0, off.width, off.height); } catch { return []; }
+    const data = g2.getImageData(0, 0, off.width, off.height).data;
+    const px = [];
+    cellRects().forEach((r, i) => {
+      if (!page().cells[i]) return;
+      for (let y = Math.floor(r.y * k); y < Math.min(off.height, Math.ceil((r.y + r.h) * k)); y++) {
+        for (let x = Math.floor(r.x * k); x < Math.min(off.width, Math.ceil((r.x + r.w) * k)); x++) {
+          const o = (y * off.width + x) * 4;
+          px.push([data[o], data[o + 1], data[o + 2]]);
+        }
+      }
+    });
+    if (!px.length) return [];
+    // Seeded from four points along the lightness order, so the same page
+    // always offers the same colours rather than whichever the dice picked.
+    px.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    let centres = [0.12, 0.38, 0.62, 0.88].map((f) => px[Math.floor(f * (px.length - 1))].slice());
+    for (let round = 0; round < 6; round++) {
+      const sums = centres.map(() => [0, 0, 0, 0]);
+      px.forEach((c) => {
+        let best = 0, bestD = Infinity;
+        centres.forEach((m, j) => { const d = (c[0] - m[0]) ** 2 + (c[1] - m[1]) ** 2 + (c[2] - m[2]) ** 2; if (d < bestD) { bestD = d; best = j; } });
+        const s = sums[best]; s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; s[3] += 1;
+      });
+      centres = centres.map((m, j) => (sums[j][3] ? sums[j].slice(0, 3).map((v) => v / sums[j][3]) : m));
+    }
+    const out = [];
+    centres.forEach((m) => {
+      const hex = rgbHex(m);
+      // Two colours a thumb could not tell apart are one colour.
+      if (!out.some((h) => colourDistance(h, hex) < 28)) out.push(hex);
+    });
+    return out;
+  }
+
+  const hexRgb = (hex) => {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  const rgbHex = (c) => `#${c.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('')}`;
+  const colourDistance = (a, b) => { const x = hexRgb(a), y = hexRgb(b); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
+
+  function rgbHsl([r, g0, b]) {
+    r /= 255; g0 /= 255; b /= 255;
+    const max = Math.max(r, g0, b), min = Math.min(r, g0, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    const h = max === r ? (g0 - b) / d + (g0 < b ? 6 : 0) : max === g0 ? (b - r) / d + 2 : (r - g0) / d + 4;
+    return [h * 60, s, l];
+  }
+  function hslHex(h, s, l) {
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => { const k2 = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k2 - 3, 9 - k2, 1)); };
+    return rgbHex([f(0), f(8), f(4)].map((v) => v * 255));
+  }
+
+  // What the line above the reel says for a colour: a preset its name,
+  // anything else its hex.
+  function colourName(hex) {
+    const preset = SWATCHES.find(([c]) => c === hex.toLowerCase());
+    return preset ? preset[1] : hex.toUpperCase();
+  }
+
+  // The reel is rebuilt each time the sheet opens, because its front is the
+  // page's own photos and they change from page to page. Your own colour, if
+  // the background is one no preset or photo offers, leads it.
   function buildSwatches() {
     const wrap = $('swatches');
-    SWATCHES.forEach((colour) => {
+    wrap.replaceChildren();
+    const presets = SWATCHES.map(([c]) => c);
+    const photos = pagePalette().filter((c) => !presets.includes(c));
+    const bg = state.bg.toLowerCase();
+    const yours = (!presets.includes(bg) && !photos.includes(bg)) ? [bg] : [];
+    const add = (colour, kind) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'swatch';
-      btn.style.background = colour;
+      btn.className = `swatch is-${kind}`;
       btn.dataset.id = colour;
-      btn.title = colour.toUpperCase();
-      btn.setAttribute('aria-label', `Background ${colour.toUpperCase()}`);
-      btn.setAttribute('aria-pressed', 'false');
-      btn.addEventListener('click', () => setBg(colour));
+      if (kind === 'custom') {
+        btn.title = 'Any colour';
+        btn.setAttribute('aria-label', 'Choose any colour');
+        btn.addEventListener('click', openCustomColour);
+      } else {
+        btn.style.setProperty('--swatch', colour);
+        btn.title = colourName(colour);
+        btn.setAttribute('aria-label', `Background ${colourName(colour)}${kind === 'photo' ? ', from the photos' : ''}`);
+        btn.setAttribute('aria-pressed', 'false');
+        btn.addEventListener('click', () => { if (state.bg.toLowerCase() !== colour) { endRun(); setBg(colour); } });
+      }
       wrap.appendChild(btn);
-    });
+    };
+    photos.forEach((c) => add(c, 'photo'));
+    yours.forEach((c) => add(c, 'yours'));
+    presets.forEach((c) => add(c, 'preset'));
+    add('custom', 'custom');
+    markActive(wrap, wrap.querySelector(`[data-id="${bg}"]`));
+    if (!colourReel) {
+      colourReel = reel($('bg-reel'), wrap, {
+        chosen: () => wrap.querySelector(`[data-id="${state.bg.toLowerCase()}"]`),
+        // Custom is a door rather than a colour: coming to rest on it says what
+        // a tap does, and does not open it on the way past.
+        settles: (btn) => btn.dataset.id !== 'custom',
+        previews: previewColour,
+        centred: (btn) => { $('bg-name').textContent = btn.dataset.id === 'custom' ? 'Tap to choose' : colourName(btn.dataset.id); $('bg-name').classList.toggle('is-hint', btn.dataset.id === 'custom'); },
+      });
+    } else colourReel.rebuild();
   }
 
   function setBgInputs(colour) {
     $('bg').value = colour;
-    $('bg-hex').textContent = colour.toUpperCase();
-    markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour}"]`));
+    if (document.activeElement !== $('bg-hex')) $('bg-hex').value = colour.toUpperCase();
+    markActive($('swatches'), $('swatches').querySelector(`[data-id="${colour.toLowerCase()}"]`));
+    $('bg-name').textContent = colourName(colour);
+    $('bg-name').classList.remove('is-hint');
+    if (!customDragging) syncCustomRulers();
   }
 
   function setBg(colour) {
@@ -7570,6 +7984,456 @@
     saveDeck();
   }
 
+  /* ------------------------------------------------ a custom colour */
+
+  // Hue and shade on two more rulers, the way every other value in the sheet
+  // is set. The hue runs round without an end. Shade runs from nearly white to
+  // nearly black through the hue; a grey has no hue to speak of, so turning
+  // the hue of one lends it some saturation or it would never change.
+  const custom = { h: 0, s: 0.5, l: 1 };
+  let customDragging = false;
+  let hueDial = null;
+  let shadeDial = null;
+
+  function syncCustomRulers() {
+    const [h, s, l] = rgbHsl(hexRgb(state.bg));
+    custom.h = h; custom.s = s; custom.l = l;
+    if (hueDial) hueDial.draw();
+    if (shadeDial) shadeDial.draw();
+    $('hue-ruler').setAttribute('aria-valuenow', String(Math.round(custom.h)));
+    $('shade-ruler').setAttribute('aria-valuenow', String(Math.round((1 - custom.l) * 100)));
+  }
+
+  function customColour() {
+    return hslHex(custom.h, custom.s, clamp(custom.l, 0.04, 0.98));
+  }
+
+  function openCustomColour() { morph(() => openCustomColourNow()); }
+  function openCustomColourNow() {
+    $('bg-ticker').hidden = true;
+    $('bg-custom').hidden = false;
+    syncCustomRulers();
+    requestAnimationFrame(() => { hueDial.draw(); shadeDial.draw(); });
+    syncFades();
+  }
+
+  function closeCustomColour() { morph(() => closeCustomColourNow()); }
+  function closeCustomColourNow() {
+    $('bg-custom').hidden = true;
+    $('bg-ticker').hidden = false;
+    buildSwatches();
+    requestAnimationFrame(() => colourReel.sync());
+  }
+
+  // The rulers are dials like the others: a colour under a finger is only
+  // drawn, and the gesture is one undo step when it lets go. A key nudging a
+  // ruler has no finger to wait for.
+  let heldBg = null;
+  function holdBg() {
+    customDragging = true;
+    buzz('pick');
+    if (!heldBg) heldBg = holdGesture(state.bg);
+  }
+  function tryBg(colour) {
+    if (!heldBg) { setBg(colour); return; }
+    state.bg = colour;
+    setBgInputs(colour);
+    render();
+  }
+  function letGoBg() {
+    customDragging = false;
+    if (!heldBg) return;
+    const was = heldBg;
+    heldBg = null;
+    if (state.bg === was.from) return;
+    keepGesture(was);
+    restyle();
+    refresh();
+  }
+
+  function wireCustomColour() {
+    const huePx = 7 / 7.5;
+    hueDial = dialRuler($('hue-ruler').querySelector('.dial-track'), {
+      unitPx: huePx,
+      get: () => custom.h,
+      set: (v) => {
+        custom.h = ((v % 360) + 360) % 360;
+        if (custom.s < 0.2) custom.s = 0.55;
+        if (custom.l > 0.94 || custom.l < 0.06) custom.l = 0.55;
+        tryBg(customColour());
+        $('hue-ruler').setAttribute('aria-valuenow', String(Math.round(custom.h)));
+      },
+      begin: holdBg,
+      end: letGoBg,
+      ticks: (from, to) => {
+        const out = [];
+        for (let u = Math.floor(from / 7.5) * 7.5; u <= to; u += 7.5) out.push({ at: u, colour: hslHex(((u % 360) + 360) % 360, 0.6, 0.55) });
+        return out;
+      },
+    });
+    shadeDial = dialRuler($('shade-ruler').querySelector('.dial-track'), {
+      unitPx: 7 / 3.6,
+      get: () => (1 - custom.l) * 100,
+      set: (v) => {
+        custom.l = 1 - clamp(v, 2, 96) / 100;
+        tryBg(customColour());
+        $('shade-ruler').setAttribute('aria-valuenow', String(Math.round(v)));
+      },
+      begin: holdBg,
+      end: letGoBg,
+      min: 2,
+      max: 96,
+      ticks: (from, to) => {
+        const out = [];
+        for (let u = Math.max(2, Math.floor(from / 3.6) * 3.6); u <= Math.min(96, to); u += 3.6) out.push({ at: u, colour: hslHex(custom.h, Math.max(custom.s, 0.35), 1 - u / 100) });
+        return out;
+      },
+    });
+    // The rulers answer the keyboard like any slider: a degree or a step at a
+    // time, ten with Shift.
+    [['hue-ruler', hueDial, 1], ['shade-ruler', shadeDial, 1]].forEach(([id, dial, unit]) => {
+      $(id).addEventListener('keydown', (e) => {
+        const step = (e.shiftKey ? 10 : 1) * unit;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); dial.nudge(step); }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); dial.nudge(-step); }
+      });
+    });
+    $('bg-presets').addEventListener('click', closeCustomColour);
+    const hex = $('bg-hex');
+    // The field is the target, not only the text in it: a press on its
+    // margin or its border lands on the field and would otherwise do nothing.
+    hex.parentElement.addEventListener('pointerdown', (e) => {
+      if (e.target !== hex.parentElement) return;
+      e.preventDefault();
+      hex.focus();
+      hex.select();
+    });
+    const takeHex = () => {
+      const v = hex.value.trim().replace(/^#?/, '#');
+      const full = /^#[0-9a-f]{3}$/i.test(v) ? `#${v.slice(1).split('').map((c) => c + c).join('')}` : v;
+      if (/^#[0-9a-f]{6}$/i.test(full)) { setBg(full.toLowerCase()); buzz('tap'); } else hex.value = state.bg.toUpperCase();
+    };
+    hex.addEventListener('change', takeHex);
+    hex.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); takeHex(); hex.blur(); } });
+  }
+
+  /* ----------------------------------------------- reels and rulers */
+
+  // A row of options turned under a fixed centre, like a dial: whatever comes
+  // to rest in the middle is chosen, a tap on one brings it there, and it runs
+  // round without an end. The echoes either side are pictures of the real
+  // buttons, rebuilt from them, so the list itself still holds exactly one
+  // button per option and everything that counts or indexes them still means
+  // what it did. Coming to rest on an echo is quietly swapped for the same
+  // place among the real ones, which is what joins the end to the beginning.
+  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true, previews = null }) {
+    const echoWraps = [...scroller.querySelectorAll('.reel-echoes')];
+    let userScroll = false;
+    // Whether a finger is still on it. Nothing is chosen until it lets go
+    // and the reel has stopped: holding still over an option is not
+    // choosing it.
+    let held = false;
+    let settleDue = false;
+    let lastCentre = null;
+    let settleTimer = 0;
+
+    const nodes = () => [...scroller.querySelectorAll('.reel-echo, :scope > .reel-list > *')];
+    const realOf = (el) => (el.classList.contains('reel-echo') ? list.children[Number(el.dataset.of)] : el);
+    const centreOf = (el) => el.offsetLeft + el.offsetWidth / 2;
+
+    function rebuild() {
+      const items = [...list.children];
+      const step = items[0] ? items[0].offsetWidth || 54 : 54;
+      const copies = Math.max(1, Math.ceil(460 / Math.max(1, items.length * step)));
+      echoWraps.forEach((wrap) => {
+        wrap.replaceChildren();
+        for (let c = 0; c < copies; c++) {
+          items.forEach((item, i) => {
+            const e = document.createElement('span');
+            // What kind of option it is, not which class of button: an echo
+            // that answered to .swatch or .layout-btn would be counted and
+            // clicked as one of the real buttons.
+            e.className = ['reel-echo', ...[...item.classList].filter((c) => c.startsWith('is-') && c !== 'is-active')].join(' ');
+            e.dataset.of = String(i);
+            e.innerHTML = item.innerHTML;
+            e.style.cssText = item.style.cssText;
+            wrap.appendChild(e);
+          });
+        }
+      });
+      mark();
+    }
+
+    function nearest() {
+      const mid = scroller.scrollLeft + scroller.clientWidth / 2;
+      let best = null, bestD = Infinity;
+      nodes().forEach((el) => { const d = Math.abs(centreOf(el) - mid); if (d < bestD) { bestD = d; best = el; } });
+      return best;
+    }
+
+    // How far each option is from the centre decides how big it is drawn,
+    // and which side of it it is on lets the ones either side stand clear of
+    // an option drawn larger in the middle; CSS does the rest from data-d and
+    // data-side.
+    function mark() {
+      const mid = scroller.scrollLeft + scroller.clientWidth / 2;
+      const all = nodes();
+      const step = all[0] ? all[0].offsetWidth || 54 : 54;
+      all.forEach((el) => {
+        const off = centreOf(el) - mid;
+        el.dataset.d = String(Math.min(3, Math.round(Math.abs(off) / step)));
+        el.dataset.side = off < -step / 2 ? 'l' : off > step / 2 ? 'r' : '';
+      });
+      const here = nearest();
+      if (!here) return;
+      const real = realOf(here);
+      if (real !== lastCentre) {
+        if (userScroll && lastCentre) buzz('tick');
+        lastCentre = real;
+        centred(real);
+        // The page shows whatever is under the needle as it passes, and goes
+        // back to what it was when the needle comes back to it.
+        if (userScroll && previews) previews(real);
+      }
+    }
+
+    function centre(el, smooth) {
+      if (!el || !scroller.clientWidth) return;
+      scroller.scrollTo({ left: centreOf(el) - scroller.clientWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
+      if (!smooth) mark();
+    }
+
+    function settle() {
+      if (held) { settleDue = true; return; }
+      settleDue = false;
+      const here = nearest();
+      if (!here) return;
+      const real = realOf(here);
+      if (here !== real) {
+        // Onto the same option among the real ones, where it can be chosen and
+        // from where either end is reachable again.
+        scroller.scrollLeft += centreOf(real) - centreOf(here);
+      }
+      mark();
+      if (userScroll && real !== chosen() && settles(real)) real.click();
+      userScroll = false;
+    }
+
+    scroller.addEventListener('scroll', () => {
+      mark();
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(settle, 140);
+    }, { passive: true });
+    ['pointerdown', 'wheel', 'touchstart'].forEach((t) => scroller.addEventListener(t, () => { userScroll = true; }, { passive: true }));
+    // Touch lifts on touchend: a scroll taking over the finger cancels its
+    // pointer long before that.
+    scroller.addEventListener('touchstart', () => { held = true; }, { passive: true });
+    scroller.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'touch') held = true; }, { passive: true });
+    const letGo = () => {
+      if (!held) return;
+      held = false;
+      if (settleDue) { clearTimeout(settleTimer); settleTimer = setTimeout(settle, 140); }
+    };
+    ['touchend', 'touchcancel'].forEach((t) => scroller.addEventListener(t, letGo, { passive: true }));
+    ['pointerup', 'pointercancel'].forEach((t) => scroller.addEventListener(t, (e) => { if (e.pointerType !== 'touch') letGo(); }, { passive: true }));
+
+    // A tap brings the option to the middle, where the reel says it is chosen.
+    scroller.addEventListener('click', (e) => {
+      const echo = e.target.closest('.reel-echo');
+      if (echo) {
+        const real = realOf(echo);
+        scroller.scrollLeft += centreOf(real) - centreOf(echo);
+        userScroll = false;
+        real.click();
+        centre(real, true);
+        return;
+      }
+      const btn = e.target.closest('button');
+      if (btn && btn.parentElement === list) { userScroll = false; centre(btn, true); }
+    });
+
+    // Left and right step through the options, round the end, and choose.
+    scroller.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      e.stopPropagation();
+      const items = [...list.children];
+      const at = Math.max(0, items.indexOf(realOf(document.activeElement.closest('.reel-echo, button') || chosen())));
+      const next = items[(at + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length];
+      next.focus({ preventScroll: true });
+      next.click();
+      centre(next, true);
+    });
+
+    rebuild();
+    return {
+      rebuild,
+      // Not while a finger is turning it: a refresh landing mid-drag would
+      // snatch the reel back to where it started.
+      sync: () => { if (userScroll) return; rebuild(); centre(chosen(), false); },
+    };
+  }
+
+  // A ruler dragged under a fixed needle. The ruler follows the finger — drag
+  // it left and larger numbers come under the needle — which is the reverse
+  // of a slider and the right way round for something being held. It is
+  // drawn on a canvas at the screen's own resolution whenever the value
+  // moves, the needle is CSS, and the value itself is always the caller's.
+  function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity }) {
+    const ruler = track.querySelector('.dial-ruler');
+    let press = null;
+    // A range can move under a dial: Adjust's goes from -100 to 0 when the
+    // tool changes, and Zoom's floor rises as the photo is turned. So either
+    // end may be a function, read at the moment it is needed.
+    const lo = () => (typeof min === 'function' ? min() : min);
+    const hi = () => (typeof max === 'function' ? max() : max);
+
+    function draw() {
+      const w = track.clientWidth, h = track.clientHeight;
+      if (!w || !h) return;
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      if (ruler.width !== Math.round(w * dpr) || ruler.height !== Math.round(h * dpr)) {
+        ruler.width = Math.round(w * dpr);
+        ruler.height = Math.round(h * dpr);
+      }
+      const c = ruler.getContext('2d');
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.clearRect(0, 0, w, h);
+      const value = get();
+      const half = w / 2 / unitPx;
+      ticks(value - half - 2, value + half + 2).forEach((t) => {
+        const x = w / 2 + (t.at - value) * unitPx;
+        c.globalAlpha = t.alpha === undefined ? 1 : t.alpha;
+        c.fillStyle = t.colour;
+        const tw = t.width || 4;
+        const th = t.height || 24;
+        const y = t.bottom ? h - th : (h - th) / 2;
+        c.beginPath();
+        if (c.roundRect) c.roundRect(x - tw / 2, y, tw, th, tw / 2); else c.rect(x - tw / 2, y, tw, th);
+        c.fill();
+      });
+      c.globalAlpha = 1;
+    }
+
+    track.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      e.preventDefault();
+      track.setPointerCapture(e.pointerId);
+      press = { id: e.pointerId, x: e.clientX, from: get() };
+      track.classList.add('is-held');
+      begin(e);
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      const v = clamp(press.from - (e.clientX - press.x) / unitPx, lo(), hi());
+      set(v);
+      draw();
+    });
+    const release = (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      press = null;
+      track.classList.remove('is-held');
+      end(e);
+    };
+    track.addEventListener('pointerup', release);
+    track.addEventListener('pointercancel', release);
+    if (window.ResizeObserver) new ResizeObserver(draw).observe(track);
+
+    return {
+      draw,
+      nudge: (d) => { set(clamp(get() + d, lo(), hi())); draw(); },
+    };
+  }
+
+  // The deck's three numbers on rulers. Their range inputs stay the control:
+  // a drag on the ruler writes the input and sends it the same events a
+  // finger on it would, so the undo run, the notches and the state all go
+  // through exactly the code they always did.
+  const DIAL_PX = 3;
+  const dials = {};
+  // `fromNought` is the ruler for a setting that goes either way: nought is
+  // the longest tick, and the stretch between it and the value is lit, so how
+  // far a setting has moved can be read at a glance without the number.
+  function valueDial(id, { fromNought = false } = {}) {
+    const input = $(id);
+    const panel = input.closest('.dial');
+    const step = Number(input.step) || 1;
+    const fire = (type) => input.dispatchEvent(type.startsWith('pointer')
+      ? new PointerEvent(type, { bubbles: true })
+      : new Event(type, { bubbles: true }));
+    dials[id] = dialRuler(panel.querySelector('.dial-track'), {
+      unitPx: DIAL_PX,
+      min: () => Number(input.min),
+      max: () => Number(input.max),
+      get: () => Number(input.value),
+      set: (v) => {
+        const snapped = clamp(Math.round(v / step) * step, Number(input.min), Number(input.max));
+        if (snapped === Number(input.value)) return;
+        const up = snapped > Number(input.value);
+        input.value = String(snapped);
+        fire('input');
+        roll(panel.querySelector('.val'), up);
+      },
+      begin: () => fire('pointerdown'),
+      end: () => { fire('pointerup'); fire('change'); },
+      ticks: (from, to) => {
+        const out = [];
+        const lo = Math.max(Number(input.min), Math.ceil(from / 2) * 2);
+        const hi = Math.min(Number(input.max), to);
+        const style = getComputedStyle(document.documentElement);
+        const secondary = style.getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+        const primary = style.getPropertyValue('--content-primary').trim() || '#f5f5f5';
+        const value = Number(input.value);
+        const [litFrom, litTo] = value < 0 ? [value, 0] : [0, value];
+        for (let u = lo; u <= hi; u += 2) {
+          const major = u % 10 === 0;
+          if (fromNought && u === 0) {
+            out.push({ at: 0, colour: primary, width: 2, height: 24, bottom: true });
+            continue;
+          }
+          const lit = fromNought && value !== 0 && u >= litFrom && u <= litTo;
+          out.push({ at: u, colour: lit ? primary : secondary, width: 1.5, height: major ? 18 : 10, bottom: true, alpha: lit || major ? 1 : 0.5 });
+        }
+        return out;
+      },
+    });
+  }
+
+  // The number rolls the way it is going, like a counter: up and in for
+  // larger, down for smaller. A third of its height rather than most of it,
+  // and only when it starts to move. A quick drag changes the number every
+  // few pixels, and rolling on each of those read as a shudder (it also
+  // forced a layout each time to restart the animation). So while the
+  // numbers keep coming in the same direction, less than ROLL_REST apart,
+  // they change in place. A turn the other way rolls from wherever the last
+  // roll had got to.
+  const ROLL_PX = 7.5;
+  const ROLL_MS = 140;
+  const ROLL_REST = 180;
+  const rolling = new WeakMap();
+  function roll(el, up) {
+    if (!el || !el.animate || calmMotion.matches) return;
+    const now = performance.now();
+    const going = rolling.get(el);
+    let from = up ? ROLL_PX : -ROLL_PX;
+    let fade = 0.35;
+    if (going) {
+      const since = now - going.at;
+      going.at = now;
+      if (going.up === up && since < ROLL_REST) return;
+      if (going.anim.playState === 'running') {
+        from = translateOf(el);
+        fade = Number(getComputedStyle(el).opacity);
+        going.anim.cancel();
+      }
+    }
+    const anim = el.animate([
+      { transform: `translateY(${from}px)`, opacity: fade },
+      { transform: 'none', opacity: 1 },
+    ], { duration: ROLL_MS, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' });
+    rolling.set(el, { anim, up, at: now });
+  }
+
   // Pull the Style tab's controls back in line with state — needed after an
   // undo, which can change any of them.
   function syncStyleInputs() {
@@ -7579,8 +8443,7 @@
       $(`${key}-val`).textContent = state[key];
       paintSlider($(key));
     });
-    $('quality').value = String(state.quality);
-    $('format').value = state.format;
+    syncSizes();
   }
 
   function markActive(wrap, btn) {
@@ -7614,6 +8477,7 @@
     panel.style.setProperty('--frac', clamp((value - min) / span, 0, 1));
     const read = panel.querySelector('.slider-read');
     if (read) read.textContent = `${Math.round(value)}${input.dataset.read || ''}`;
+    if (dials[input.id]) dials[input.id].draw();
   }
 
   // The part of a drag that is only feedback: the fill, the readout, the knob
@@ -7660,17 +8524,33 @@
     const label = $(`${id}-val`);
     input.value = state[key];
     label.textContent = state[key];
-    paintSlider(input);
     feedback(id);
-    input.addEventListener('pointerdown', () => { endRun(); snapshot(`slider:${key}`); });
-    input.addEventListener('pointerup', endRun);
+    valueDial(id);
+    paintSlider(input);
+    // Under a finger each value is drawn and nothing else happens: the
+    // gesture becomes one undo step, and is saved, when the finger lifts, and
+    // only if it ended somewhere other than where it began. A value arriving
+    // with no finger down — a key, or a script — is kept as it comes, run
+    // together with the ones just before it as it always was.
+    let held = null;
+    input.addEventListener('pointerdown', () => { if (!held) held = holdGesture(state[key]); });
+    const letGo = () => {
+      if (!held) return;
+      const was = held;
+      held = null;
+      if (state[key] === was.from) return;
+      keepGesture(was);
+      refresh();
+    };
+    input.addEventListener('pointerup', letGo);
+    input.addEventListener('pointercancel', letGo);
     input.addEventListener('input', () => {
-      snapshot(`slider:${key}`);
+      if (!held) snapshot(`slider:${key}`);
       state[key] = Number(input.value);
       label.textContent = input.value;
       restyle();
+      if (held) { render(); return; }
       refresh();
-      saveDeck();
     });
   }
 
@@ -7678,33 +8558,66 @@
   // it to one row means the preview never has to share the screen with a
   // panel, and using a control can't scroll the preview out of view.
   const DRAWERS = ['layout', 'shape', 'gap', 'padding', 'corners',
-    'background', 'page', 'export', 'tile'];
+    'background', 'page', 'tile'];
   let drawer = null;
 
-  // Which sub-panel of the tile drawer is showing, and the tile waiting to be
-  // swapped with another.
+  // Which of the tile's tools is open, and the tile waiting to be swapped with
+  // another. While the tile drawer is open one of them always is: they are
+  // tabs, and there is no row of tools to come back to any more.
   let tileSub = null;
   let swapFrom = null;
+  const TILE_SUBS = ['crop', 'replace', 'trim', 'adjust', 'effects'];
 
-  function showTileSub(name) {
+  // The tool a tile opens on is the one last used on that kind of tile, kept
+  // apart for photos and clips: going from photo to photo wanting the same
+  // correction is the usual case, and a clip cannot open on Adjust.
+  let photoTool = 'adjust';
+  let clipTool = 'trim';
+  const isClip = (photo) => !!photo && photo.kind === 'video';
+  const toolFits = (tool, photo) => (isClip(photo)
+    ? ['trim', 'crop', 'replace'].includes(tool)
+    : ['adjust', 'effects', 'crop', 'replace'].includes(tool));
+  const toolFor = (photo) => (isClip(photo) ? clipTool : photoTool);
+  // What Replace goes back to, which is whichever tool was open when it was
+  // asked for.
+  let replaceFrom = null;
+
+  function chooseTool(tool) {
+    const photo = photoFor(page().cells[state.selected]);
+    if (!toolFits(tool, photo) || tool === tileSub) return;
+    if (isClip(photo)) clipTool = tool; else photoTool = tool;
+    showTileSub(tool);
+  }
+
+  function leaveReplace() {
+    endRun();
+    const photo = photoFor(page().cells[state.selected]);
+    // Nothing was chosen for an empty tile, so there is no tool to go back
+    // to: let go of it.
+    if (!photo) { tileSub = null; select(-1); return; }
+    showTileSub(replaceFrom && toolFits(replaceFrom, photo) ? replaceFrom : toolFor(photo));
+  }
+
+  function showTileSub(name) { morph(() => showTileSubNow(name)); }
+  function showTileSubNow(name) {
     tileSub = name;
-    $('tile-actions').hidden = !!name;
-    ['zoom', 'rotate', 'flip', 'replace', 'trim', 'adjust', 'effects'].forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
-    if (name === 'trim') syncTrim();
+    TILE_SUBS.forEach((n) => { $(`tile-${n}`).hidden = n !== name; });
+    if (name === 'trim') {
+      syncTrim();
+      if (!trim.playhead) trim.playhead = requestAnimationFrame(followPlayhead);
+    }
     if (name === 'effects') syncEffects();
     else if (picking) setPicking(false);
     if (name !== 'effects') edgeMode = false;
-    if (name === 'adjust') syncAdjust();
-    // Letting go of the panel lets go of the compare button with it: a hold
-    // that ends somewhere the pointerup never reaches must not leave the
-    // preview showing the unedited photo.
-    else if (comparing) { comparing = false; render(); }
+    // Compare belongs to the tool it was turned on in.
+    if (comparing) setCompare(false);
+    if (name === 'adjust') { syncAdjust(); if (adjustReel) adjustReel.sync(); }
+    if (name === 'crop') syncCrop();
 
-    // Choosing a photo wants room: the pages bar steps aside and the dock
-    // takes two rows, so the options are large enough to judge at a glance.
     const choosing = name === 'replace';
-    document.querySelector('.app').classList.toggle('is-choosing', choosing);
-    $('dock').classList.toggle('is-choosing', choosing);
+    // Leaving Replace from the open tray folds it: the next tool has a foot,
+    // and the tray's classes are what hide it.
+    if (!choosing && trayOpen) { trayOpen = false; syncTray(); }
     // Trimming wants the same room for a different reason: it is the one panel
     // with three rows to fit, and in the 62px a drawer normally gives they came
     // to 4px of bar apiece. The pages bar stays up for this one, unlike the
@@ -7717,138 +8630,170 @@
     // that is on.
     $('dock').classList.toggle('is-effecting', name === 'effects');
     if (choosing) renderChooser();
-    // Page thumbnails aren't visible while choosing, so they catch up on the
-    // way out rather than being redrawn for every photo scrolled past.
-    else if (centred !== -1) { centred = -1; renderFilmstrip(); }
+    // Page thumbnails catch up on the way out of choosing, rather than being
+    // redrawn for every photo scrolled past.
+    else if (choseAny) { choseAny = false; renderFilmstrip(); }
     setBackIcon();
+    syncSheet();
     syncFades();
+    placeTileOverlays();
+    syncFloat();
   }
 
-  // The photos already imported, run past a fixed marker: whichever sits in
-  // the middle is the one in the tile. Scrolling is the choosing.
-  let centred = -1;
-  let settlingScroll = false;
+  // The photos already imported, run round a reel past a fixed centre:
+  // whichever sits there is the one in the tile, so scrolling is the choosing.
+  // Or opened up into the whole tray, where a tap chooses. Either way the tile
+  // changes at once, and a whole run of choosing is one step to undo.
+  let chooseReel = null;
+  let trayOpen = false;
+  let choseAny = false;
+
+  // Where else on the deck a photo is, as the page it is on — not counting the
+  // tile it is being chosen for, which is the question being asked.
+  function pageOfPhoto(photoId) {
+    for (let k = 0; k < state.pages.length; k++) {
+      const others = state.pages[k].cells.some((c, j) => c && c.photo === photoId && !(k === state.current && j === state.selected));
+      if (others) return k + 1;
+    }
+    return 0;
+  }
+
+  function chooseItem(photo, className) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = className;
+    if (!photo) {
+      el.classList.add('is-add');
+      el.setAttribute('aria-label', 'Add from your photos');
+      el.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+      el.addEventListener('click', addForChooser);
+      return el;
+    }
+    el.dataset.photo = photo.id;
+    el.setAttribute('aria-label', photo.name || 'Photo');
+    const shot = document.createElement('img');
+    shot.src = photo.thumbUrl;
+    shot.alt = '';
+    el.appendChild(shot);
+    const on = pageOfPhoto(photo.id);
+    if (on) {
+      const mark = document.createElement('span');
+      mark.className = 'choose-page';
+      mark.textContent = String(on);
+      mark.title = `On page ${on}`;
+      el.appendChild(mark);
+    }
+    el.addEventListener('click', () => choosePhoto(photo.id));
+    return el;
+  }
 
   function renderChooser() {
-    const strip = $('choose-strip');
-    strip.innerHTML = '';
     const cell = page().cells[state.selected];
-    $('choose-focus').hidden = !state.photos.length;
-
-    if (!state.photos.length) {
-      strip.innerHTML = '<p class="choose-empty">No photos yet — add some with the button above.</p>';
-      return;
-    }
-
-    state.photos.forEach((photo, i) => {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'choose-item';
-      el.title = photo.name || 'Photo';
-      const shot = document.createElement('img');
-      shot.src = photo.thumbUrl;
-      shot.alt = '';
-      el.appendChild(shot);
-      // Tapping doesn't apply directly — it brings that photo to the middle,
-      // and the middle is what counts.
-      el.addEventListener('click', () => scrollChooserTo(i, true));
-      strip.appendChild(el);
-    });
-
-    // Open on whatever the tile already holds; on an empty tile, put the
-    // first photo in straight away so there's something to judge.
-    const start = Math.max(0, state.photos.findIndex((p) => cell && p.id === cell.photo));
-    centred = start;
-    markCentred(start);
-    if (!cell) { applyCentred(); markCentred(start); }
-    // Here, not a frame later. Reading the entry's position lays the reel out
-    // at the size it is about to be shown at, so there is nothing to wait for,
-    // and waiting had a cost: whatever scrolled the reel in between was undone
-    // when the frame came round and put it back on the start. A finger cannot
-    // manage that inside one frame, but on a phone busy opening a long reel
-    // the frame can be hundreds of milliseconds late while scrolling carries
-    // on without it — and a flick made then went back where it came from.
-    scrollChooserTo(start, false);
+    $('choose-strip').replaceChildren(chooseItem(null, 'choose-item'), ...state.photos.map((ph) => chooseItem(ph, 'choose-item')));
+    $('tray-grid').replaceChildren(chooseItem(null, 'tray-item'), ...state.photos.map((ph) => chooseItem(ph, 'tray-item')));
+    // An empty tile is given the first photo straight away, so there is
+    // something in it to judge.
+    if (!cell && state.photos.length) choosePhoto(state.photos[0].id);
+    markChosen();
+    syncTray();
+    if (chooseReel) chooseReel.sync();
   }
 
-  function markCentred(index) {
-    [...$('choose-strip').children].forEach((el, i) => {
-      el.classList.toggle('is-current', i === index);
+  function markChosen() {
+    const cell = page().cells[state.selected];
+    document.querySelectorAll('#choose-strip [data-photo], #tray-grid [data-photo]').forEach((el) => {
+      el.classList.toggle('is-current', !!cell && el.dataset.photo === cell.photo);
     });
   }
 
-  function scrollChooserTo(index, smooth) {
-    const strip = $('choose-strip');
-    const el = strip.children[index];
-    if (!el) return;
-    settlingScroll = true;
-    strip.scrollTo({
-      left: el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2,
-      behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
-    });
-    // Let the programmatic scroll finish before reading positions again,
-    // otherwise it reports its own intermediate frames as a choice.
-    setTimeout(() => { settlingScroll = false; onChooserScroll(); }, smooth ? 340 : 60);
-  }
-
-  function nearestToCentre() {
-    const strip = $('choose-strip');
-    const mid = strip.getBoundingClientRect().left + strip.clientWidth / 2;
-    let best = -1;
-    let closest = Infinity;
-    [...strip.children].forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      const d = Math.abs(r.left + r.width / 2 - mid);
-      if (d < closest) { closest = d; best = i; }
-    });
-    return best;
-  }
-
-  let scrollFrame = 0;
-  function onChooserScroll() {
-    if (scrollFrame) return;
-    scrollFrame = requestAnimationFrame(() => {
-      scrollFrame = 0;
-      if (tileSub !== 'replace' || settlingScroll) return;
-      const index = nearestToCentre();
-      if (index < 0 || index === centred) return;
-      centred = index;
-      markCentred(index);
-      buzz('snap');
-      applyCentred();
-    });
-  }
-
-  function applyCentred() {
-    const photo = state.photos[centred];
+  function choosePhoto(photoId) {
+    const photo = photoById(photoId);
     const i = state.selected;
     const cell = page().cells[i];
     if (!photo || (cell && cell.photo === photo.id)) return;
-    // One undo step for a run through the reel, not one per photo passed.
     snapshot('choose');
     // A fresh crop each time, so flicking between options compares like
     // with like rather than inheriting the last photo's framing.
     page().cells[i] = emptyCell(photo.id);
+    choseAny = true;
     render();
-    // What you have just scrolled onto is on screen now, so it has to be
-    // read back up to size. The reel itself is drawn from thumbnails; the
-    // preview underneath it must not be.
+    // What has just been chosen is on screen now, so it has to be read back
+    // up to size. The reel is drawn from thumbnails; the tile must not be.
     manageResidency();
-    // Scrolling onto a clip starts it, and scrolling off one stops it, so
-    // what you are choosing between is what you would get.
+    // Choosing a clip starts it and choosing away from one stops it, so what
+    // is being chosen between is what it would be.
     syncPlayback();
     ensurePosters(page(), () => { render(); redrawFilms(); });
     saveDeck();
+    markChosen();
   }
 
-  // The tile bar drops the tile with a cross, as sketched; everything else
-  // steps back up a level with an arrow.
+  function addForChooser() {
+    pendingCell = null;
+    importForChooser = true;
+    fileInput.click();
+  }
+
+  function syncTray() {
+    $('choose-reel').hidden = trayOpen;
+    $('choose-tray').hidden = !trayOpen;
+    $('dock-drawer').classList.toggle('is-tray', trayOpen);
+    document.querySelector('.app').classList.toggle('is-tray', trayOpen);
+  }
+
+  // The reel opening up into the whole tray, and folding back. The card grows
+  // through the same morph as every other change of sheet, so the page shrinks
+  // and moves up with it rather than being covered.
+  function setTray(open) {
+    if (trayOpen === open || tileSub !== 'replace') return;
+    morph(() => { trayOpen = open; syncTray(); syncSheet(); });
+    if (open) {
+      const on = $('tray-grid').querySelector('.is-current');
+      if (on) on.scrollIntoView({ block: 'nearest' });
+      $('tray-grid').dispatchEvent(new Event('scroll'));
+    } else if (chooseReel) {
+      chooseReel.sync();
+    }
+  }
+
+  // The grabber folds the tray on a tap or a pull downwards.
+  function wireTray() {
+    const grab = $('tray-grabber');
+    let press = null;
+    grab.addEventListener('pointerdown', (e) => {
+      press = { id: e.pointerId, y: e.clientY };
+      try { grab.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+    });
+    grab.addEventListener('pointermove', (e) => {
+      if (press && e.pointerId === press.id && e.clientY - press.y > 24) { press = null; setTray(false); }
+    });
+    grab.addEventListener('pointerup', () => { press = null; });
+    grab.addEventListener('pointercancel', () => { press = null; });
+    grab.addEventListener('click', () => setTray(false));
+    // The grid fades under the grabber once it has been scrolled, and under
+    // Back and the fold always, since there is always more below them to
+    // scroll up past.
+    $('tray-grid').addEventListener('scroll', (e) => {
+      $('choose-tray').classList.toggle('is-scrolled', e.target.scrollTop > 2);
+    }, { passive: true });
+    $('tray-back').addEventListener('click', leaveReplace);
+    $('tray-fold').addEventListener('click', () => setTray(false));
+    $('choose-open').addEventListener('click', () => setTray(true));
+    chooseReel = reel($('choose-reel'), $('choose-strip'), {
+      chosen: () => $('choose-strip').querySelector('.is-current') || $('choose-strip').children[1] || $('choose-strip').firstElementChild,
+      // Passing over a photo puts it in the tile; passing over Add does
+      // nothing, and settling there opens nothing either — a picker should
+      // only ever come up because someone asked for it.
+      previews: (el) => { if (el.dataset.photo) choosePhoto(el.dataset.photo); },
+      settles: (el) => !!el.dataset.photo,
+    });
+  }
+
+  // Back is an arrow everywhere. On a tile's tools the step back is letting go
+  // of the tile, and it says so to a screen reader.
   function setBackIcon() {
-    const cross = drawer === 'tile' && !tileSub;
-    // Via a class, not `.hidden`: that property belongs to HTMLElement, and
-    // setting it on an <svg> quietly creates a useless expando instead.
-    $('dock-back').classList.toggle('is-cross', cross);
-    $('dock-back').setAttribute('aria-label', cross ? 'Done with this tile' : 'Back');
+    const letsGo = drawer === 'tile' && tileSub !== 'replace';
+    $('dock-back').setAttribute('aria-label', letsGo ? 'Done with this tile' : 'Back');
     $('dock-drawer').classList.toggle('is-tile', drawer === 'tile');
   }
 
@@ -7867,12 +8812,14 @@
     if (action === 'swap') {
       swapFrom = i;
       $('canvas-wrap').classList.add('is-swapping');
+      placeTileOverlays();
       toast('Tap another tile to swap them over');
       return;
     }
     if (action === 'replace') {
       // Straight to the device picker when there's nothing to choose between.
       if (!state.photos.length) { pendingCell = i; fileInput.click(); return; }
+      replaceFrom = tileSub;
       showTileSub('replace');
       return;
     }
@@ -7881,91 +8828,490 @@
       page().cells[i] = null;
       select(-1);
       refresh();
-      return;
     }
-    if (action === 'reset') { resetCell(i); return; }
-    showTileSub(action);
+  }
+
+  // The chosen tile's own actions ride the tile, bottom centre and 12 up. Laid
+  // out from offsetLeft and friends rather than from getBoundingClientRect,
+  // which a sheet's arrival is scaling mid-flight: those numbers would put it
+  // wherever the animation had got to, in the track's unscaled coordinates.
+  //
+  // Out of the way whenever it would be in the way: while Replace is open,
+  // which is choosing what goes in the tile rather than acting on it; while a
+  // finger is on the photo, which the pill would otherwise sit under; and
+  // while a swap waits for its second tile, whose hint sits where it would.
+  const TILE_ACTIONS_LIFT = 12;
+  function tileBox(i) {
+    const r = cellRects()[i];
+    if (!r || !canvas.width) return null;
+    const k = canvas.clientWidth / canvas.width;
+    return { x: canvas.offsetLeft + r.x * k, y: canvas.offsetTop + r.y * k, w: r.w * k, h: r.h * k };
+  }
+  function placeTileOverlays() {
+    const pill = $('tile-actions');
+    const i = state.selected;
+    const box = i === -1 ? null : tileBox(i);
+    pill.hidden = !box || drawer !== 'tile' || tileSub === 'replace' || pointers.size > 0
+      || swapFrom !== null || !photoFor(page().cells[i]);
+    if (!pill.hidden) {
+      const room = $('track').clientWidth;
+      const left = clamp(box.x + box.w / 2 - pill.offsetWidth / 2, 4, Math.max(4, room - pill.offsetWidth - 4));
+      pill.style.left = `${Math.round(left)}px`;
+      pill.style.top = `${Math.round(box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight)}px`;
+    }
+    // Whatever the tile is showing that it would not otherwise, said on the
+    // tile itself, 12 in from its corner.
+    const original = $('tile-original');
+    original.hidden = !box || !comparing;
+    if (!original.hidden) {
+      original.style.left = `${Math.round(box.x + TILE_CHIP_INSET)}px`;
+      original.style.top = `${Math.round(box.y + TILE_CHIP_INSET)}px`;
+    }
+    const time = $('frame-time');
+    const d = trim.drag;
+    time.hidden = !box || !d || drawer !== 'tile' || tileSub !== 'trim';
+    if (!time.hidden) {
+      const { from, to } = clipRange(page().cells[i]);
+      time.textContent = trimClock(d.which === 'start' ? from : to, d.held ? 2 : 1);
+      time.style.left = `${Math.round(box.x + box.w / 2 - time.offsetWidth / 2)}px`;
+      time.style.top = `${Math.round(box.y + TILE_CHIP_INSET)}px`;
+    }
+  }
+  const TILE_CHIP_INSET = 12;
+
+  /* -------------------------------------------------- floating actions */
+  //
+  // Compare and Reset belong to the photo rather than to the controls, so they
+  // float above the sheet's top right instead of sitting in it. Which of them
+  // are there, and whether at all, depends on the tool:
+  //
+  // - Adjust: both, but only once something has changed. There is nothing to
+  //   compare with or reset until then, and the page keeps that room.
+  // - Crop: both, always — at 40% and inert until something changes. A pinch
+  //   is how most crops start, and a pill arriving under the fingers halfway
+  //   through one would move the page they are pinching.
+  // - Trim: Reset alone, once the clip has been cut. A clip is always playing,
+  //   so there is nothing to compare it with.
+  //
+  // It arrives fading in and rising 6pt over 180ms, and leaves the same way.
+  const FLOAT_MS = 180;
+  const FLOAT_RISE = 6;
+
+  function floatWanted() {
+    if (drawer !== 'tile') return null;
+    const cell = page().cells[state.selected];
+    if (!cell || !photoFor(cell)) return null;
+    if (tileSub === 'adjust') return plainLook(cell.adjust) ? null : { compare: true, resting: false };
+    // A clip has nothing to compare with: it is always playing.
+    if (tileSub === 'crop') return { compare: !isClip(photoFor(cell)), resting: !cropChanged(cell) };
+    if (tileSub === 'trim') return trimmed(cell) ? { compare: false, resting: false } : null;
+    return null;
+  }
+
+  function syncFloat() {
+    const row = $('sheet-float');
+    const want = floatWanted();
+    const was = !row.hidden;
+    const apply = () => {
+      row.hidden = !want;
+      if (!want) return;
+      $('btn-compare').hidden = !want.compare;
+      row.classList.toggle('is-resting', want.resting);
+      $('btn-reset').disabled = want.resting;
+      $('btn-compare').disabled = want.resting;
+    };
+    // Nothing left to compare with, so nothing is being compared.
+    if ((!want || !want.compare || want.resting) && comparing) setCompare(false);
+    if (!!want === was) { apply(); return; }
+    // Leaving, a picture of it goes the way it came while the page grows back
+    // into the room: the row itself has to leave the layout at once, or the
+    // page would wait 180ms and then jump.
+    if (was && !calmMotion.matches && row.getClientRects().length) {
+      const r = row.getBoundingClientRect();
+      const { copy } = lookalike(row);
+      const host = $('dock').getBoundingClientRect();
+      Object.assign(copy.style, { position: 'absolute', left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${r.width}px`, margin: '0', pointerEvents: 'none' });
+      $('dock').appendChild(copy);
+      const out = copy.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }],
+        { duration: FLOAT_MS, easing: 'ease-in', fill: 'forwards' });
+      out.addEventListener('finish', () => copy.remove());
+    }
+    morph(apply);
+    if (want && !was && !calmMotion.matches) {
+      row.animate([{ opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }, { opacity: 1, transform: 'none' }],
+        { duration: FLOAT_MS, easing: 'ease-out' });
+    }
+  }
+
+  // Compare shows the chosen tile as it came, and says so on the tile. It
+  // stays on until it is tapped again, or until anything is changed: an edit
+  // made while the original is on screen would be an edit made blind.
+  function setCompare(on) {
+    const mode = on ? (tileSub === 'crop' ? 'crop' : 'look') : false;
+    if (comparing === mode) return;
+    comparing = mode;
+    $('btn-compare').setAttribute('aria-pressed', String(on));
+    $('btn-compare').setAttribute('aria-label', on ? 'Show the edit' : 'Show the original');
+    render();
+  }
+
+  function resetTool() {
+    if (state.selected === -1) return;
+    if (tileSub === 'adjust') resetAdjust();
+    else if (tileSub === 'crop') resetCell(state.selected);
+    else if (tileSub === 'trim') resetTrim();
   }
 
   /* ------------------------------------------------------------- trimming */
   //
-  // Both handles run the whole length of the clip, stacked, so start and end
-  // are measured on the same scale. Moving either one seeks the preview to
-  // that exact moment and holds it there — cutting a clip you cannot see
-  // would be guesswork.
+  // The whole clip as a filmstrip, the kept part in a bracket with a handle at
+  // either end. Moving a handle parks the tile on the frame under it — cutting
+  // a clip you cannot see would be guesswork — and letting go plays the cut.
+  //
+  // The strip shows a window onto the clip, which is the whole of it except
+  // while a handle is held still: then it closes in on two seconds round the
+  // handle, so the same drag moves a finer amount. Everything on the strip is
+  // placed through xOfTime and read back through the drag's own anchor, so
+  // the two scales never disagree.
 
-  const TRIM_STEPS = 1000;
+  const TRIM_FLOOR = 0.2;          // a clip never goes to nothing
+  const TRIM_HOLD_MS = 500;        // held this still, the strip closes in
+  const TRIM_STILL_PX = 3;         // and this far counts as still
+  const TRIM_CLOSE = 2;            // seconds across the strip, close up
+  const TRIM_EASE_MS = 240;        // and back out on letting go
+  const trim = { window: null, drag: null, easing: 0, playhead: 0 };
 
-  function syncTrim() {
+  const trimCell = () => {
     const cell = page().cells[state.selected];
     const photo = photoFor(cell);
-    if (!cell || !photo || photo.kind !== 'video') return;
-    const { from, to, span, whole } = clipRange(cell);
-    const at = (t) => Math.round((t / (whole || 1)) * TRIM_STEPS);
-    $('trim-start').value = String(at(from));
-    $('trim-end').value = String(at(to));
-    $('trim-from').textContent = clockLabel(from);
-    $('trim-to').textContent = clockLabel(to);
-    $('trim-span').textContent = `${span.toFixed(1)}s of ${clockLabel(whole)}`;
-    $('trim-reset').disabled = from === 0 && Math.abs(to - whole) < 0.05;
-    // The kept span, drawn on both rails. CSS can see neither range input's
-    // value, so where that span starts and ends is handed over here — the same
-    // arrangement as --frac on the dock sliders.
-    const bars = document.querySelector('.trim-bars');
-    bars.style.setProperty('--fa', at(from) / TRIM_STEPS);
-    bars.style.setProperty('--fb', at(to) / TRIM_STEPS);
+    return cell && isClip(photo) ? { cell, photo } : null;
+  };
+  const trimWindow = (whole) => trim.window || [0, whole];
+  const stripWidth = () => $('trim-strip').clientWidth || 1;
+  const xOfTime = (t, [w0, w1]) => ((t - w0) / Math.max(0.001, w1 - w0)) * stripWidth();
+
+  // A time on the clip, to a tenth or, close up, a hundredth. A whole second
+  // at the ordinary scale reads as one, which is how the ends of an uncut
+  // clip read: 0:00 to 0:14.
+  function trimClock(t, places) {
+    const whole = places === 1 && Math.abs(t - Math.round(t)) < 0.05;
+    const secs = whole ? Math.round(t) : t;
+    const m = Math.floor(secs / 60);
+    const rest = secs - m * 60;
+    const text = whole ? String(Math.round(rest)).padStart(2, '0') : rest.toFixed(places).padStart(places + 3, '0');
+    return `${m}:${text}`;
   }
 
-  // Seconds from a slider position, against the clip's own length.
-  const trimAt = (el, whole) => (Number(el.value) / TRIM_STEPS) * whole;
+  const trimmed = (cell) => {
+    const { from, to, whole } = clipRange(cell);
+    return from > 0.01 || to < whole - 0.05;
+  };
+
+  function syncTrim() {
+    const got = trimCell();
+    if (!got) return;
+    const { cell, photo } = got;
+    const { from, to, span, whole } = clipRange(cell);
+    const win = trimWindow(whole);
+    const strip = $('trim-strip');
+    const held = !!(trim.drag && trim.drag.held);
+    const setting = trim.drag ? trim.drag.which : null;
+    strip.style.setProperty('--a', `${xOfTime(from, win)}px`);
+    strip.style.setProperty('--b', `${xOfTime(to, win)}px`);
+    strip.classList.toggle('is-held', held);
+    $('trim-start').classList.toggle('is-held', setting === 'start');
+    $('trim-end').classList.toggle('is-held', setting === 'end');
+    $('trim-from').textContent = trimClock(from, 1);
+    $('trim-to').textContent = trimClock(to, 1);
+    $('trim-span').textContent = `${span.toFixed(1)} s`;
+    // The time being set is the one lit.
+    $('trim-from').classList.toggle('is-lit', setting === 'start');
+    $('trim-to').classList.toggle('is-lit', setting === 'end');
+    $('trim-read').hidden = held;
+    $('trim-held').hidden = !held;
+    $('trim-ruler').hidden = !held;
+    if (held) $('trim-held').textContent = trimClock(setting === 'start' ? from : to, 2);
+    [['trim-start', from], ['trim-end', to]].forEach(([id, t]) => {
+      const el = $(id);
+      el.setAttribute('aria-valuemin', '0');
+      el.setAttribute('aria-valuemax', whole.toFixed(2));
+      el.setAttribute('aria-valuenow', t.toFixed(2));
+      el.setAttribute('aria-valuetext', trimClock(t, 1));
+    });
+    drawTrimFrames(photo, win);
+    if (held) drawTrimRuler(win);
+    placeTileOverlays();
+    syncFloat();
+  }
+
+  /* The frames, read once per clip off an element of its own, a handful across
+     the whole length and kept for as long as the clip is one of the last few
+     looked at. The strip draws whichever is nearest each slot's moment, and
+     draws the slots it has none for yet in the sheet's control grey. */
+  const stripFrames = new Map();
+  const STRIP_KEEP = 3;
+
+  function framesFor(photo) {
+    let f = stripFrames.get(photo.id);
+    if (f) return f;
+    f = { times: [], bitmaps: [] };
+    stripFrames.set(photo.id, f);
+    if (stripFrames.size > STRIP_KEEP) {
+      const [oldest] = stripFrames.keys();
+      stripFrames.get(oldest).bitmaps.forEach((bm) => { try { bm.close(); } catch { /* gone */ } });
+      stripFrames.delete(oldest);
+    }
+    readStripFrames(photo, f);
+    return f;
+  }
+
+  async function readStripFrames(photo, f) {
+    const whole = photo.duration || 0;
+    const count = clamp(Math.ceil(whole * 4), 12, 32);
+    const url = URL.createObjectURL(photo.blob);
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    // Handed back the moment it is done, as frameAt does: an element left to
+    // the collector holds a decoder until it is collected.
+    const release = () => { v.removeAttribute('src'); try { v.load(); } catch { /* nothing to unload */ } URL.revokeObjectURL(url); };
+    const until = (event) => new Promise((done, fail) => {
+      const timer = setTimeout(() => fail(new Error(`no ${event}`)), 8000);
+      v.addEventListener(event, () => { clearTimeout(timer); done(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(timer); fail(new Error('undecodable')); }, { once: true });
+    });
+    try {
+      v.src = url;
+      await until('loadeddata');
+      const h = 112;
+      const w = Math.max(1, Math.round((h * v.videoWidth) / Math.max(1, v.videoHeight)));
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      for (let k = 0; k < count; k++) {
+        if (stripFrames.get(photo.id) !== f) break;
+        const t = Math.min(Math.max(0, whole - 0.05), ((k + 0.5) * whole) / count);
+        v.currentTime = t;
+        await until('seeked');
+        g.drawImage(v, 0, 0, w, h);
+        f.times.push(t);
+        f.bitmaps.push(await createImageBitmap(c));
+        const got = trimCell();
+        if (tileSub === 'trim' && got && got.photo.id === photo.id) drawTrimFrames(photo, trimWindow(whole));
+      }
+    } catch { /* the strip keeps the slots it has, grey where it has none */ }
+    release();
+  }
+
+  function drawTrimFrames(photo, [w0, w1]) {
+    const c = $('trim-frames');
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--background-control').trim() || '#262626';
+    g.fillRect(0, 0, w, h);
+    const f = framesFor(photo);
+    // Ten across the whole clip; eight across two seconds close up, with a
+    // hairline between them, since each is then a moment of its own.
+    const close = !!trim.window;
+    const slots = close ? 8 : 10;
+    const sw = w / slots;
+    for (let k = 0; k < slots; k++) {
+      const t = w0 + ((k + 0.5) * (w1 - w0)) / slots;
+      let best = -1;
+      let near = Infinity;
+      f.times.forEach((ft, n) => { const d = Math.abs(ft - t); if (d < near) { near = d; best = n; } });
+      if (best === -1) continue;
+      const bm = f.bitmaps[best];
+      // Covering the slot, as a tile covers its cell.
+      const scale = Math.max(sw / bm.width, h / bm.height);
+      const dw = bm.width * scale;
+      const dh = bm.height * scale;
+      g.save();
+      g.beginPath();
+      g.rect(k * sw, 0, sw + 0.5, h);
+      g.clip();
+      g.drawImage(bm, k * sw + (sw - dw) / 2, (h - dh) / 2, dw, dh);
+      g.restore();
+      if (close && k) {
+        g.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        g.fillRect(k * sw, 0, 1, h);
+      }
+    }
+  }
+
+  // Close up, a ruler in tenths over the strip: a longer tick at each half
+  // second and the whole seconds named, so the hundredths above it have
+  // something to be read against.
+  function drawTrimRuler([w0, w1]) {
+    const c = $('trim-ruler');
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--content-secondary').trim() || '#8e8e8e';
+    g.fillStyle = ink;
+    g.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif';
+    g.textBaseline = 'top';
+    for (let tenth = Math.ceil(w0 * 10); tenth <= Math.floor(w1 * 10); tenth++) {
+      const x = xOfTime(tenth / 10, [w0, w1]);
+      const second = tenth % 10 === 0;
+      const half = tenth % 5 === 0;
+      const th = second ? 8 : half ? 6 : 4;
+      g.globalAlpha = second ? 1 : 0.6;
+      g.fillRect(x - 0.75, h - th, 1.5, th);
+      if (second) {
+        g.globalAlpha = 1;
+        g.fillText(trimClock(tenth / 10, 1), x + 5.5, 0);
+      }
+    }
+    g.globalAlpha = 1;
+  }
 
   // Whether the handle being dragged is already sitting against the other one.
   let trimHeld = false;
 
-  function dragTrim(which) {
-    const i = state.selected;
-    const cell = page().cells[i];
-    const photo = photoFor(cell);
-    if (!cell || !photo || photo.kind !== 'video') return;
+  // Where a handle is being put, kept on the clip and clear of the other
+  // handle, and the tile parked on the frame under it.
+  function setHandle(which, t) {
+    const got = trimCell();
+    if (!got) return;
+    const { cell, photo } = got;
     const whole = photo.duration || 0;
-
-    let from = trimAt($('trim-start'), whole);
-    let to = trimAt($('trim-end'), whole);
-    // Never let the handles cross, and never let a clip go to nothing.
-    const floor = 0.2;
-    let held = false;
-    if (which === 'start' && from > to - floor) { from = Math.max(0, to - floor); $('trim-start').value = String(Math.round((from / (whole || 1)) * TRIM_STEPS)); held = true; }
-    if (which === 'end' && to < from + floor) { to = Math.min(whole, from + floor); $('trim-end').value = String(Math.round((to / (whole || 1)) * TRIM_STEPS)); held = true; }
-    // The handle has stopped moving while the thumb has not, which is the one
-    // thing on this panel a screen cannot say quickly enough. Once per arrival:
-    // a drag that keeps pushing at the floor would otherwise buzz every frame.
-    if (held && !trimHeld) buzz('limit');
-    trimHeld = held;
-
+    const { from, to } = clipRange(cell);
+    let a = from;
+    let b = to;
+    let pressed = false;
+    if (which === 'start') {
+      a = clamp(t, 0, Math.max(0, b - TRIM_FLOOR));
+      pressed = t > b - TRIM_FLOOR;
+    } else {
+      b = clamp(t, Math.min(whole, a + TRIM_FLOOR), whole);
+      pressed = t < a + TRIM_FLOOR;
+    }
+    // The handle has stopped while the thumb has not, which is the one thing
+    // on this panel a screen cannot say quickly enough. Once per arrival: a
+    // drag that keeps pushing would otherwise buzz every frame.
+    if (pressed && !trimHeld) buzz('limit');
+    trimHeld = pressed;
     snapshot('trim');
-    cell.t0 = from;
-    cell.t1 = to;
-    syncTrim();
+    cell.t0 = a;
+    cell.t1 = b;
     saveDeck();
+    const player = players.get(state.selected);
+    if (player) {
+      player.el.pause();
+      try { player.el.currentTime = which === 'start' ? a : Math.max(a, b - 0.05); } catch { /* not seekable */ }
+    }
+    syncTrim();
+  }
 
-    // Park the preview on the frame being set, so the handle is showing you
-    // the cut rather than describing it.
-    const player = players.get(i);
+  function beginTrimDrag(which, e) {
+    const got = trimCell();
+    if (!got || e.button > 0) return;
+    e.preventDefault();
+    const { from, to } = clipRange(got.cell);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+    endRun();
+    snapshot('trim');
+    trimHeld = false;
+    cancelAnimationFrame(trim.easing);
+    trim.window = null;
+    trim.drag = { which, id: e.pointerId, anchorX: e.clientX, anchorT: which === 'start' ? from : to, stillX: e.clientX, held: false, timer: 0, lastX: e.clientX };
+    armTrimHold();
+    const player = players.get(state.selected);
     if (player) {
       player.el.pause();
       try { player.el.currentTime = which === 'start' ? from : Math.max(from, to - 0.05); } catch { /* not seekable */ }
     }
+    syncTrim();
   }
 
-  // Let go and it runs the trimmed clip, from the top.
-  function endTrimDrag() {
-    endRun();
-    // The cut has moved, so everywhere this tile is a still — the filmstrip,
-    // the cover, the slides either side — is now showing the wrong frame.
-    // Only on letting go: reading a frame means decoding up to it, and doing
-    // that on every pixel of the drag would be absurd.
-    ensurePosters(page(), () => { render(); redrawFilms(); });
+  function armTrimHold() {
+    const d = trim.drag;
+    if (!d || d.held) return;
+    clearTimeout(d.timer);
+    d.timer = setTimeout(closeInOnHandle, TRIM_HOLD_MS);
+  }
 
+  function moveTrimDrag(e) {
+    const d = trim.drag;
+    if (!d || e.pointerId !== d.id) return;
+    d.lastX = e.clientX;
+    if (Math.abs(e.clientX - d.stillX) > TRIM_STILL_PX) { d.stillX = e.clientX; armTrimHold(); }
+    const got = trimCell();
+    if (!got) return;
+    const [w0, w1] = trimWindow(got.photo.duration || 0);
+    setHandle(d.which, d.anchorT + ((e.clientX - d.anchorX) * (w1 - w0)) / stripWidth());
+  }
+
+  // Held still: two seconds round the handle across the whole strip, a tick
+  // to say so, and the drag measured afresh from here at the finer scale.
+  function closeInOnHandle() {
+    const d = trim.drag;
+    const got = trimCell();
+    if (!d || d.held || !got) return;
+    const whole = got.photo.duration || 0;
+    const { from, to } = clipRange(got.cell);
+    const t = d.which === 'start' ? from : to;
+    const span = Math.min(TRIM_CLOSE, whole);
+    const w0 = clamp(t - span / 2, 0, Math.max(0, whole - span));
+    d.held = true;
+    d.anchorX = d.lastX;
+    d.anchorT = t;
+    buzz('tick');
+    morph(() => { trim.window = [w0, w0 + span]; syncTrim(); });
+  }
+
+  function endTrimDrag(e) {
+    const d = trim.drag;
+    if (!d || (e && e.pointerId !== d.id)) return;
+    clearTimeout(d.timer);
+    trim.drag = null;
+    const got = trimCell();
+    const whole = got ? got.photo.duration || 0 : 0;
+    if (trim.window && got) {
+      // Back out to the whole clip over 240ms, the handle travelling with it.
+      const [a0, a1] = trim.window;
+      const start = performance.now();
+      morph(() => { syncTrim(); });
+      const step = (now) => {
+        const k = calmMotion.matches ? 1 : Math.min(1, (now - start) / TRIM_EASE_MS);
+        const ease = 1 - (1 - k) ** 3;
+        trim.window = k >= 1 ? null : [a0 * (1 - ease), a1 + (whole - a1) * ease];
+        syncTrim();
+        if (k < 1) trim.easing = requestAnimationFrame(step);
+      };
+      trim.easing = requestAnimationFrame(step);
+    } else {
+      syncTrim();
+    }
+    playCut();
+  }
+
+  // The cut is set: everywhere this tile is a still is showing the wrong
+  // frame now, and the tile plays what is kept, from the top. Only on letting
+  // go — reading a frame means decoding up to it, and doing that on every
+  // pixel of a drag would be absurd.
+  function playCut() {
+    endRun();
+    ensurePosters(page(), () => { render(); redrawFilms(); });
     const player = players.get(state.selected);
     if (!player) return;
     const { from } = clipRange(page().cells[state.selected]);
@@ -7973,49 +9319,184 @@
     player.el.play().catch(() => {});
   }
 
+  // A tenth either way from the keyboard, a second with Shift.
+  function nudgeHandle(which, e) {
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+    const got = trimCell();
+    if (!step || !got) return;
+    e.preventDefault();
+    const { from, to } = clipRange(got.cell);
+    setHandle(which, (which === 'start' ? from : to) + step * (e.shiftKey ? 1 : 0.1));
+    playCut();
+  }
+
   function resetTrim() {
-    const cell = page().cells[state.selected];
-    if (!cell) return;
+    const got = trimCell();
+    if (!got || !trimmed(got.cell)) return;
     snapshot();
-    cell.t0 = 0;
-    cell.t1 = 0;
-    syncTrim();
+    got.cell.t0 = 0;
+    got.cell.t1 = 0;
     saveDeck();
-    endTrimDrag();
+    syncTrim();
+    playCut();
+  }
+
+  // The playhead follows the tile's own player while Trim is open, and stands
+  // down while a handle is held, when the tile is parked rather than playing.
+  function followPlayhead() {
+    trim.playhead = 0;
+    if (tileSub !== 'trim' || drawer !== 'tile') return;
+    const got = trimCell();
+    const player = players.get(state.selected);
+    const head = $('trim-playhead');
+    head.hidden = !got || !player || !!trim.drag;
+    if (!head.hidden) head.style.setProperty('--p', `${xOfTime(player.el.currentTime, trimWindow(got.photo.duration || 0))}px`);
+    trim.playhead = requestAnimationFrame(followPlayhead);
+  }
+
+  /* --------------------------------------------------------------- sound */
+
+  // A clip's sound is on or off per tile, like its trim: the same clip can be
+  // on two slides, heard on one. Muting is also how a slide's sound is chosen
+  // between clips — the export takes the longest one left on.
+  function toggleSound() {
+    const got = trimCell();
+    if (!got) return;
+    snapshot();
+    got.cell.muted = !got.cell.muted;
+    saveDeck();
+    syncSound();
+    buzz('tap');
+  }
+
+  function syncSound() {
+    const got = trimCell();
+    const on = !(got && got.cell.muted);
+    const btn = $('btn-sound');
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', on ? 'Sound on' : 'Muted');
+    btn.title = on ? 'Sound on' : 'Muted';
+    btn.classList.toggle('is-muted', !on);
   }
 
   function flipCell(axis) {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot();
     if (axis === 'x') cell.flipX = !cell.flipX;
     else cell.flipY = !cell.flipY;
     render();
+    syncFloat();
   }
+
+  /* ---------------------------------------------------------------- crop */
+
+  // Which the dial turns. Kept across tiles, like Adjust's setting: straight-
+  // ening one photo after another is the usual run.
+  let cropTurning = 'zoom';
+
+  function syncCrop() {
+    $('tile-crop').querySelectorAll('[data-turning]').forEach((btn) => {
+      const on = btn.dataset.turning === cropTurning;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', String(on));
+    });
+    $('zoom-slide').hidden = cropTurning !== 'zoom';
+    $('angle-slide').hidden = cropTurning !== 'angle';
+    // Measured at nothing while it was hidden.
+    paintSlider($(cropTurning));
+  }
+
+  // A quarter turn either way, carrying the photo's square with it. The app
+  // only ever turned right; left is the same turn the other way, so four of
+  // either is where it started.
+  function turnCell(dir) {
+    const i = state.selected;
+    const cell = page().cells[i];
+    if (!cell) return;
+    if (comparing) setCompare(false);
+    snapshot();
+    cell.rot = snapAngle(cell.rot + (dir * Math.PI) / 2);
+    settle(i);
+    render();
+    syncPanel();
+  }
+
+  // Flip is across on a tap and down on a hold. The design has one Flip where
+  // the app had two, and across is the one reached for; down is still there,
+  // for a hold of half a second, or Shift with a key. The click a hold ends
+  // in is swallowed, or a hold would flip both ways.
+  const FLIP_HOLD_MS = 500;
+  function wireFlip() {
+    const btn = $('btn-flip');
+    let timer = 0;
+    let held = false;
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      held = false;
+      clearTimeout(timer);
+      timer = setTimeout(() => { held = true; buzz('pick'); flipCell('y'); }, FLIP_HOLD_MS);
+    });
+    const letGo = () => clearTimeout(timer);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => btn.addEventListener(t, letGo));
+    btn.addEventListener('click', (e) => {
+      if (held) { held = false; return; }
+      flipCell(e.shiftKey ? 'y' : 'x');
+    });
+    // A press held on a touch screen raises the system's own menu otherwise.
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  // Whether a tile's framing is anything but how it arrived: turned, flipped,
+  // zoomed in, or moved along the side it has room on.
+  const cropChanged = (cell) => Math.abs(Math.sin(cell.rot)) > 1e-6 || Math.cos(cell.rot) < 0
+    || !!cell.flipX || !!cell.flipY || cell.zoom > 1.0005 || Math.abs(cell.ox) > 0.5 || Math.abs(cell.oy) > 0.5;
 
   /* ------------------------------------------------------------ adjusting */
 
-  // Which tool the slider is set to. Kept across tiles and across visits to
+  // Which setting the dial is turning. Kept across tiles and across visits to
   // the panel: moving from one photo to the next wanting the same correction
-  // is the usual case, and the slider already being on it is the point.
+  // is the usual case, and the dial already being on it is the point.
   let adjustTool = ADJUSTMENTS[0].id;
+  let adjustReel = null;
 
+  // A setting is a pill: its icon inside a ring, and its name. The ring is two
+  // circles, the track and what fills it, drawn from the top: clockwise for
+  // more, and — mirrored — back the other way for less.
   function buildAdjustTools() {
     const row = $('adjust-tools');
     row.innerHTML = '';
     ADJUSTMENTS.forEach((a) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'dock-item adjust-tool';
+      btn.className = 'setting';
       btn.dataset.adjust = a.id;
       btn.setAttribute('aria-pressed', 'false');
-      // The ring round the icon is how Photos says a tool is in use and by
-      // how much, which lets the row double as a summary of the edit.
-      btn.innerHTML = `<span class="adjust-ring"><svg viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span><span>${a.label}</span>`;
+      btn.innerHTML = '<span class="setting-ring">'
+        + '<svg class="ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="ring-track" cx="16" cy="16" r="14.75"/><circle class="ring-fill" cx="16" cy="16" r="14.75" pathLength="100"/></svg>'
+        + `<svg class="setting-icon" viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span>`
+        + `<span class="setting-name">${a.label}</span>`;
       btn.addEventListener('click', () => { adjustTool = a.id; syncAdjust(); });
       row.appendChild(btn);
     });
+    adjustReel = reel($('adjust-reel'), row, { chosen: () => row.querySelector('.is-active') });
   }
+
+  // How far a setting has moved, on its ring. The copies either side of the
+  // reel are pictures of the buttons taken when it was last built, so they are
+  // brought up to date alongside — a setting scrolled round to its echo must
+  // not show the value it had before.
+  function paintRing(el, a, v) {
+    const amount = Math.abs(v) / Math.max(Math.abs(a.min), a.max);
+    el.classList.toggle('is-set', !!v);
+    el.classList.toggle('is-less', v < 0);
+    el.querySelector('.ring-fill').style.strokeDasharray = `${(amount * 100).toFixed(2)} 100`;
+  }
+
+  // Signed, as a dial either side of nought reads: the minus is the real one,
+  // so the number is the width it will be whichever way it goes.
+  const signed = (v) => (v > 0 ? `+${v}` : v < 0 ? `\u2212${-v}` : '0');
 
   function syncAdjust() {
     const cell = page().cells[state.selected];
@@ -8023,31 +9504,28 @@
     const tool = adjustment(adjustTool) || ADJUSTMENTS[0];
     const value = (cell.adjust && cell.adjust[tool.id]) || 0;
     // Choosing a colour tool fetches its table, so it is here by the time
-    // the slider first moves.
+    // the dial first moves.
     if (tool.table) loadColourTables();
 
-    [...$('adjust-tools').children].forEach((btn) => {
+    const row = $('adjust-tools');
+    [...row.children].forEach((btn, i) => {
       const a = adjustment(btn.dataset.adjust);
       const v = (cell.adjust && cell.adjust[a.id]) || 0;
       const on = a.id === tool.id;
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', String(on));
-      btn.classList.toggle('is-set', !!v);
-      btn.style.setProperty('--amount', Math.abs(v) / Math.max(Math.abs(a.min), a.max));
+      paintRing(btn, a, v);
+      $('adjust-reel').querySelectorAll(`.reel-echo[data-of="${i}"]`).forEach((echo) => paintRing(echo, a, v));
     });
 
     const input = $('adjust');
     input.min = String(tool.min);
     input.max = String(tool.max);
     input.value = String(value);
-    // A tool that works both ways fills from the middle, like the angle
-    // slider: nought is untouched, and a bar growing from the left end would
-    // say -100 was.
-    $('adjust-slide').classList.toggle('from-centre', tool.min < 0);
     $('adjust-name').textContent = tool.label;
-    $('adjust-val').textContent = String(value);
+    $('adjust-val').textContent = signed(value);
     paintSlider(input);
-    $('adjust-reset').disabled = plainLook(cell.adjust);
+    syncFloat();
   }
 
   function dragAdjust() {
@@ -8057,7 +9535,7 @@
     const input = $('adjust');
     let value = Number(input.value);
     // Nought is caught on the way past, for a tool that has one in the
-    // middle. Getting a slider back to exactly nought by eye is otherwise a
+    // middle. Getting a dial back to exactly nought by eye is otherwise a
     // matter of luck, and nought is the one value that means "leave it".
     if (tool.min < 0 && Math.abs(value) <= 2 && value !== 0) {
       value = 0;
@@ -8066,6 +9544,7 @@
       buzz('snap');
     }
     if (((cell.adjust && cell.adjust[tool.id]) || 0) === value) return;
+    if (comparing) setCompare(false);
     snapshot(`adjust:${tool.id}`);
     setAdjust(cell, tool.id, value);
     syncAdjust();
@@ -8079,13 +9558,6 @@
     cell.adjust = undefined;
     syncAdjust();
     refresh();
-  }
-
-  function holdCompare(on) {
-    if (comparing === on) return;
-    comparing = on;
-    $('adjust-compare').classList.toggle('is-held', on);
-    render();
   }
 
   /* ------------------------------------------------------------ effects */
@@ -8396,43 +9868,498 @@
     syncEffects();
   }
 
-  function openDrawer(name) {
+  /* ------------------------------------------------ the sheet in motion */
+
+  // A sheet arrives from below the screen and settles with a small bounce,
+  // and leaves faster, falling straight away. Everything that changes the
+  // sheet goes through morph(), which takes a picture of the scene, lets the
+  // change happen at once, and then animates from the picture to the result.
+  // The layout only ever moves once, to its final place, so the preview is
+  // drawn once at its final size and everything in between is a transform.
+  //
+  // Three things cannot be done with transforms alone:
+  // - A closing sheet is hidden the moment it closes, as it always was, so
+  //   that nothing can press it and every test that asks whether it is open
+  //   hears no. What falls away is a copy of it.
+  // - The bar fading out under an opening sheet is a copy for the same
+  //   reason.
+  // - A sheet that changes height inside itself is clipped from the top
+  //   while its edge travels. A transform would carry the foot with it, and
+  //   the foot is the one part that must not move.
+  const SHEET_OPEN_MS = 420;
+  const SHEET_CLOSE_MS = 240;
+  const SHEET_FADE_MS = 150;
+  const SHEET_CALM_MS = 120;
+  const SHEET_EASE_CLOSE = 'cubic-bezier(0.4, 0, 1, 1)';
+  const SHEET_EASE_FALLBACK = 'cubic-bezier(0.34, 1.25, 0.64, 1)';
+  // A damped spring sampled into linear(): damping 0.75 overshoots by about
+  // 3% of the travel, and the stiffness is set so it has settled to within
+  // 1% by the end of the 420ms rather than trailing on past it.
+  const SHEET_SPRING = (() => {
+    const zeta = 0.75;
+    const omega = 4.6 / (zeta * SHEET_OPEN_MS / 1000);
+    const wd = omega * Math.sqrt(1 - zeta * zeta);
+    const points = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = (i / 40) * SHEET_OPEN_MS / 1000;
+      const x = 1 - Math.exp(-zeta * omega * t) * (Math.cos(wd * t) + (zeta * omega / wd) * Math.sin(wd * t));
+      points.push(i === 40 ? '1' : x.toFixed(4));
+    }
+    return `linear(${points.join(', ')})`;
+  })();
+  const SHEET_EASE_OPEN = window.CSS && CSS.supports && CSS.supports('transition-timing-function', SHEET_SPRING)
+    ? SHEET_SPRING : SHEET_EASE_FALLBACK;
+  const calmMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+
+  const motion = { depth: 0, running: [], ghosts: [], hold: 0 };
+
+  function play(el, frames, options) {
+    if (!el.animate) return null;
+    let anim;
+    try { anim = el.animate(frames, options); } catch {
+      anim = el.animate(frames, { ...options, easing: SHEET_EASE_FALLBACK });
+    }
+    motion.running.push(anim);
+    const forget = () => { motion.running = motion.running.filter((a) => a !== anim); };
+    anim.addEventListener('finish', forget);
+    anim.addEventListener('cancel', forget);
+    return anim;
+  }
+
+  // A stand-in that looks like the element and is nothing else: no ids, so
+  // no selector finds it twice; inert, so nothing presses it. A canvas copies
+  // without its picture and a scroller without its place, so both are put
+  // back by hand.
+  function lookalike(el) {
+    const copy = el.cloneNode(true);
+    const from = [el, ...el.querySelectorAll('*')];
+    const to = [copy, ...copy.querySelectorAll('*')];
+    const scrolled = [];
+    from.forEach((src, i) => {
+      const dst = to[i];
+      dst.removeAttribute('id');
+      dst.removeAttribute('for');
+      if (src instanceof HTMLCanvasElement && src.width && src.height) {
+        try { dst.getContext('2d').drawImage(src, 0, 0); } catch { /* tainted or empty */ }
+      }
+      if (src.scrollLeft || src.scrollTop) scrolled.push([dst, src.scrollLeft, src.scrollTop]);
+      if ('value' in src && src.value !== undefined && dst.value !== src.value) { try { dst.value = src.value; } catch { /* a file input */ } }
+    });
+    copy.setAttribute('aria-hidden', 'true');
+    copy.inert = true;
+    copy.classList.add('is-ghost');
+    return { copy, settle: () => scrolled.forEach(([d, x, y]) => { d.scrollLeft = x; d.scrollTop = y; }) };
+  }
+
+  // Put a stand-in where the original was on screen, pinned to the bottom of
+  // the dock so it stays put however tall the dock has just become.
+  // Painted in the order they sit in the dock, so a bar going out goes in
+  // underneath the sheet coming in, and a sheet going out goes over the bar.
+  function pinGhost(copy, rect, host, under = null) {
+    const h = host.getBoundingClientRect();
+    Object.assign(copy.style, {
+      position: 'absolute',
+      left: `${rect.left - h.left}px`,
+      top: 'auto',
+      bottom: `${h.bottom - rect.bottom}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      margin: '0',
+      pointerEvents: 'none',
+    });
+    host.insertBefore(copy, under);
+    motion.ghosts.push(copy);
+    return copy;
+  }
+
+  function dropGhost(copy) {
+    copy.remove();
+    motion.ghosts = motion.ghosts.filter((g) => g !== copy);
+  }
+
+  const translateOf = (el) => {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 0;
+    const m = t.match(/matrix(3d)?\(([^)]+)\)/);
+    if (!m) return 0;
+    const v = m[2].split(',').map(Number);
+    return m[1] ? v[13] : v[5];
+  };
+  const clipTopOf = (el) => {
+    const c = getComputedStyle(el).clipPath;
+    const m = c && c.match(/inset\(\s*(-?[\d.]+)px/);
+    return m ? Number(m[1]) : 0;
+  };
+
+  // Everything the animation will need to start from, read before a change.
+  function sceneNow() {
+    const sheet = $('dock-drawer');
+    const bar = $('dock-root');
+    const open = !sheet.hidden;
+    const falling = motion.ghosts.find((g) => g.classList.contains('dock-drawer'));
+    const fading = motion.ghosts.find((g) => g.classList.contains('dock-root'));
+    const scene = {
+      open,
+      key: open ? [drawer, tileSub, $('bg-custom').hidden ? '' : 'custom'].join('|') : '',
+      sheetH: open ? sheet.offsetHeight - motion.hold : 0,
+      wrapH: $('canvas-wrap').clientHeight,
+      canvas: $('canvas').getBoundingClientRect(),
+      sheetTop: null,
+      sheetOpacity: 1,
+      barOpacity: bar.hidden ? (fading ? Number(getComputedStyle(fading).opacity) : 0) : Number(getComputedStyle(bar).opacity),
+    };
+    if (open) {
+      const r = sheet.getBoundingClientRect();
+      scene.sheetTy = translateOf(sheet);
+      scene.sheetTop = r.top + clipTopOf(sheet);
+      scene.sheetRect = new DOMRect(r.left, r.top - scene.sheetTy + motion.hold, r.width, r.height - motion.hold);
+      scene.sheetOpacity = Number(getComputedStyle(sheet).opacity);
+      scene.sheetCopy = lookalike(sheet);
+      // Whatever a height change was holding is not part of the picture.
+      scene.sheetCopy.copy.style.marginTop = '';
+      scene.sheetCopy.copy.style.paddingTop = '';
+      const body = $('sheet-body').getBoundingClientRect();
+      scene.bodyRect = new DOMRect(body.left, body.top - scene.sheetTy, body.width, body.height);
+    } else if (falling) {
+      scene.sheetTop = falling.getBoundingClientRect().top;
+      scene.sheetOpacity = Number(getComputedStyle(falling).opacity);
+    }
+    // The bar is only pictured here; it is copied after the change, if the
+    // change hid it, since hiding it leaves it as it was.
+    if (!bar.hidden) scene.barRect = bar.getBoundingClientRect();
+    else if (fading) scene.barRect = fading.getBoundingClientRect();
+    return scene;
+  }
+
+  function stopMotion() {
+    motion.running.slice().forEach((a) => a.cancel());
+    motion.running = [];
+    motion.ghosts.slice().forEach(dropGhost);
+    releaseHold();
+  }
+
+  function releaseHold() {
+    if (!motion.hold) return;
+    const sheet = $('dock-drawer');
+    sheet.style.marginTop = '';
+    sheet.style.paddingTop = '';
+    motion.hold = 0;
+  }
+
+  function morph(change) {
+    if (motion.depth) { change(); return; }
+    const before = sceneNow();
+    motion.depth += 1;
+    try { change(); } finally { motion.depth -= 1; }
+    animateScene(before);
+  }
+
+  function animateScene(before) {
+    const sheet = $('dock-drawer');
+    const bar = $('dock-root');
+    const dock = $('dock');
+    const open = !sheet.hidden;
+    const key = open ? [drawer, tileSub, $('bg-custom').hidden ? '' : 'custom'].join('|') : '';
+    // A change that changed nothing leaves whatever is moving to carry on.
+    if (open === before.open && key === before.key && sheet.offsetHeight - motion.hold === before.sheetH
+        && $('canvas-wrap').clientHeight === before.wrapH) return;
+
+    stopMotion();
+    // Drawn once, here, at the size it is going to be; nothing below redraws.
+    fitPreview();
+    const calm = calmMotion.matches;
+
+    // The preview, from where it was on screen to where it now is.
+    const wrap = $('canvas-wrap');
+    const was = before.canvas;
+    const now = $('canvas').getBoundingClientRect();
+    const easing = open && !before.open ? SHEET_EASE_OPEN : (!open && before.open ? SHEET_EASE_CLOSE : SHEET_EASE_OPEN);
+    const ms = !open && before.open ? SHEET_CLOSE_MS : SHEET_OPEN_MS;
+    if (!calm && now.width && was.width && (Math.abs(was.top - now.top) > 0.5 || Math.abs(was.width - now.width) > 0.5)) {
+      const w = wrap.getBoundingClientRect();
+      const s = was.width / now.width;
+      wrap.style.transformOrigin = `${now.left - w.left}px ${now.top - w.top}px`;
+      play(wrap, [
+        { transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${s})` },
+        { transform: 'none' },
+      ], { duration: ms, easing });
+    }
+
+    if (open && !before.open) {
+      const r = sheet.getBoundingClientRect();
+      if (calm) {
+        play(sheet, [{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_CALM_MS, easing: 'ease-out' });
+      } else {
+        const from = before.sheetTop !== null ? before.sheetTop - r.top : window.innerHeight - r.top;
+        play(sheet, [{ transform: `translateY(${from}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+        play(sheet, [
+          { opacity: Math.min(before.sheetOpacity, 0.6) },
+          { opacity: 1, offset: 0.33 },
+          { opacity: 1 },
+        ], { duration: SHEET_OPEN_MS, easing: 'linear' });
+      }
+      if (before.barRect && before.barOpacity > 0 && !calm) {
+        const barCopy = lookalike(bar);
+        barCopy.copy.hidden = false;
+        const ghost = pinGhost(barCopy.copy, before.barRect, dock, sheet);
+        barCopy.settle();
+        const fade = play(ghost, [{ opacity: before.barOpacity }, { opacity: 0 }], { duration: SHEET_OPEN_MS * 0.6, easing: 'ease-out', fill: 'forwards' });
+        if (fade) fade.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      }
+      return;
+    }
+
+    if (!open && before.open) {
+      if (!bar.hidden) play(bar, [{ opacity: before.barOpacity }, { opacity: 1 }], { duration: calm ? SHEET_CALM_MS : SHEET_CLOSE_MS, easing: 'ease-out' });
+      const ghost = pinGhost(before.sheetCopy.copy, before.sheetRect, dock);
+      before.sheetCopy.settle();
+      const frames = calm
+        ? [{ opacity: before.sheetOpacity }, { opacity: 0 }]
+        : [
+          { transform: `translateY(${before.sheetTy}px)`, opacity: before.sheetOpacity },
+          { transform: `translateY(${window.innerHeight - before.sheetRect.top}px)`, opacity: before.sheetOpacity },
+        ];
+      const fall = play(ghost, frames, { duration: calm ? SHEET_CALM_MS : SHEET_CLOSE_MS, easing: calm ? 'ease-in' : SHEET_EASE_CLOSE, fill: 'forwards' });
+      if (fall) fall.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      return;
+    }
+
+    if (!open) return;
+
+    // Still open, with something new in it. An arrival still in flight
+    // carries on from where it had got to.
+    if (!calm && before.sheetTy) {
+      play(sheet, [{ transform: `translateY(${before.sheetTy}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+    }
+    const r = sheet.getBoundingClientRect();
+    const radius = getComputedStyle(sheet).borderTopLeftRadius;
+    // How far the top edge has to travel: from where it was drawn to where
+    // it now is. Growing, the sheet is already its new height and is clipped
+    // down to the old edge; shrinking, it is held at its old height for the
+    // length of the move, with the flow already at the new one, so the stage
+    // and the preview move once.
+    const rise = r.top - before.sheetTop;
+    if (!calm && Math.abs(rise) > 0.5) {
+      if (rise > 0) {
+        const pad = parseFloat(getComputedStyle(sheet).paddingTop);
+        motion.hold = rise;
+        sheet.style.marginTop = `${-rise}px`;
+        sheet.style.paddingTop = `${pad + rise}px`;
+        const held = play(sheet, [
+          { clipPath: `inset(0px 0px 0px 0px round ${radius})` },
+          { clipPath: `inset(${rise}px 0px 0px 0px round ${radius})` },
+        ], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+        if (held) {
+          held.addEventListener('finish', releaseHold);
+          held.addEventListener('cancel', releaseHold);
+        } else releaseHold();
+      } else {
+        play(sheet, [
+          { clipPath: `inset(${-rise}px 0px 0px 0px round ${radius})` },
+          { clipPath: `inset(0px 0px 0px 0px round ${radius})` },
+        ], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+      }
+    }
+    // The control cross-fades: what was there goes out where it was while
+    // what replaces it comes in.
+    if (key !== before.key) {
+      const body = $('sheet-body');
+      play(body, [{ opacity: 0 }, { opacity: 1 }], { duration: calm ? SHEET_CALM_MS : SHEET_FADE_MS, easing: 'ease-out' });
+      const old = before.sheetCopy.copy.querySelector('.sheet-body');
+      if (old) {
+        // Inside the sheet, so it rides any arrival still in flight; placed
+        // against the sheet as laid out, without that motion in it.
+        const s = sheet.getBoundingClientRect();
+        const sTop = s.top - translateOf(sheet) + sheet.clientTop;
+        const sLeft = s.left + sheet.clientLeft;
+        const ghost = pinGhost(old, before.bodyRect, sheet);
+        Object.assign(ghost.style, { top: `${before.bodyRect.top - sTop}px`, bottom: 'auto', left: `${before.bodyRect.left - sLeft}px` });
+        before.sheetCopy.settle();
+        const out = play(ghost, [{ opacity: 1 }, { opacity: 0 }], { duration: calm ? SHEET_CALM_MS : SHEET_FADE_MS, easing: 'ease-out', fill: 'forwards' });
+        if (out) out.addEventListener('finish', () => dropGhost(ghost)); else dropGhost(ghost);
+      }
+    }
+  }
+
+  // The page's own settings share one sheet, as words along its foot; the
+  // others each have a sheet to themselves and a foot of their own.
+  const PAGE_TABS = ['layout', 'gap', 'padding', 'corners', 'background', 'page'];
+  // The tile's controls that open on a row of buttons rather than on words or
+  // a number: their sheet comes 8 from the top instead of 16, so the space
+  // above the row is the space beside it. See .buttons-on-top.
+  const BUTTONS_ON_TOP = ['adjust', 'crop', 'replace'];
+
+  // The bar is hidden while a sheet is open, so a keyboard that opened one
+  // from it would be left holding nothing; it goes to the sheet's control
+  // instead, and back to the chip it came from when the sheet shuts. Only a
+  // keyboard: a menu is focus-visible however it was focused, so moving focus
+  // after a tap drew a ring round the size menu on every Export.
+  let sheetOpener = null;
+  function focusSheet(name) {
+    const panel = $(`dp-${name}`);
+    const target = panel.querySelector('button.is-active, [aria-pressed="true"]')
+      || panel.querySelector('input[type="range"], select, button:not([hidden])')
+      || $('dock-back');
+    target.focus({ preventScroll: true });
+  }
+
+  function openDrawer(name) { morph(() => openDrawerNow(name)); }
+  function openDrawerNow(name) {
+    closeExportCard();
+    const wasOpen = drawer !== null;
+    const fromBar = $('dock-root').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
+    if (fromBar) sheetOpener = document.activeElement;
     drawer = name;
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = d !== name; });
-    if (name === 'tile') showTileSub(null); else tileSub = null;
+    if (name === 'tile') showTileSubNow(toolFor(photoFor(page().cells[state.selected])));
+    else tileSub = null;
+    if (name !== 'background') { $('bg-custom').hidden = true; $('bg-ticker').hidden = false; }
     setBackIcon();
     $('dock-root').hidden = true;
     $('dock-drawer').hidden = false;
+    $('dock').classList.add('is-open');
+    syncSheet();
+    if (!wasOpen) pushSheet();
+    // The control that has just been shown was measured at nothing while it
+    // was hidden, so the reels and rulers find their places once it is laid out.
+    if (name === 'layout') layoutReel.sync();
+    if (name === 'shape') ratioReel.sync();
+    if (name === 'tile' && tileSub === 'adjust') adjustReel.sync();
+    if (name === 'background') { buildSwatches(); requestAnimationFrame(() => colourReel.sync()); }
+    if (['gap', 'padding', 'corners'].includes(name)) paintSlider($(name === 'corners' ? 'radius' : name));
+    if (fromBar) focusSheet(name);
     syncFades();
   }
 
-  function closeDrawer() {
+  function closeDrawer() { morph(() => closeDrawerNow()); }
+  function closeDrawerNow() {
+    // A dial let go of by closing its sheet leaves the page as it was.
+    if (previewing) { previewing = null; render(); }
+    const sheetHadFocus = $('dock-drawer').contains(document.activeElement);
     drawer = null;
     tileSub = null;
     $('dock').classList.remove('is-adjusting', 'is-effecting');
     if (picking) setPicking(false);
-    if (comparing) { comparing = false; render(); }
-    document.querySelector('.app').classList.remove('is-choosing');
-    $('dock').classList.remove('is-choosing');
+    if (comparing) setCompare(false);
+    syncFloat();
+    trayOpen = false;
+    syncTray();
     cancelSwap();
     setBackIcon();
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
+    $('dock').classList.remove('is-open');
+    placeTileOverlays();
+    if (sheetHadFocus) (sheetOpener && sheetOpener.isConnected ? sheetOpener : $('btn-add')).focus({ preventScroll: true });
+    sheetOpener = null;
+    popSheet();
     syncFades();
   }
+
+  // What the sheet's foot holds for whatever is open: the page's settings as
+  // tabs; the number and use of the one control a sheet has; or the button
+  // the sheet exists for.
+  function syncSheet() {
+    const tabs = PAGE_TABS.includes(drawer);
+    const sheet = $('dock-drawer');
+    sheet.classList.toggle('has-tabs', tabs);
+    sheet.classList.toggle('buttons-on-top', drawer === 'tile' && BUTTONS_ON_TOP.includes(tileSub) && !(tileSub === 'replace' && trayOpen));
+    sheet.classList.toggle('has-replace-foot', drawer === 'tile' && tileSub === 'replace' && !trayOpen);
+    sheet.classList.toggle('has-value', drawer === 'shape');
+    const single = layoutCells(page().layout).length < 2;
+    [...$('dock-tabs').children].forEach((t) => {
+      const on = t.dataset.drawer === drawer;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', String(on));
+      // Nothing to put a gap between on a single photo.
+      if (t.dataset.drawer === 'gap') t.hidden = single;
+    });
+    if (tabs) {
+      const row = $('dock-tabs');
+      const on = row.querySelector('.is-active');
+      // Scrolled so the chosen word is in view, whichever end it is at.
+      if (on && row.clientWidth) {
+        const lo = on.offsetLeft - 8, hi = on.offsetLeft + on.offsetWidth + 44 - row.clientWidth;
+        if (row.scrollLeft > lo) row.scrollLeft = lo;
+        else if (row.scrollLeft < hi) row.scrollLeft = hi;
+      }
+    }
+    // A tile's tools, as tabs, for whatever kind of tile it is. Replace has a
+    // foot of its own.
+    const tileTabs = drawer === 'tile' && tileSub !== 'replace';
+    sheet.classList.toggle('has-tile-tabs', tileTabs);
+    sheet.classList.toggle('has-sound', tileTabs && isClip(photoFor(page().cells[state.selected])));
+    if (tileTabs) {
+      const photo = photoFor(page().cells[state.selected]);
+      syncSound();
+      [...$('tile-tabs').children].forEach((t) => {
+        const on = t.dataset.tile === tileSub;
+        t.hidden = !toolFits(t.dataset.tile, photo);
+        t.classList.toggle('is-active', on);
+        t.setAttribute('aria-selected', String(on));
+      });
+    }
+    if (drawer === 'shape') syncSheetValue(state.ratio);
+  }
+
+  // The bar's two settings say what is set: Ratio by its number, Layout by a
+  // drawing of the layout, which is also how its icon looks at rest.
+  let chipLayoutId = null;
+  function syncChips() {
+    $('chip-ratio').textContent = state.ratio.label;
+    const layout = page().layout;
+    if (layout.id !== chipLayoutId) { layoutGlyph(layout, $('chip-layout')); chipLayoutId = layout.id; }
+    $('chip-layout').parentElement.setAttribute('aria-label', `Layout, ${layout.id === '1x1' ? 'single image' : layout.id}`);
+    $('chip-ratio').parentElement.setAttribute('aria-label', `Ratio, ${state.ratio.label}`);
+  }
+
+  function syncSheetValue(ratio) {
+    if (drawer !== 'shape' || !ratio) return;
+    const main = $('sheet-value-main');
+    if (main.textContent && main.textContent !== ratio.label) {
+      // Tallest to widest along the reel, so wider rolls up.
+      const order = [...$('ratios').children].map((b) => b.dataset.id);
+      const was = order.indexOf(main.dataset.id);
+      roll(main, order.indexOf(ratio.id) > was);
+    }
+    main.textContent = ratio.label;
+    main.dataset.id = ratio.id;
+    $('sheet-value-sub').textContent = RATIO_USES[ratio.id] || '';
+  }
+
+  // Android's back closes the sheet, as it closes any sheet. Opening one
+  // pushes an entry for the back to take away; closing it from inside takes
+  // the entry away itself, and the one popstate that causes is expected
+  // rather than obeyed.
+  let sheetEntry = false;
+  let expectPop = 0;
+  function pushSheet() {
+    if (sheetEntry) return;
+    try { history.pushState({ sheet: true }, ''); sheetEntry = true; } catch { /* a sandbox said no */ }
+  }
+  function popSheet() {
+    if (!sheetEntry) return;
+    sheetEntry = false;
+    expectPop += 1;
+    history.back();
+  }
+  window.addEventListener('popstate', () => {
+    if (expectPop) { expectPop -= 1; return; }
+    if (!sheetEntry) return;
+    sheetEntry = false;
+    if (drawer === 'tile') { cancelSwap(); select(-1); }
+    if (drawer) closeDrawer();
+  });
 
   /* ------------------------------------------------- sideways scroll hints */
 
   // Rows that can run off the edge fade there, but only while there really is
   // more to see — a fade on a row that already fits would promise nothing.
   const FADE_ROWS = [
-    // The last two are panels that scroll a rail inside themselves rather than
-    // scrolling whole: the background presets beside a colour well that stays
-    // put, and the export settings beside an Export button that does. The
-    // panel around each of them no longer moves, so it is the rail that has to
-    // carry the fade or nothing would say there was more.
-    ...['filmstrip', 'dock-root', 'layouts', 'tile-actions', 'swatches', 'export-settings', 'adjust-tools', 'effect-list'].map($),
+    // The reels are not here: they run round without an end, so there is
+    // always more, and they fade both edges in the stylesheet for good.
+    ...['filmstrip', 'dock-tabs', 'tile-tabs', 'effect-list'].map($),
     // Not the tile panel: it deliberately overflows (its own rows scroll), so
     // measuring it would show slack that can never be scrolled away.
     //
@@ -8672,13 +10599,13 @@
       radius: state.radius,
       bg: state.bg,
       quality: state.quality,
-      format: state.format,
       current: state.current,
       pages: state.pages.map((pg) => ({
         layout: pg.layout.id,
         cells: pg.cells.map((c) => (c ? {
           photo: c.photo, zoom: c.zoom, rot: c.rot, ox: c.ox, oy: c.oy,
           flipX: !!c.flipX, flipY: !!c.flipY, t0: c.t0 || 0, t1: c.t1 || 0,
+          ...(c.muted ? { muted: true } : {}),
           // Only when there is something to keep, so an unedited deck's JSON
           // is the same as it was before edits existed.
           ...(plainLook(c.adjust) ? {} : { adjust: { ...c.adjust } }),
@@ -8694,7 +10621,6 @@
       if (typeof data[k] === 'number') state[k] = data[k];
     });
     if (data.bg) state.bg = data.bg;
-    if (data.format) state.format = data.format;
 
     if (data.pages && data.pages.length) {
       // Every undo replaces the cells wholesale, and a poster is a decoded
@@ -8910,7 +10836,6 @@
       if (typeof saved[k] === 'number') state[k] = saved[k];
     });
     if (saved.bg) state.bg = saved.bg;
-    if (saved.format) state.format = saved.format;
   }
 
   // Back to the state a fresh project starts in. Bitmaps are closed and the
@@ -8940,7 +10865,6 @@
     state.radius = 0;
     state.bg = '#ffffff';
     state.quality = 1080;
-    state.format = 'image/jpeg';
     undoStack.length = 0;
     redoStack.length = 0;
     syncHistoryButtons();
@@ -9839,6 +11763,18 @@
   // Ends a run so the next interaction of the same kind starts a fresh step.
   const endRun = () => { coalesceKey = null; };
 
+  // A dial held under a finger is one gesture. Its undo step is the deck as
+  // it was when the finger went down, taken then and kept only when the
+  // finger lifts on something different.
+  const holdGesture = (from) => ({ snap: takeSnapshot(), from });
+  function keepGesture(held) {
+    endRun();
+    undoStack.push(held.snap);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    syncHistoryButtons();
+  }
+
   function applySnapshot(snap) {
     state.photos = snap.photos.slice();
     applyDeck(snap.deck);
@@ -9954,22 +11890,20 @@
   buildLayouts();
   buildRatios();
   buildSwatches();
+  wireCustomColour();
   setBgInputs(state.bg);
   slider('gap', 'gap');
   slider('padding', 'padding');
   slider('radius', 'radius');
   closeDrawer();
 
-  $('quality').value = String(state.quality);
-  $('format').value = state.format;
-  // The three controls in the dock that a tap never lands on, so the delegated
-  // tick below never reaches them: two selects and the colour well all hand
-  // over to a picker of the system's own and come back with an answer. The
-  // buzz belongs to the answer arriving, which is what change means on all
-  // three — an input event on a colour well fires for every step of a drag
-  // round the wheel, and buzzing those would be the rattle the sliders avoid.
-  $('quality').addEventListener('change', (e) => { snapshot(); state.quality = Number(e.target.value); restyle(); refresh(); saveDeck(); buzz('tap'); });
-  $('format').addEventListener('change', (e) => { state.format = e.target.value; saveDeck(); buzz('tap'); });
+  syncSizes();
+  // The one control in the dock that a tap never lands on, so the delegated
+  // tick below never reaches it: the colour well hands over to a picker of
+  // the system's own and comes back with an answer. The buzz belongs to the
+  // answer arriving, which is what change means there — an input event on a
+  // colour well fires for every step of a drag round the wheel, and buzzing
+  // those would be the rattle the sliders avoid.
   $('bg').addEventListener('input', (e) => setBg(e.target.value));
   $('bg').addEventListener('change', () => buzz('tap'));
 
@@ -9991,7 +11925,7 @@
       // Tiles are left out: they have a hold as well as a tap, and the hold
       // already buzzed when it fired. The pointerup that ends it would tick a
       // second time for a gesture that wasn't a tap at all.
-      pending = btn && !btn.disabled && !btn.closest('.choose-strip') && !btn.classList.contains('tile')
+      pending = btn && !btn.disabled && !btn.classList.contains('tile')
         ? { btn, x: e.clientX, y: e.clientY }
         : null;
     });
@@ -10009,10 +11943,11 @@
   }
 
   buzzTaps($('dock'));
-  // The library and the way into it are the same kind of control, so they get
-  // the same tick — the grid scrolls, so the same tap test applies.
+  buzzTaps($('tile-actions'));
+  // The library gets the tick the button into it gets — that button is in the
+  // dock now, so the dock's own listener covers it. The grid scrolls, so the
+  // same tap test applies.
   buzzTaps($('photos-modal'));
-  buzzTaps($('btn-photos'));
   buzzTaps($('btn-home'));
   buzzTaps(document.querySelector('.pagesbar-end'));
   buzzTaps($('installbar'));
@@ -10020,14 +11955,19 @@
   buzzTaps($('home'));
   buzzTaps($('detail'));
 
-  [...$('dock-root').children].forEach((btn) => {
+  $('dock-root').querySelectorAll('[data-drawer]').forEach((btn) => {
     btn.addEventListener('click', () => openDrawer(btn.dataset.drawer));
   });
+  // Moving between the page's settings keeps the sheet open and only changes
+  // what is in it.
+  [...$('dock-tabs').children].forEach((btn) => {
+    btn.addEventListener('click', () => { if (drawer !== btn.dataset.drawer) openDrawer(btn.dataset.drawer); });
+  });
+  $('btn-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
   $('dock-back').addEventListener('click', () => {
-    // Inside a tile sub-panel, step back to the tile's actions. At the top of
-    // the tile bar the cross lets go of the tile, which puts the canvas back
-    // into swiping.
-    if (drawer === 'tile' && tileSub) { showTileSub(null); return; }
+    // Replace steps back to the tool it was opened from. Anywhere else on a
+    // tile, Back lets go of it, which puts the canvas back into swiping.
+    if (drawer === 'tile' && tileSub === 'replace') { leaveReplace(); return; }
     if (drawer === 'tile') { cancelSwap(); select(-1); return; }
     closeDrawer();
   });
@@ -10035,39 +11975,37 @@
   [...$('tile-actions').children].forEach((btn) => {
     btn.addEventListener('click', () => tileAction(btn.dataset.tile));
   });
-  $('choose-back').addEventListener('click', () => showTileSub(null));
-  $('choose-strip').addEventListener('scroll', onChooserScroll, { passive: true });
-  $('choose-add').addEventListener('click', () => {
-    pendingCell = null;
-    importForChooser = true;
-    fileInput.click();
+  [...$('tile-tabs').children].forEach((btn) => {
+    btn.addEventListener('click', () => chooseTool(btn.dataset.tile));
   });
+  wireTray();
   ['start', 'end'].forEach((which) => {
     const el = $(`trim-${which}`);
-    el.addEventListener('pointerdown', () => { endRun(); snapshot('trim'); trimHeld = false; });
-    el.addEventListener('input', () => dragTrim(which));
+    el.addEventListener('pointerdown', (e) => beginTrimDrag(which, e));
+    el.addEventListener('pointermove', moveTrimDrag);
     el.addEventListener('pointerup', endTrimDrag);
-    el.addEventListener('change', endTrimDrag);
+    el.addEventListener('pointercancel', endTrimDrag);
+    el.addEventListener('keydown', (e) => nudgeHandle(which, e));
   });
-  $('trim-reset').addEventListener('click', resetTrim);
+  // Laid out at nothing while the sheet was hidden, so the strip finds its
+  // frames and its handles once it has a width.
+  if (window.ResizeObserver) new ResizeObserver(() => { if (tileSub === 'trim') syncTrim(); }).observe($('trim-strip'));
+  $('btn-sound').addEventListener('click', toggleSound);
 
-  $('btn-flip-h').addEventListener('click', () => flipCell('x'));
-  $('btn-flip-v').addEventListener('click', () => flipCell('y'));
-  $('btn-rot90').addEventListener('click', () => {
-    const cell = page().cells[state.selected];
-    if (!cell) return;
-    snapshot();
-    cell.rot = snapAngle(cell.rot + Math.PI / 2);
-    settle(state.selected);
-    render();
-    syncPanel();
+  wireFlip();
+  $('btn-turn-left').addEventListener('click', () => turnCell(-1));
+  $('btn-turn-right').addEventListener('click', () => turnCell(1));
+  $('tile-crop').querySelectorAll('[data-turning]').forEach((btn) => {
+    btn.addEventListener('click', () => { cropTurning = btn.dataset.turning; syncCrop(); });
   });
   feedback('angle');
+  valueDial('angle', { fromNought: true });
   $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
   $('angle').addEventListener('pointerup', endRun);
   $('angle').addEventListener('input', (e) => {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot('angle');
     cell.rot = (Number(e.target.value) * Math.PI) / 180;
     settle(state.selected);
@@ -10079,25 +12017,15 @@
 
   buildAdjustTools();
   feedback('adjust');
+  valueDial('adjust', { fromNought: true });
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not
   // on every step of the drag: the preview is the only thing being watched.
   $('adjust').addEventListener('change', () => { endRun(); refresh(); });
-  $('adjust-reset').addEventListener('click', resetAdjust);
-  const compare = $('adjust-compare');
-  compare.addEventListener('pointerdown', (e) => {
-    try { compare.setPointerCapture(e.pointerId); } catch { /* already gone */ }
-    holdCompare(true);
-  });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => {
-    compare.addEventListener(type, () => holdCompare(false));
-  });
-  // A keyboard has no hold, so Space and Enter hold it for as long as the
-  // key is down, the way they press a button.
-  compare.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); holdCompare(true); } });
-  compare.addEventListener('keyup', () => holdCompare(false));
-  compare.addEventListener('blur', () => holdCompare(false));
+  $('btn-compare').addEventListener('click', () => setCompare(!comparing));
+  $('btn-reset').addEventListener('click', resetTool);
+  buzzTaps($('sheet-float'));
 
   buildEffects();
   $('pop-pick').addEventListener('click', () => setPicking(!picking));
@@ -10115,7 +12043,20 @@
     btn.addEventListener('click', () => toggleSide(btn.dataset.side));
   });
 
+  $('btn-export-open').addEventListener('click', () => { if ($('export-card').hidden) openExportCard(); else closeExportCard(); });
+  $('export-card').querySelectorAll('[data-quality]').forEach((btn) => {
+    btn.addEventListener('click', () => chooseSize(Number(btn.dataset.quality)));
+  });
   $('btn-export').addEventListener('click', exportDeck);
+  $('export-cancel').addEventListener('click', cancelExport);
+  $('export-share').addEventListener('click', shareExport);
+  $('export-again').addEventListener('click', shareExport);
+  $('export-later').addEventListener('click', leaveExport);
+  $('export-done').addEventListener('click', leaveExport);
+  buzzTaps($('export-screen'));
+  // The card goes when anything else is touched: a finger on the page, or
+  // another setting opened.
+  stageInput.addEventListener('pointerdown', closeExportCard, true);
   // A press is settled by the pointer sequence in the stage handlers, and this
   // still fires afterwards for the same tap — so it is the second caller the
   // guard in requestDeletePage exists for, not a fallback. It matters on its own
@@ -10179,11 +12120,13 @@
   $('btn-delete-page').addEventListener('click', () => deletePage(state.current));
 
   feedback('zoom');
+  valueDial('zoom');
   $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
   $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
     const cell = page().cells[state.selected];
     if (!cell) return;
+    if (comparing) setCompare(false);
     snapshot('zoom');
     cell.zoom = Number(e.target.value) / 100;
     // The label in the corner was only ever brought up to date by syncPanel,
@@ -10193,6 +12136,7 @@
     $('zoom-val').textContent = `${Math.round(Number(e.target.value))}%`;
     settle(state.selected);
     render();
+    syncFloat();
   });
 
   $('sheet-close').addEventListener('click', closeSheet);
@@ -10210,6 +12154,15 @@
       if (detailOf && e.key === 'Escape') closeDetail();
       return;
     }
+    // The export's screen takes nothing, keys included, but its own way out.
+    if (!$('export-screen').hidden) {
+      if (e.key === 'Escape') {
+        const on = $('export-screen').dataset.state;
+        if (on === 'exporting') cancelExport(); else leaveExport();
+      }
+      return;
+    }
+    if (e.key === 'Escape' && !$('export-card').hidden) { closeExportCard(); return; }
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -10218,13 +12171,17 @@
     }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
 
-    if (e.target.matches('input, select, textarea')) return;
+    // A field keeps its keys, except that Escape from a ruler or a menu still
+    // shuts the sheet: those are where a keyboard lands when a sheet opens,
+    // and they have no use for Escape themselves.
+    const shuts = e.key === 'Escape' && e.target.matches('input[type="range"], select');
+    if (e.target.matches('input, select, textarea') && !shuts) return;
     // The library sits over everything, so it takes Escape before anything
     // underneath gets a look at it.
     if (libraryOpen && e.key === 'Escape') { closeLibrary(); return; }
     if (!$('sheet').hidden && e.key === 'Escape') { closeSheet(); return; }
     if (e.key === 'Escape' && swapFrom !== null) { cancelSwap(); return; }
-    if (e.key === 'Escape' && drawer === 'tile' && tileSub) { showTileSub(null); return; }
+    if (e.key === 'Escape' && drawer === 'tile' && tileSub === 'replace') { leaveReplace(); return; }
     if (e.key === 'Escape' && state.selected !== -1) { select(-1); return; }
     if (e.key === 'Escape' && drawer) { closeDrawer(); return; }
     if (e.key === 'ArrowLeft' && state.selected === -1) slidePage(-1);
@@ -10259,20 +12216,7 @@
     .catch(() => {})
     .then(collectShared);
 
-  if (window.ResizeObserver) {
-    let lastW = 0;
-    let lastH = 0;
-    new ResizeObserver(() => {
-      const box = $('canvas-wrap');
-      const w = box.clientWidth;
-      const h = box.clientHeight;
-      if (!w || !h) return;
-      if (Math.abs(w - lastW) < 8 && Math.abs(h - lastH) < 8) return;
-      lastW = w;
-      lastH = h;
-      render();
-    }).observe($('canvas-wrap'));
-  }
+  if (window.ResizeObserver) new ResizeObserver(fitPreview).observe($('canvas-wrap'));
   requestAnimationFrame(() => render());
 
   /* ------------------------------------------------------ install / offline */

@@ -104,26 +104,26 @@ console.log('\n== export moved into the dock ==');
     installbarHidden: document.getElementById('installbar').hidden,
     pagesTop: Math.round(document.querySelector('.pagesbar').getBoundingClientRect().top)}))));
   console.log('  no export in a top bar:', await p.evaluate(()=>!document.querySelector('.installbar #btn-export')) ? '✓' : '✗');
-  await p.click('.dock-item[data-drawer="export"]');
+  await p.click('#btn-export-open');
   await p.waitForTimeout(300);
-  console.log('  it lives in the Export drawer:', j(await p.evaluate(()=>{
+  console.log('  it lives in the Export card:', j(await p.evaluate(()=>{
     const e=document.getElementById('btn-export');
-    const panel=document.getElementById('dp-export');
-    const r=e.getBoundingClientRect(), pr=panel.getBoundingClientRect();
-    return { inPanel: panel.contains(e), visible: r.width>0,
-             fitsWithoutScrolling: panel.scrollWidth <= panel.clientWidth + 2,
+    const card=document.getElementById('export-card');
+    const r=e.getBoundingClientRect(), cr=card.getBoundingClientRect();
+    return { inCard: card.contains(e), visible: r.width>0, fullWidth: Math.abs((cr.width - 16) - r.width) < 1,
              size:`${Math.round(r.width)}x${Math.round(r.height)}` };})));
-  await p.locator('.dock').screenshot({path:`${OUT}/export-drawer.png`});
+  await p.locator('.dock').screenshot({path:`${OUT}/export-card.png`});
 
-  const dl = p.waitForEvent('download', {timeout:6000}).catch(()=>null);
+  const dl = p.waitForEvent('download', {timeout:30000}).catch(()=>null);
   await p.click('#btn-export');
+  await p.click('#export-share', { timeout: 120000 });
   const got = await dl;
   await p.waitForTimeout(600);
   console.log('  and it still exports:', got ? `✓ ${got.suggestedFilename()}` : `(no download event) toast: ${await p.textContent('#toast')}`);
 
   // disabled with nothing to export
   const { p: p2 } = await open();
-  await p2.click('.dock-item[data-drawer="export"]');
+  await p2.click('#btn-export-open');
   await p2.waitForTimeout(300);
   console.log('  disabled on an empty deck:', await p2.evaluate(()=>document.getElementById('btn-export').disabled) ? '✓' : '✗');
 }

@@ -116,14 +116,19 @@ const chosen = async () => {
 };
 const say = (c) => `over the red ${c.left.join(',')}, over the yellow ${c.right.join(',')}`;
 
-const box = await p.locator('#canvas').boundingBox();
-const tap = (fx, fy) => p.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+// Measured again before every press rather than once. The sheet a tile opens
+// is as tall as what is in it — the effects panel more than the bar it covers —
+// and the preview gives up the difference, so a box taken before the tile was
+// chosen is a box the canvas has since moved out of.
+let box = await p.locator('#canvas').boundingBox();
+const fresh = async () => { box = await p.locator('#canvas').boundingBox(); };
+const tap = async (fx, fy) => { await fresh(); return p.mouse.click(box.x + box.width * fx, box.y + box.height * fy); };
 const settle = () => p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 60000 })
   .then(() => p.waitForTimeout(300));
 
 await tap(0.5, 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.click('.effect-item[data-effect="popOut"]');
 await settle();
 const first = await chosen();
@@ -157,6 +162,7 @@ check(near(yellowOnly.left, BLUE) && yellowOnly.yellow, 'and either can be taken
 
 // A drag while choosing still moves the photo rather than choosing.
 const before = await chosen();
+await fresh();
 await p.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.9);
 await p.mouse.down();
 await p.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.8, { steps: 6 });
@@ -172,7 +178,7 @@ check(undone.yellow === before.yellow && near(undone.left, BLUE), 'and undoing t
 check(!(await p.locator('#tile-effects').isVisible()), 'undo lets go of the tile, and stops choosing');
 await tap(0.5, 0.9);
 await p.waitForTimeout(200);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 await p.waitForTimeout(200);
 check(await p.getAttribute('#pop-pick', 'aria-pressed') === 'false', 'coming back to the panel, it is not choosing');
 await p.click('#pop-pick');
@@ -202,11 +208,26 @@ check(modelFetches.length === fetched, 'without running the model again', `${mod
 // in a 2160px export: how many pixels it takes to get from blue to red. The
 // disc there is a circle's edge crossed at a slant of about 70°, so even a
 // perfect cut spreads a one-pixel edge over a pixel or so of this row.
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#quality', '2160');
-await p.selectOption('#format', 'image/png');
+// The export is a JPEG at 0.92 now, which is what Instagram is sent. A check
+// on what the app draws — rather than on what the encoder makes of it — reads
+// the one export it needs as a PNG of the very canvas the app drew, by asking
+// the next toBlob for a PNG and then putting toBlob back.
+const readDrawnNotEncoded = () => p.evaluate(() => {
+  const toBlob = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb, type, q) {
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    return toBlob.call(this, cb, 'image/png', q);
+  };
+});
+// The cut's edge is what is measured below, blue to red, and a JPEG keeps
+// colour at half the resolution of brightness: through the export's own
+// encoder that edge spreads over 5px. So this reads what was drawn.
+await readDrawnNotEncoded();
+await p.click('#btn-export-open');
+await p.click('#export-card [data-quality=\"2160\"]');
 const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {

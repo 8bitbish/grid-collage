@@ -1,6 +1,6 @@
 # Browser tests
 
-41 standalone Node scripts that serve the repository over http, drive Chromium
+63 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -54,9 +54,9 @@ Without them those seven skip and the runner names them. The ffmpeg bundled with
 Playwright cannot do it — it is built `--disable-everything` and has libvpx but
 no lavfi, so it can neither read a synthetic source nor write H.264.
 
-The five small fixtures are committed: `clip.webm` (20 KB), `photo.heic`
-(1.8 KB), `rotated.mp4` (3 KB) and `moving0.webm` and `moving1.webm` (37 KB and
-28 KB). The rest — twelve 4032×3024 JPEGs, twelve
+The seven small fixtures are committed: `clip.webm` (20 KB), `photo.heic`
+(1.8 KB), `rotated.mp4` (3 KB), `moving0.webm` and `moving1.webm` (37 KB and
+28 KB), and `voice3s.webm` and `voice2s.webm` (14 KB and 10 KB). The rest — twelve 4032×3024 JPEGs, twelve
 1080×1920 clips and one H.264 `clip.mp4` — come to about 70 MB and are
 generated.
 
@@ -65,6 +65,20 @@ Several tests depend on exactly that: a window longer than the clip has to show
 both colours for the canvas to count as following the video. A replacement must
 keep the two-colour structure or those tests stop meaning anything rather than
 failing honestly.
+
+`voice3s.webm` and `voice2s.webm` are the two clips with sound: three seconds of
+440Hz under flat red and two of 880Hz under flat blue, 160×160, with Opus audio.
+`test-mute` puts them side by side and reads how long the exported sound runs to
+tell which clip it came from. Opus on purpose: an MP4 holds it as it is, so the
+sound is copied into the export, where AAC would have to be encoded and this
+Chromium has no AAC encoder. They were made like this:
+
+```sh
+ffmpeg -f lavfi -i "color=c=0xc03030:s=160x160:d=3:r=15" -f lavfi -i "sine=frequency=440:duration=3" \
+  -c:v libvpx -b:v 60k -c:a libopus -b:a 24k -shortest voice3s.webm
+ffmpeg -f lavfi -i "color=c=0x3050c0:s=160x160:d=2:r=15" -f lavfi -i "sine=frequency=880:duration=2" \
+  -c:v libvpx -b:v 60k -c:a libopus -b:a 24k -shortest voice2s.webm
+```
 
 `moving0.webm` and `moving1.webm` are the opposite: 320×320 test patterns,
 3s at 30fps, that change on every frame. `test-swipeplay` needs that, because
@@ -93,6 +107,44 @@ ffmpeg -display_rotation 90 -i coded.mp4 -c copy rotated.mp4
 `clip.mp4` is H.264 on purpose — the bundled Chromium cannot decode it, and
 `test-video` uses it to check the app degrades properly rather than to check
 playback.
+
+## The tile's tools and the export, redesigned
+
+Five tests arrived with the redesign of a chosen tile's tools and the export,
+and between them they are what to run after touching either:
+
+- `tiletools` — Compare and Reset floating over the sheet: arriving with the
+  first change on Adjust, 180ms and 6px, the page moving up to clear them, and
+  leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
+  down, read off the pixels of a photo in four coloured quarters; the tile's own
+  actions stepping aside for Replace; the reel and the whole tray.
+- `trimhold` — Trim always playing with no Play button; a handle parking the
+  tile on its frame, with its time on the tile; a hold of half a second closing
+  the strip in, measured as the same 20px moving the cut 0.112s instead of
+  0.172s; the sound toggle.
+- `mute` — which clip a slide's sound comes from, read out of the exported MP4.
+  Run against the old choice of the longest clip, two of its checks fail.
+- `exportflow` — the card of sizes; the screen held black; Share only on the
+  Ready tap, with the share sheet stubbed to record when it was asked; Save
+  where there is no share sheet; Cancel stopping between a video's frames. With
+  that per-frame stop taken out, its two Cancel checks fail.
+- `icons` — every icon those brought in, measured where it is drawn for the
+  ~1.5px of stroke CLAUDE.md sets.
+
+Photos export as JPEG at 0.92 now, with no PNG to choose. The tests that read
+an export back decode it as a JPEG, and the flat bands and patches they sample
+survive it within their tolerances. Two do not measure the file at all but what
+the app draws — the Sharpen calibration against Google's numbers, and how sharp
+a matte's edge is — and a JPEG blurs exactly that, so each reads the one export
+it needs as a PNG of the canvas the app drew (`readDrawnNotEncoded`), and says
+so where it does.
+
+After the redesign, one at a time with the fixtures generated: 62 of 63 passed,
+1111 assertions, where the run before it began was 58 of 58 and 969. The one was
+`swipe`'s quick flick, which is the frame-timing flake described below: run
+eight times on the commit before the redesign on the same machine that hour, it
+failed the same check three times, and it passed every parallel run of the
+redesigned suite.
 
 ## Where it stands
 

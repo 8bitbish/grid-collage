@@ -125,7 +125,7 @@ await p.waitForTimeout(400);
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.9);
 await p.waitForTimeout(300);
-await p.click('.dock-item[data-tile="effects"]');
+await p.click('#tile-tabs [data-tile="effects"]');
 const t0 = Date.now();
 await p.click('.effect-item[data-effect="popOut"]');
 await p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 120000 });
@@ -134,19 +134,18 @@ check(fetched.some((f) => /vitmatte/.test(f)) && fetched.some((f) => /ort/.test(
   `${Date.now() - t0}ms, fetched ${[...new Set(fetched)].join(', ')}`);
 
 await p.click('#dock-back');
-await p.click('#dock-back');
 if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
-await p.click('.dock-item[data-drawer="export"]');
-await p.selectOption('#quality', '2160');
-await p.selectOption('#format', 'image/png');
+await p.click('#btn-export-open');
+await p.click('#export-card [data-quality=\"2160\"]');
 const got = p.waitForEvent('download', { timeout: 120000 }).catch(() => null);
 await p.click('#btn-export');
+await p.click('#export-share', { timeout: 120000 });
 const download = await got;
 if (!download) check(false, 'the export arrives');
 else {
   const bytes = fs.readFileSync(await download.path()).toString('base64');
   const m = await p.evaluate(async (b64) => {
-    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const bmp = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height);
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);
