@@ -9729,7 +9729,17 @@
         + '<svg class="ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="ring-track" cx="16" cy="16" r="14.75"/><circle class="ring-fill" cx="16" cy="16" r="14.75" pathLength="100"/></svg>'
         + `<svg class="setting-icon" viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg></span>`
         + `<span class="setting-name">${a.label}</span>`;
-      btn.addEventListener('click', () => { adjustTool = a.id; syncAdjust(); });
+      btn.addEventListener('click', () => {
+        // Two taps on one setting, the second soon after the first, put it
+        // back to nought. Counted by hand rather than by dblclick, which
+        // Safari on a phone does not reliably send.
+        const now = performance.now();
+        const again = lastSettingTap.id === a.id && now - lastSettingTap.at < DOUBLE_TAP_MS;
+        lastSettingTap = again ? { id: null, at: 0 } : { id: a.id, at: now };
+        adjustTool = a.id;
+        if (again) zeroSetting(a.id);
+        else syncAdjust();
+      });
       row.appendChild(btn);
     });
     // The setting under the needle is the one being turned as soon as it gets
@@ -9835,6 +9845,20 @@
     setAdjust(cell, tool.id, value);
     syncAdjust();
     render();
+  }
+
+  const DOUBLE_TAP_MS = 350;
+  let lastSettingTap = { id: null, at: 0 };
+
+  // One setting back to nought, the rest of the edit left as it is.
+  function zeroSetting(id) {
+    const cell = page().cells[state.selected];
+    if (!cell || !(cell.adjust && cell.adjust[id])) { syncAdjust(); return; }
+    snapshot();
+    setAdjust(cell, id, 0);
+    buzz('snap');
+    syncAdjust();
+    refresh();
   }
 
   function resetAdjust() {
