@@ -40,14 +40,15 @@ ok('a photo opens on Adjust', await p.locator('#tile-adjust').isVisible());
 console.log('== a line for every number ==');
 {
   // Separate runs of drawn pixels along one row of the ruler, just above its
-  // bottom, where even the shortest line reaches. The dial moves 3pt a value.
+  // bottom, where even the shortest line reaches. The dial moves 6pt a value,
+  // the spacing its lines always had, each line now one value rather than two.
   const runs = await p.evaluate(() => {
     const c = document.querySelector('#adjust-slide .dial-ruler'); const g = c.getContext('2d');
     const y = c.height - 4; const d = g.getImageData(0, y, c.width, 1).data;
     let n = 0, on = false; for (let x = 0; x < c.width; x++) { const lit = d[x * 4 + 3] > 40; if (lit && !on) n += 1; on = lit; }
     return { n, width: c.clientWidth };
   });
-  const expect = runs.width / 3;
+  const expect = runs.width / 6;
   ok('one line per value across the dial', Math.abs(runs.n - expect) <= 3, `${runs.n} lines across ${runs.width}pt, ${expect.toFixed(0)} values`);
 }
 
@@ -57,7 +58,7 @@ console.log('\n== a tick for every number crossed ==');
   const y = t.y + t.height / 2, x = t.x + t.width / 2;
   await p.evaluate(() => { window.__buzz = []; });
   await p.mouse.move(x, y); await p.mouse.down();
-  for (let k = 1; k <= 20; k++) await p.mouse.move(x - k * 3, y);
+  for (let k = 1; k <= 20; k++) await p.mouse.move(x - k * 6, y);
   await p.mouse.up(); await rest();
   const buzz = await p.evaluate(() => window.__buzz);
   const val = await p.textContent('#adjust-val');
@@ -101,6 +102,54 @@ console.log('\n== the row chooses as it passes ==');
   await p.waitForTimeout(400); await rest();
   const landed = await p.evaluate(() => document.querySelector('#adjust-tools .is-active').querySelector('.setting-name').textContent);
   ok('once the row stops, what it stopped on is the setting', landed === await p.textContent('#adjust-name'), landed);
+}
+
+console.log('\n== a flick carries, a slow let-go does not ==');
+{
+  const r = await p.locator('#adjust-reel').boundingBox();
+  const cdp = await ctx.newCDPSession(p);
+  const y = r.y + r.height / 2, x0 = r.x + r.width * 0.8;
+  const centred = () => p.evaluate(() => {
+    const s = document.getElementById('adjust-reel'); const mid = s.scrollLeft + s.clientWidth / 2;
+    const all = [...s.querySelectorAll('.setting, .reel-echo')];
+    return Math.min(...all.map((el) => Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid)));
+  });
+  const swipe = async (dx, frames, pauseBeforeLift) => {
+    const s0 = await p.evaluate(() => document.getElementById('adjust-reel').scrollLeft);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] });
+    for (let k = 1; k <= frames; k++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 - (dx * k) / frames, y }] }); await p.waitForTimeout(16); }
+    if (pauseBeforeLift) await p.waitForTimeout(pauseBeforeLift);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    // Followed frame by frame until it lands. Once it has, the row may hop by
+    // a whole copy of itself from an echo onto the real settings — the same
+    // place, drawn from the other copy — so the flight is read up to there.
+    const trail = await p.evaluate(() => new Promise((res) => {
+      const s = document.getElementById('adjust-reel'); const out = [s.scrollLeft]; const t0 = performance.now();
+      const tick = () => { out.push(s.scrollLeft); if (performance.now() - t0 < 1300) requestAnimationFrame(tick); else res(out); };
+      requestAnimationFrame(tick);
+    }));
+    await rest();
+    const copy = await p.evaluate(() => document.getElementById('adjust-tools').scrollWidth || 0);
+    let end = trail.length - 1;
+    for (let i = 1; i < trail.length; i++) if (Math.abs(trail[i] - trail[i - 1]) > 400) { end = i - 1; break; }
+    return { dragged: trail[0] - s0, after: trail[end] - trail[0] };
+  };
+  const step = await p.evaluate(() => { const a = document.querySelectorAll('#adjust-tools .setting'); return a[1].offsetLeft - a[0].offsetLeft; });
+  const fast = await swipe(150, 5, 0);
+  ok('a quick flick carries on well past where the finger left it', fast.after > 2 * step, `dragged ${fast.dragged.toFixed(0)}pt, then flew ${fast.after.toFixed(0)}pt more, a setting is ${step.toFixed(0)}pt`);
+  ok('and lands on the middle of a setting', (await centred()) < 1, `${(await centred()).toFixed(2)}pt off`);
+  const slow = await swipe(150, 5, 150);
+  ok('a drag that stopped before it lifted only glides onto the nearest setting', Math.abs(slow.after) <= step / 2 + 1, `${slow.after.toFixed(0)}pt after letting go`);
+  ok('and lands in the middle too', (await centred()) < 1, `${(await centred()).toFixed(2)}pt off`);
+  // Faster still goes further: speed, not a fixed hop, decides how far.
+  const faster = await swipe(240, 4, 0);
+  ok('a harder flick goes further than a quick one', faster.after > fast.after, `${faster.after.toFixed(0)}pt against ${fast.after.toFixed(0)}pt`);
+  ok('the row pans no page itself: no native scroll, so no scroll indicator', await p.evaluate(() => getComputedStyle(document.getElementById('adjust-reel')).touchAction === 'pan-y'));
+  // A tap on a setting to either side still chooses it.
+  const target = await p.evaluate(() => { const s = document.getElementById('adjust-reel'); const mid = s.getBoundingClientRect(); const el = document.elementFromPoint(mid.left + mid.width / 2 + 120, mid.top + mid.height / 2)?.closest('.setting, .reel-echo'); return el ? el.querySelector('.setting-name').textContent : null; });
+  await p.touchscreen.tap(r.x + r.width / 2 + 120, y);
+  await p.waitForTimeout(700); await rest();
+  ok('a tap still chooses the setting it lands on', target && (await p.textContent('#adjust-name')) === target, `${target} → ${await p.textContent('#adjust-name')}`);
 }
 
 ok('no page errors', errs.length === 0, errs.join(' | '));

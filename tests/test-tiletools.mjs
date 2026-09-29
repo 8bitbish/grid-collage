@@ -101,13 +101,14 @@ console.log('\n== the first change brings Compare and Reset ==');
 {
   // A drag on the dial, as a finger makes it: the ruler follows the finger, so
   // dragging it left brings larger numbers under the needle.
+  // Adjust's dial moves one value every 6pt.
   const t = await rect('#adjust-slide .dial-track');
   const y = t.top + t.height / 2, x = t.left + t.width / 2;
   await p.mouse.move(x, y); await p.mouse.down();
   let arrived = null;
   const edgeFrames = [];
   for (let k = 1; k <= 12; k++) {
-    await p.mouse.move(x - k * 3, y);
+    await p.mouse.move(x - k * 6, y);
     if (!arrived && await p.locator('#sheet-float').isVisible()) {
       arrived = await p.evaluate(() => document.getElementById('sheet-float').getAnimations().map((a) => {
         const f = a.effect.getKeyframes();
