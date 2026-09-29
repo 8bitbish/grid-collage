@@ -419,7 +419,7 @@
         // Edits are for photos for now: a clip would need its look redrawn on
         // every frame it plays and every frame an export walks. `original` is
         // the tile Compare is showing as it came.
-        drawn = photo.kind === 'video' || opts.original === i ? still : lookOf(cell, photo, still, p.dw, p.dh);
+        drawn = photo.kind === 'video' || opts.original === i ? still : lookOf(cell, photo, still, p.dw, p.dh, s);
         g.drawImage(drawn, -p.dw / 2, -p.dh / 2, p.dw, p.dh);
         if (opts.picking === i && photo.subject) g.drawImage(tintOf(photo.subject), -p.dw / 2, -p.dh / 2, p.dw, p.dh);
       } else if (opts.placeholders) {
@@ -1409,6 +1409,53 @@
       glsl: `
         c += amount * result_sharpen().x;`,
     },
+    {
+      id: 'grain', label: 'Grain', min: 0, max: 100, stage: 'tone',
+      icon: '<circle cx="7" cy="7" r="1.3"/><circle cx="13" cy="5.5" r="1"/><circle cx="18" cy="8" r="1.5"/><circle cx="9.5" cy="12" r="1.6"/><circle cx="16" cy="13" r="1"/><circle cx="6" cy="17" r="1"/><circle cx="12.5" cy="17.5" r="1.4"/><circle cx="18.5" cy="18" r="1"/>',
+      // Film grain rather than digital noise, after the way Lightroom's Grain
+      // is built and the way film itself behaves:
+      // - particles, not pixels. Noise drawn a pixel at a time reads as a
+      //   sensor's, fine and even. Grain is clumps of silver: here a soft
+      //   bump of random tone at a random place in each cell of a grid, its
+      //   size varying from cell to cell, each pixel summing the nine cells
+      //   round it — and three such layers, the grain itself, clumps two and
+      //   a bit times coarser and grit half as fine, which is what gives the
+      //   older-camera texture rather than an even hiss.
+      // - in the post's own pixels. A look is drawn at the size the tile
+      //   shows it, so grain counted in the look's pixels came out coarser in
+      //   the preview than in a 2160 export. The grid is laid over the photo
+      //   by u_post, the photo's drawn size in pixels of a 1080 post, and
+      //   seeded by the photo: the same grains land in the same places at any
+      //   size, and the export is the preview.
+      // - by tone. Grain shows most in the midtones and least at the ends,
+      //   where film is either unexposed or has blocked up — and shadows a
+      //   little more than highlights, fewer crystals having been struck. A
+      //   gentler fall-off, the parabola to the power 0.6, left a black of 20
+      //   with over half the grain of mid-grey, and blacks full of grain read
+      //   as a sensor's noise, not film.
+      // - nearly monochrome. Colour film's three layers each have their own
+      //   grain, which shows as a faint mottle of colour on top of the
+      //   brightness; a tenth of the grain here is taken per channel. A fifth
+      //   was tried, with grains up to 5px and full-strength clumps, and at
+      //   Grain size 70 it put red and dark blotches over a face, which read
+      //   as damage rather than grain. So the largest grain is 3.5px and the
+      //   clumps weaken as the grains grow.
+      glsl: `
+        float size = mix(1.2, 3.5, u_grainSize);
+        vec2 p = v_uv * u_post / size + u_seed;
+        float g = grainLayer(p) + (0.55 - 0.3 * u_grainSize) * grainLayer(p / 2.2 + 37.0) + 0.35 * grainLayer(p * 2.0 + 71.0);
+        vec3 tint = vec3(grainLayer(p + 13.0), grainLayer(p + 29.0), grainLayer(p + 53.0));
+        float y = luma(c);
+        float body = clamp(4.0 * pow(y, 0.9) * (1.0 - y), 0.0, 1.0);
+        c += amount * 0.11 * body * (0.9 * g + 0.1 * tint);`,
+    },
+    {
+      id: 'grainSize', label: 'Grain size', min: 0, max: 100, stage: 'tone',
+      icon: '<circle cx="8" cy="9" r="2"/><circle cx="16" cy="8" r="3.5"/><circle cx="10" cy="17" r="3"/><circle cx="17.5" cy="17" r="1.2"/>',
+      // Nothing on its own: Grain reads it, from 1.2px grains at nought to
+      // 3.5px at 100, in pixels of a 1080 post.
+      glsl: '',
+    },
   ];
 
   const adjustment = (id) => ADJUSTMENTS.find((a) => a.id === id);
@@ -1793,8 +1840,10 @@
   // and colour), and Tone is that tone mapping. Its regions are read off the
   // photo as it came, not after Warmth and Tint; they move brightness by a
   // few levels, which moves a region's curve by less.
+  // Grain last of all, over the photo as every other tool has left it, as it
+  // lies over the picture on film.
   const RUN_ORDER = ['warmth', 'tint', 'tone', 'whitePoint', 'highlights', 'shadows', 'blackPoint',
-    'contrast', 'brightness', 'saturation', 'skinTone', 'blueTone'];
+    'contrast', 'brightness', 'saturation', 'skinTone', 'blueTone', 'grainSize', 'grain'];
 
   // The order the look runs the tools in: detail first, on the photo as it
   // arrived, then the rest by RUN_ORDER.
@@ -2344,6 +2393,37 @@
       uniform sampler2D u_curves;
       ${ADJUSTMENTS.filter((a) => !a.table).map((a) => `uniform float u_${a.id};`).join('\n')}
       vec3 at(vec2 px) { return texture2D(u_image, v_uv + px * u_texel).rgb; }
+      // The photo's drawn size in pixels of a 1080 post, and a number from
+      // the photo, for Grain.
+      uniform vec2 u_post;
+      uniform float u_seed;
+      // Two numbers from a cell of the grid, without sin(), whose precision
+      // at large arguments differs from one GPU to the next (Dave Hoskins's
+      // hash).
+      vec3 hash3(vec2 p) {
+        vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+        q += dot(q, q.yxz + 33.33);
+        return fract((q.xxy + q.yzz) * q.zyx);
+      }
+      // One layer of grain at p, in cells: in each cell a soft bump of tone
+      // -1..1 at a random place, of a random radius up to the cell's width,
+      // so a pixel only ever needs the nine cells round it.
+      float grainLayer(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = p - i;
+        float sum = 0.0;
+        for (int y = -1; y <= 1; y++) {
+          for (int x = -1; x <= 1; x++) {
+            vec2 o = vec2(float(x), float(y));
+            vec3 h = hash3(i + o);
+            vec3 k = hash3(i + o + 91.7);
+            vec2 d = o + h.xy - f;
+            float r = 0.35 + 0.45 * k.x;
+            sum += (h.z * 2.0 - 1.0) * exp(-dot(d, d) / (r * r));
+          }
+        }
+        return sum;
+      }
       // A level from a curve's row, read as two bytes and interpolated here
       // rather than by the texture: linear filtering would blend the high and
       // low bytes separately, which is nonsense wherever the low one wraps.
@@ -2684,7 +2764,7 @@
   // in which case the tile is drawn as it came. `detail` has, for each tool
   // with passes, its working copy's size and what it does for this photo's
   // blur; see lookOf.
-  function renderLook(src, adjust, w, h, dark, detail) {
+  function renderLook(src, adjust, w, h, dark, detail, post, seed) {
     const look = lookContext();
     if (!look) return null;
     const { gl } = look;
@@ -2847,6 +2927,8 @@
     look.el.height = h;
     gl.viewport(0, 0, w, h);
     gl.uniform2f(look.main.at('u_texel'), 1 / w, 1 / h);
+    gl.uniform2f(look.main.at('u_post'), post.w, post.h);
+    gl.uniform1f(look.main.at('u_seed'), seed);
     ADJUSTMENTS.forEach((a) => { if (!a.table) gl.uniform1f(look.main.at(`u_${a.id}`), amounts[a.id]); });
     runsOn.forEach((on, k) => gl.uniform1f(look.main.at(`u_run${k}`), on ? 1 : 0));
     fixesOn.forEach((on, k) => gl.uniform1f(look.main.at(`u_fix${k}`), on ? 1 : 0));
@@ -2872,7 +2954,15 @@
 
   // What a cell draws as: the source itself when it has no edits, otherwise
   // the source with its edits applied at about the size it will be drawn.
-  function lookOf(cell, photo, src, dw, dh) {
+  // A number from the photo, so two photos' grain is not the same pattern
+  // laid over each; from its id, which is kept for good.
+  function photoSeed(photo) {
+    let h = 2166136261;
+    for (const ch of String(photo.id)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return (h >>> 0) % 997;
+  }
+
+  function lookOf(cell, photo, src, dw, dh, s) {
     if (plainLook(cell.adjust)) return src;
     const sw = src.width;
     const sh = src.height;
@@ -2923,7 +3013,12 @@
         if (tables) { render(); redrawFilms(); }
       });
     }
+    // The photo's drawn size in pixels of a 1080 post, which is what Grain
+    // is measured in, and only matters to a look that has grain.
+    const post = { w: dw / s, h: dh / s };
+    const seed = cell.adjust.grain ? photoSeed(photo) : 0;
     const sig = ADJUSTMENTS.map((a) => cell.adjust[a.id] || 0).join(',') + `@${dark.toFixed(3)}`
+      + (cell.adjust.grain ? `#${Math.round(post.w)}x${Math.round(post.h)}` : '')
       + Object.values(detail).filter((d) => d.blur).map((d) => `/${d.blur.x.toFixed(4)},${d.blur.y.toFixed(4)}`).join('')
       + (waiting ? '~' : '');
 
@@ -2935,7 +3030,7 @@
       return hit.canvas;
     }
 
-    const canvas = renderLook(src, cell.adjust, w, h, dark, detail);
+    const canvas = renderLook(src, cell.adjust, w, h, dark, detail, post, seed);
     if (!canvas) return src;
     const entry = { cell, src, sig, w, h, canvas };
     // Two a cell: the preview's size and one other, which is usually the
