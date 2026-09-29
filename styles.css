@@ -3060,13 +3060,26 @@ body.is-library .toast {
    right edge in line with the sheet's inner one. Built like the bar's pills,
    4 inside and 2 between, and lifted off the page by the same shadow as the
    tile's own actions. */
+/* Out of the dock's flow, hung 8 above the sheet's top edge: it may sit over
+   the photo rather than make room for it. Taking a row of its own meant the
+   page shrank and moved up every time it arrived, and the scale that carried
+   the page between the two sizes flashed the edges of the screen white. Only
+   the pill takes touches, so the photo under the empty rest of the row still
+   pinches and drags. */
 .sheet-float {
+  position: absolute;
+  z-index: 6;
+  left: var(--space-inset-sheet);
+  right: var(--space-inset-sheet);
+  bottom: calc(100% + var(--space-inset-sheet));
   max-width: 520px;
-  margin: 0 auto var(--space-inset-sheet);
+  margin: 0 auto;
   padding: 0 var(--space-inset-sheet);
   display: flex;
   justify-content: flex-end;
+  pointer-events: none;
 }
+.sheet-float .float-pill { pointer-events: auto; }
 .float-pill {
   display: flex;
   align-items: center;

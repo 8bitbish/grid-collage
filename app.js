@@ -8886,10 +8886,10 @@
   // are there, and whether at all, depends on the tool:
   //
   // - Adjust: both, but only once something has changed. There is nothing to
-  //   compare with or reset until then, and the page keeps that room.
+  //   compare with or reset until then.
   // - Crop: both, always — at 40% and inert until something changes. A pinch
-  //   is how most crops start, and a pill arriving under the fingers halfway
-  //   through one would move the page they are pinching.
+  //   is how most crops start, and a pill appearing under the fingers halfway
+  //   through one is a distraction at exactly the wrong moment.
   // - Trim: Reset alone, once the clip has been cut. A clip is always playing,
   //   so there is nothing to compare it with.
   //
@@ -8923,9 +8923,8 @@
     // Nothing left to compare with, so nothing is being compared.
     if ((!want || !want.compare || want.resting) && comparing) setCompare(false);
     if (!!want === was) { apply(); return; }
-    // Leaving, a picture of it goes the way it came while the page grows back
-    // into the room: the row itself has to leave the layout at once, or the
-    // page would wait 180ms and then jump.
+    // Leaving, a picture of it goes the way it came while the row itself is
+    // hidden at once, so a tap in the next 180ms reaches the photo under it.
     if (was && !calmMotion.matches && row.getClientRects().length) {
       const r = row.getBoundingClientRect();
       const { copy } = lookalike(row);

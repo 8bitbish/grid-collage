@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.26j">
+<link rel="stylesheet" href="styles.css?v=2026.09.29a">
 </head>
 <body class="on-home">
 
@@ -251,9 +251,9 @@
 
     <!-- What belongs to the photo rather than to the controls floats over
          the sheet's top right, 8 above it and in line with its inner edge:
-         Compare, which shows the tile as it came, and Reset. It takes a row
-         of its own in the dock rather than hanging over the stage, so the page
-         shrinks to clear it and it never sits on the photo. Which of the two
+         Compare, which shows the tile as it came, and Reset. It hangs over the
+         stage rather than taking a row of the dock, so the page stays the size
+         it is and the pill may sit on the photo. Which of the two
          are there, and when, is the open tool's business — see floatWanted. -->
     <div class="sheet-float" id="sheet-float" hidden>
       <div class="float-pill" role="group" aria-label="This photo">
@@ -719,6 +719,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.26j"></script>
+<script src="app.js?v=2026.09.29a"></script>
 </body>
 </html>
