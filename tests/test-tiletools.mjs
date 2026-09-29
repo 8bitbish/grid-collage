@@ -3,10 +3,11 @@
 
    Compare and Reset float above the sheet rather than sitting in it, and when
    they are there depends on the tool: on Adjust they arrive with the first
-   change and leave when everything is back at nought. The page shrinks to
-   clear them, which is the part that is easy to get wrong — a pill laid over
-   the stage would sit on the photo — so this measures it rather than looking
-   at a screenshot of it. */
+   change and leave when everything is back at nought. The page stays exactly
+   where it is while they come and go, and they may sit over the photo. It
+   used to shrink to clear them, and the scale that carried it between the two
+   sizes flashed the screen's edges white; this measures both the page and the
+   edges while the pill arrives rather than looking at a screenshot of it. */
 import { chromium } from 'playwright';
 import { CHROME, ROOT, SHOTS } from './paths.mjs';
 import { autoEnter } from './enter.mjs';
@@ -61,6 +62,21 @@ const rect = (sel) => p.evaluate((s) => {
   const r = el.getBoundingClientRect();
   return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
 }, sel);
+// The outermost two columns either side, from the top bar down to where the
+// sheet begins, as one flat list of channel values.
+const edges = async () => {
+  const buf = await p.screenshot({ clip: { x: 0, y: 60, width: 390, height: 520 } });
+  return p.evaluate(async (b64) => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+    const c = new OffscreenCanvas(img.width, img.height); const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const out = [];
+    for (const x of [0, 1, img.width - 2, img.width - 1]) {
+      const d = g.getImageData(x, 0, 1, img.height).data;
+      for (let i = 0; i < d.length; i += 4) out.push(d[i], d[i + 1], d[i + 2]);
+    }
+    return out;
+  }, buf.toString('base64'));
+};
 const rest = () => p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 const box = await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -89,6 +105,7 @@ console.log('\n== the first change brings Compare and Reset ==');
   const y = t.top + t.height / 2, x = t.left + t.width / 2;
   await p.mouse.move(x, y); await p.mouse.down();
   let arrived = null;
+  const edgeFrames = [];
   for (let k = 1; k <= 12; k++) {
     await p.mouse.move(x - k * 3, y);
     if (!arrived && await p.locator('#sheet-float').isVisible()) {
@@ -96,6 +113,11 @@ console.log('\n== the first change brings Compare and Reset ==');
         const f = a.effect.getKeyframes();
         return { ms: a.effect.getTiming().duration, from: f[0].opacity, rise: f[0].transform };
       }));
+      // The screen's edges, frame after frame, while it arrives: the outermost
+      // two columns of pixels either side, from the top bar down to the sheet.
+      // The page is full width here, so its own background is at the edge;
+      // what is measured is how far each frame strays from the settled one.
+      for (let f = 0; f < 8; f++) edgeFrames.push(await edges());
     }
   }
   await p.mouse.up();
@@ -110,8 +132,11 @@ console.log('\n== the first change brings Compare and Reset ==');
   ok('the pill sits 8 above the sheet', Math.abs(sheet.top - pill.bottom - 8) < 1, `${(sheet.top - pill.bottom).toFixed(1)}px`);
   ok('in line with its inner edge', Math.abs(sheet.right - 8 - pill.right) < 1, `sheet right ${sheet.right}, pill right ${pill.right}`);
   ok('100 by 52, as Figma draws it', Math.round(pill.width) === 100 && Math.round(pill.height) === 52, `${pill.width} by ${pill.height}`);
-  ok('and the page moved up to clear it, rather than being covered', after.bottom <= pill.top && after.top < before.top,
+  ok('the page stayed exactly where it was, and the pill sits over it', Math.abs(after.top - before.top) < 0.5 && Math.abs(after.height - before.height) < 0.5,
     `page ${before.top}..${before.bottom} -> ${after.top}..${after.bottom}, pill from ${pill.top}`);
+  const settled = await edges();
+  const strays = edgeFrames.map((fr) => fr.reduce((n, v, i) => n + (Math.abs(v - settled[i]) > 24 ? 1 : 0), 0));
+  ok('the screen\'s edges held still while it arrived: no frame strayed from where they settle', edgeFrames.length === 8 && strays.every((n) => n === 0), JSON.stringify(strays));
   ok('the setting\'s ring shows how far it went', await p.evaluate(() => document.querySelector('.setting.is-active').classList.contains('is-set')
     && parseFloat(document.querySelector('.setting.is-active .ring-fill').style.strokeDasharray) === 12));
 }
