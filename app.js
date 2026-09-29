@@ -474,6 +474,22 @@
   // What a dial is passing over, drawn in place of the page until it settles
   // — see renderAs.
   let previewing = null;
+  // How the preview is drawn, for render and for a playing clip's paint loop
+  // alike. The loop once had its own shorter list, placeholders and the
+  // selection only, so with a clip playing on the page it drew over Compare
+  // on the very next frame: the edited photo beside it never showed as it
+  // came. Kept in one place so the two cannot drift apart again.
+  function previewOptions() {
+    const tinted = picking || performance.now() < tintUntil;
+    return {
+      placeholders: true,
+      selected: state.selected,
+      original: comparing === 'look' ? state.selected : -1,
+      unframed: comparing === 'crop' ? state.selected : -1,
+      picking: tinted ? state.selected : -1,
+    };
+  }
+
   function render() {
     const putBack = previewing ? previewing() : null;
     try { drawPreview(); } finally { if (putBack) putBack(); }
@@ -492,14 +508,7 @@
     // decode the still stayed on screen: the clip in one slot flickered back
     // to its first frame while another slot was being chosen for.
     const lent = lendFrames(page());
-    const tinted = picking || performance.now() < tintUntil;
-    drawPage(ctx, page(), W, H, {
-      placeholders: true,
-      selected: state.selected,
-      original: comparing === 'look' ? state.selected : -1,
-      unframed: comparing === 'crop' ? state.selected : -1,
-      picking: tinted ? state.selected : -1,
-    });
+    drawPage(ctx, page(), W, H, previewOptions());
     lent.forEach((cell) => { cell.frame = null; });
     // Only the current page is editable, so it's the only thumbnail that can
     // have gone stale from a render.
@@ -5985,7 +5994,7 @@
     if (lent.length) {
       const { w: W, h: H } = previewSize();
       if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
-      drawPage(ctx, pg, W, H, { placeholders: true, selected: state.selected });
+      drawPage(ctx, pg, W, H, previewOptions());
     }
     lent.forEach((cell) => { cell.frame = null; });
 
