@@ -2927,6 +2927,12 @@ body.is-library .toast {
 .settings-reel {
   height: 40px;
   gap: 6px;
+  /* Moved by app.js, which takes the finger itself and flings it (see reel's
+     fling). So no native horizontal pan, which is also what raised iOS's
+     scroll indicator over the sheet, and no CSS snapping to fight the flight
+     or yank a programmatic scroll onto the nearest option mid-way. */
+  touch-action: pan-y;
+  scroll-snap-type: none;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
   mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
 }
