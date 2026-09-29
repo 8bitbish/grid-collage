@@ -237,8 +237,12 @@
     return { w, h: Math.round(w * state.ratio.h / state.ratio.w) };
   }
 
-  // The preview only needs enough pixels to look sharp on screen; rendering it
-  // at export size cost 33ms a frame at 2160px.
+  // Drawn at the screen's own resolution, every device pixel it covers. It
+  // was held to two pixels a point and to the export's width, which on a
+  // three-times iPhone drew a full-width page at 780 and stretched it over
+  // 1170, visibly softer than the export it previews. Rendering at export
+  // size once cost 33ms a frame at 2160px, which is what the cap was for;
+  // a phone's screen is 1170 to 1290 across, well short of that.
   //
   // Measured against the container, never the canvas. A canvas can't display
   // larger than its own backing store, so sizing the backing store from the
@@ -250,10 +254,10 @@
     const bw = box.clientWidth;
     const bh = box.clientHeight;
     if (!bw || !bh) return out;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    // The largest post-shaped box that fits the container.
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    // The largest post-shaped box that fits the container, in device pixels.
     const fit = Math.min(bw / out.w, bh / out.h);
-    const w = clamp(Math.round(out.w * fit * dpr), 360, out.w);
+    const w = Math.max(360, Math.round(out.w * fit * dpr));
     return { w, h: Math.round(w * out.h / out.w) };
   }
 
