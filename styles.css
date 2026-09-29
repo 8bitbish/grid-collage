@@ -2952,7 +2952,8 @@ body.is-library .toast {
   scroll-snap-align: center;
   cursor: pointer;
 }
-.settings-reel .setting.is-active { background: var(--background-control); color: var(--content-primary); }
+.settings-reel .setting.is-active,
+.settings-reel .reel-echo.is-active { background: var(--background-control); color: var(--content-primary); }
 .setting-ring {
   position: relative;
   flex: none;
@@ -2979,7 +2980,8 @@ body.is-library .toast {
 /* On the chosen pill the track would vanish into the pill's own grey, so it
    is the secondary colour at 35% there, written out because rgba() cannot
    read a variable. */
-.setting.is-active .ring-track { stroke: rgba(142, 142, 142, 0.35); }
+.setting.is-active .ring-track,
+.settings-reel .reel-echo.is-active .ring-track { stroke: rgba(142, 142, 142, 0.35); }
 .ring-fill { stroke: var(--content-primary); stroke-dasharray: 0 100; }
 /* 16 across, so 2.2 in the viewBox draws the 1.5 every icon here lands on. */
 .setting-icon {

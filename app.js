@@ -8354,7 +8354,13 @@
   // `fromNought` is the ruler for a setting that goes either way: nought is
   // the longest tick, and the stretch between it and the value is lit, so how
   // far a setting has moved can be read at a glance without the number.
-  function valueDial(id, { fromNought = false } = {}) {
+  //
+  // `everyUnit` draws a line for every value rather than every other one, for
+  // a dial whose values are what the thumb is counting: Adjust's settings go
+  // one at a time, and each line is also a tick under the finger. Every fifth
+  // stands a little taller and every tenth taller again, or two hundred lines
+  // 3pt apart read as a comb with nothing to count by.
+  function valueDial(id, { fromNought = false, everyUnit = false } = {}) {
     const input = $(id);
     const panel = input.closest('.dial');
     const step = Number(input.step) || 1;
@@ -8378,21 +8384,23 @@
       end: () => { fire('pointerup'); fire('change'); },
       ticks: (from, to) => {
         const out = [];
-        const lo = Math.max(Number(input.min), Math.ceil(from / 2) * 2);
+        const every = everyUnit ? 1 : 2;
+        const lo = Math.max(Number(input.min), Math.ceil(from / every) * every);
         const hi = Math.min(Number(input.max), to);
         const style = getComputedStyle(document.documentElement);
         const secondary = style.getPropertyValue('--content-secondary').trim() || '#8e8e8e';
         const primary = style.getPropertyValue('--content-primary').trim() || '#f5f5f5';
         const value = Number(input.value);
         const [litFrom, litTo] = value < 0 ? [value, 0] : [0, value];
-        for (let u = lo; u <= hi; u += 2) {
+        for (let u = lo; u <= hi; u += every) {
           const major = u % 10 === 0;
+          const middle = everyUnit && u % 5 === 0;
           if (fromNought && u === 0) {
             out.push({ at: 0, colour: primary, width: 2, height: 24, bottom: true });
             continue;
           }
           const lit = fromNought && value !== 0 && u >= litFrom && u <= litTo;
-          out.push({ at: u, colour: lit ? primary : secondary, width: 1.5, height: major ? 18 : 10, bottom: true, alpha: lit || major ? 1 : 0.5 });
+          out.push({ at: u, colour: lit ? primary : secondary, width: everyUnit ? 1 : 1.5, height: major ? 18 : middle ? 13 : 10, bottom: true, alpha: lit || major ? 1 : middle ? 0.75 : 0.5 });
         }
         return out;
       },
@@ -8485,7 +8493,11 @@
   // business — this deliberately never touches state, which is why zoom and
   // angle can share it with the three deck sliders despite writing to
   // different places.
-  function feedback(id) {
+  //
+  // `perUnit` ticks for every value crossed instead of every twelfth of the
+  // sweep: on a dial that draws a line per value, a buzz that missed most of
+  // them would say the lines were decoration.
+  function feedback(id, { perUnit = false } = {}) {
     const input = $(id);
     const panel = input.closest('.dock-slider');
     let notch = null;
@@ -8510,7 +8522,7 @@
       // value is in against the band it was in last frame is what gives one
       // tick per notch however fast the drag is travelling — checking for a
       // value on a notch instead misses every notch a quick sweep jumps over.
-      const band = Math.round(frac * NOTCHES);
+      const band = perUnit ? Math.round(Number(input.value)) : Math.round(frac * NOTCHES);
       const end = frac === 0 || frac === 1;
       if (end && !atEnd) buzz('limit');
       else if (!end && notch !== null && band !== notch) buzz('tick');
@@ -9479,7 +9491,45 @@
       btn.addEventListener('click', () => { adjustTool = a.id; syncAdjust(); });
       row.appendChild(btn);
     });
-    adjustReel = reel($('adjust-reel'), row, { chosen: () => row.querySelector('.is-active') });
+    // The setting under the needle is the one being turned as soon as it gets
+    // there, not once the row has stopped: it is lit as it passes, the dial
+    // under it changes to it, and the dial slides the way the row is going so
+    // a run of them reads as moving through a list. A setting only passed is
+    // no less chosen than one landed on — the next drag of the dial turns it.
+    adjustReel = reel($('adjust-reel'), row, {
+      chosen: () => row.querySelector('.is-active'),
+      previews: (btn) => {
+        const was = [...row.children].findIndex((b) => b.dataset.adjust === adjustTool);
+        const now = [...row.children].indexOf(btn);
+        if (now < 0 || now === was) return;
+        const n = row.children.length;
+        adjustTool = btn.dataset.adjust;
+        syncAdjust();
+        slideDial(((now - was + n) % n) <= n / 2 ? 1 : -1);
+      },
+    });
+  }
+
+  // The dial coming in from the side the row is moving to. A quick run of
+  // settings restarts it from wherever it had got to, so it keeps travelling
+  // rather than jumping back to the edge for each one.
+  const DIAL_SLIDE_PX = 28;
+  const DIAL_SLIDE_MS = 200;
+  function slideDial(dir) {
+    const panel = $('adjust-slide');
+    if (!panel.animate || calmMotion.matches) return;
+    const from = translateXOf(panel) || dir * DIAL_SLIDE_PX;
+    panel.getAnimations().forEach((a) => a.cancel());
+    panel.animate([
+      { transform: `translateX(${Math.sign(from) === dir ? from : dir * DIAL_SLIDE_PX}px)`, opacity: 0.25 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: DIAL_SLIDE_MS, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' });
+  }
+  function translateXOf(el) {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 0;
+    const m = t.match(/matrix\(([^)]+)\)/);
+    return m ? Number(m[1].split(',')[4]) || 0 : 0;
   }
 
   // How far a setting has moved, on its ring. The copies either side of the
@@ -9514,7 +9564,7 @@
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', String(on));
       paintRing(btn, a, v);
-      $('adjust-reel').querySelectorAll(`.reel-echo[data-of="${i}"]`).forEach((echo) => paintRing(echo, a, v));
+      $('adjust-reel').querySelectorAll(`.reel-echo[data-of="${i}"]`).forEach((echo) => { paintRing(echo, a, v); echo.classList.toggle('is-active', on); });
     });
 
     const input = $('adjust');
@@ -12015,8 +12065,8 @@
   });
 
   buildAdjustTools();
-  feedback('adjust');
-  valueDial('adjust', { fromNought: true });
+  feedback('adjust', { perUnit: true });
+  valueDial('adjust', { fromNought: true, everyUnit: true });
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not

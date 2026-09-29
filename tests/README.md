@@ -114,10 +114,15 @@ Five tests arrived with the redesign of a chosen tile's tools and the export,
 and between them they are what to run after touching either:
 
 - `tiletools` — Compare and Reset floating over the sheet: arriving with the
-  first change on Adjust, 180ms and 6px, the page moving up to clear them, and
-  leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
+  first change on Adjust, 180ms and 6px, the page staying put and the screen's
+  edges holding still while they do, and leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
+- `adjustfeel` — Adjust's dial drawing a line for every value and ticking once
+  for every value crossed, counted off the ruler's pixels and the vibration
+  calls; the row of settings choosing as a real touch drags it, lighting what
+  is under the needle and sliding the dial in from the side it is moving to,
+  all before the row settles.
 - `trimhold` — Trim always playing with no Play button; a handle parking the
   tile on its frame, with its time on the tile; a hold of half a second closing
   the strip in, measured as the same 20px moving the cut 0.112s instead of
