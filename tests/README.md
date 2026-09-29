@@ -122,7 +122,9 @@ and between them they are what to run after touching either:
   for every value crossed, counted off the ruler's pixels and the vibration
   calls; the row of settings choosing as a real touch drags it, lighting what
   is under the needle and sliding the dial in from the side it is moving to,
-  all before the row settles.
+  all before the row settles; a flick carrying on in proportion to its speed
+  and landing centred, a slow let-go only gliding to the nearest, and a tap
+  still choosing.
 - `trimhold` — Trim always playing with no Play button; a handle parking the
   tile on its frame, with its time on the tile; a hold of half a second closing
   the strip in, measured as the same 20px moving the cut 0.112s instead of

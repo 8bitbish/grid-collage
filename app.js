@@ -8126,7 +8126,7 @@
   // button per option and everything that counts or indexes them still means
   // what it did. Coming to rest on an echo is quietly swapped for the same
   // place among the real ones, which is what joins the end to the beginning.
-  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true, previews = null }) {
+  function reel(scroller, list, { chosen, centred = () => {}, settles = () => true, previews = null, fling = false }) {
     const echoWraps = [...scroller.querySelectorAll('.reel-echoes')];
     let userScroll = false;
     // Whether a finger is still on it. Nothing is chosen until it lets go
@@ -8214,6 +8214,10 @@
         // from where either end is reachable again.
         scroller.scrollLeft += centreOf(real) - centreOf(here);
       }
+      // A reel that is flung by hand has no CSS snapping to line it up, so
+      // whatever stopped it off-centre — a wheel, a drag let go slowly — is
+      // brought to the middle here.
+      if (fling && Math.abs(centreOf(real) - (scroller.scrollLeft + scroller.clientWidth / 2)) > 0.5) centre(real, true);
       mark();
       if (userScroll && real !== chosen() && settles(real)) real.click();
       userScroll = false;
@@ -8265,6 +8269,96 @@
       centre(next, true);
     });
 
+    // Dragged and flung by hand, where asked, instead of scrolled by the
+    // browser. Native scrolling with CSS snapping behaves differently on every
+    // engine — on an iPhone a hard flick of the settings stopped a setting or
+    // two along, and the scroll indicator came up over the sheet on the way —
+    // so this reel takes the finger itself: it follows 1:1 while held, and on
+    // letting go carries on at the speed it was let go at, slowing the way a
+    // flung list does, and lands on the middle of whichever option that is.
+    if (fling) {
+      let drag = null;
+      let flight = 0;
+      // When a drag ended, so the click some browsers send after one can be
+      // told from a tap. Touch usually sends none, so this is a moment, not a
+      // flag waiting for a click that may never come.
+      let draggedAt = -Infinity;
+      const land = (x) => {
+        let best = x, bestD = Infinity;
+        nodes().forEach((el) => { const c = centreOf(el) - scroller.clientWidth / 2; const d = Math.abs(c - x); if (d < bestD) { bestD = d; best = c; } });
+        return clamp(best, 0, scroller.scrollWidth - scroller.clientWidth);
+      };
+      const stop = () => { cancelAnimationFrame(flight); flight = 0; };
+      scroller.addEventListener('pointerdown', (e) => {
+        if (e.button > 0) return;
+        stop();
+        draggedAt = -Infinity;
+        held = true;
+        userScroll = true;
+        drag = { id: e.pointerId, x: e.clientX, from: scroller.scrollLeft, moved: false, samples: [{ t: e.timeStamp, x: e.clientX }] };
+      });
+      scroller.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.x;
+        // A tap wobbles; it only becomes a drag once it has clearly moved,
+        // and only then is the pointer held, or the tap would lose its click.
+        if (!drag.moved) {
+          if (Math.abs(dx) < FLING_SLOP) return;
+          drag.moved = true;
+          try { scroller.setPointerCapture(e.pointerId); } catch { /* already gone */ }
+        }
+        scroller.scrollLeft = drag.from - dx;
+        drag.samples.push({ t: e.timeStamp, x: e.clientX });
+        if (drag.samples.length > 8) drag.samples.shift();
+      });
+      const release = (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const d = drag;
+        drag = null;
+        held = false;
+        // A tap is left to the click: settling here as well would centre
+        // whatever was nearest while the tap's own glide was still on its way.
+        if (!d.moved) return;
+        // A settle put off because the finger was down is due now; a flight
+        // that follows keeps pushing it back until it lands.
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(settle, 140);
+        draggedAt = e.timeStamp;
+        // Speed at the moment of letting go, from the last 100ms of the drag.
+        // A finger that stopped before it lifted has no speed left to give.
+        const recent = d.samples.filter((k) => e.timeStamp - k.t <= 100);
+        const a = recent[0], b = recent[recent.length - 1];
+        const v = a && b && b.t > a.t && e.timeStamp - b.t < 60 ? -(b.x - a.x) / (b.t - a.t) : 0;
+        const start = scroller.scrollLeft;
+        const target = land(start + v * FLING_TAU);
+        const span = target - start;
+        if (Math.abs(span) < 0.5) return;
+        // An exponential ease whose opening speed is the speed it was let go
+        // at, so there is no jolt between the finger and the flight; slow or
+        // stopped releases just glide the short way onto the nearest option.
+        const k = 1 - Math.exp(-FLING_K);
+        const ms = Math.abs(v) > 0.2
+          ? clamp((FLING_K * Math.abs(span)) / (Math.abs(v) * k), FLING_MIN_MS, FLING_MAX_MS)
+          : FLING_MIN_MS;
+        const t0 = performance.now();
+        const step = (now) => {
+          const t = Math.min(1, (now - t0) / ms);
+          scroller.scrollLeft = start + span * ((1 - Math.exp(-FLING_K * t)) / k);
+          flight = t < 1 ? requestAnimationFrame(step) : 0;
+        };
+        flight = requestAnimationFrame(step);
+      };
+      scroller.addEventListener('pointerup', release);
+      scroller.addEventListener('pointercancel', release);
+      // The click that ends a drag is not a tap on whatever it ended over.
+      scroller.addEventListener('click', (e) => {
+        if (e.timeStamp - draggedAt > 80) return;
+        draggedAt = -Infinity;
+        e.stopPropagation();
+        e.preventDefault();
+      }, true);
+    }
+
     rebuild();
     return {
       rebuild,
@@ -8279,6 +8373,17 @@
   // of a slider and the right way round for something being held. It is
   // drawn on a canvas at the screen's own resolution whenever the value
   // moves, the needle is CSS, and the value itself is always the caller's.
+  // How the settings reel flies when flung. TAU is how far a flick carries:
+  // the distance is the speed let go at times this many milliseconds, about
+  // a third more than a native list on a phone gives, because each option
+  // here is wide and a flick is meant to cross several. K shapes the ease,
+  // and the flight is kept between a glide and a second.
+  const FLING_SLOP = 6;
+  const FLING_TAU = 420;
+  const FLING_K = 4.5;
+  const FLING_MIN_MS = 220;
+  const FLING_MAX_MS = 1100;
+
   function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity }) {
     const ruler = track.querySelector('.dial-ruler');
     let press = null;
@@ -8360,7 +8465,7 @@
   // one at a time, and each line is also a tick under the finger. Every fifth
   // stands a little taller and every tenth taller again, or two hundred lines
   // 3pt apart read as a comb with nothing to count by.
-  function valueDial(id, { fromNought = false, everyUnit = false } = {}) {
+  function valueDial(id, { fromNought = false, everyUnit = false, unitPx = DIAL_PX } = {}) {
     const input = $(id);
     const panel = input.closest('.dial');
     const step = Number(input.step) || 1;
@@ -8368,7 +8473,7 @@
       ? new PointerEvent(type, { bubbles: true })
       : new Event(type, { bubbles: true }));
     dials[id] = dialRuler(panel.querySelector('.dial-track'), {
-      unitPx: DIAL_PX,
+      unitPx,
       min: () => Number(input.min),
       max: () => Number(input.max),
       get: () => Number(input.value),
@@ -9497,6 +9602,7 @@
     // a run of them reads as moving through a list. A setting only passed is
     // no less chosen than one landed on — the next drag of the dial turns it.
     adjustReel = reel($('adjust-reel'), row, {
+      fling: true,
       chosen: () => row.querySelector('.is-active'),
       previews: (btn) => {
         const was = [...row.children].findIndex((b) => b.dataset.adjust === adjustTool);
@@ -12066,7 +12172,10 @@
 
   buildAdjustTools();
   feedback('adjust', { perUnit: true });
-  valueDial('adjust', { fromNought: true, everyUnit: true });
+  // Lines as far apart as they always were, but one value each rather than
+  // two: the same sweep of the thumb now moves half as far, which is the
+  // precision these settings want.
+  valueDial('adjust', { fromNought: true, everyUnit: true, unitPx: DIAL_PX * 2 });
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not
