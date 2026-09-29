@@ -63,9 +63,40 @@ console.log('\n== a tick for every number crossed ==');
   const buzz = await p.evaluate(() => window.__buzz);
   const val = await p.textContent('#adjust-val');
   const ticks = buzz.filter((v) => v === 4).length;
-  // The first two values from nought snap back to it, so +20 is 18 crossings.
-  ok('the dial reads +20', val === '+20', val);
-  ok('one tick for each value crossed', ticks >= 17 && ticks <= 20, `${ticks} ticks, ${JSON.stringify(buzz)}`);
+  // 120pt is twenty values of travel, less the one nought's notch holds.
+  ok('the dial reads +19', val === '+19', val);
+  ok('one tick for each value crossed', ticks >= 17 && ticks <= 19, `${ticks} ticks, ${JSON.stringify(buzz)}`);
+}
+
+console.log('\n== nought is a notch, not a pull ==');
+{
+  // Back to nought first, by the Reset in the floating pill.
+  if (await p.locator('#btn-reset').isVisible()) { await p.click('#btn-reset'); await p.waitForTimeout(300); await rest(); }
+  const t = await p.locator('#adjust-slide .dial-track').boundingBox();
+  const y = t.y + t.height / 2, x = t.x + t.width / 2;
+  const val = () => p.textContent('#adjust-val');
+  await p.evaluate(() => { window.__buzz = []; });
+  await p.mouse.move(x, y); await p.mouse.down();
+  const at = {};
+  for (const dx of [2, 4, 6, 12, 18, 24]) { await p.mouse.move(x - dx, y); at[dx] = await val(); }
+  // Back to one, then held there with a thumb's tremor, a point either way
+  // over the line between one and two: the value must not move and nothing
+  // may buzz.
+  await p.mouse.move(x - 12, y); const before = (await p.evaluate(() => window.__buzz.length));
+  for (let i = 0; i < 8; i++) { await p.mouse.move(x - 15 + (i % 2 ? 1 : -1), y); await p.waitForTimeout(16); }
+  const heldAt = await val(); const heldBuzz = (await p.evaluate(() => window.__buzz.length)) - before;
+  // And back through nought to the other side.
+  const back = {};
+  for (const dx of [6, 3, 0, -3, -6, -12, -18]) { await p.mouse.move(x - dx, y); back[dx] = await val(); }
+  await p.mouse.up(); await rest();
+  const buzz = await p.evaluate(() => window.__buzz);
+  ok('nought holds for the first 6pt of travel', at[2] === '0' && at[4] === '0' && at[6] === '0', JSON.stringify(at));
+  ok('then one, two, three come a line at a time', at[12] === '+1' && at[18] === '+2' && at[24] === '+3', JSON.stringify(at));
+  ok('a finger resting on one stays on one and stays quiet', heldAt === '+1' && heldBuzz === 0, `${heldAt}, ${heldBuzz} buzzes while held`);
+  ok('coming back, nought catches and holds either side of it', back[3] === '0' && back[0] === '0' && back[-3] === '0', JSON.stringify(back));
+  ok('and the other side starts at one as well', back[-12] === '\u22121' && back[-18] === '\u22122', JSON.stringify(back));
+  ok('landing on nought gives its own firmer tick', buzz.includes(6), JSON.stringify(buzz));
+  if (await p.locator('#btn-reset').isVisible()) { await p.click('#btn-reset'); await p.waitForTimeout(300); await rest(); }
 }
 
 console.log('\n== the row chooses as it passes ==');
@@ -135,15 +166,19 @@ console.log('\n== a flick carries, a slow let-go does not ==');
     return { dragged: trail[0] - s0, after: trail[end] - trail[0] };
   };
   const step = await p.evaluate(() => { const a = document.querySelectorAll('#adjust-tools .setting'); return a[1].offsetLeft - a[0].offsetLeft; });
+  // A small movement: 60pt over five frames, the size of a nudge to the next
+  // setting. It must not be carried two along.
+  const small = await swipe(60, 5, 0);
+  ok('a small movement lands on the next setting, not two along', Math.abs(small.dragged + small.after) <= step * 1.5, `dragged ${small.dragged.toFixed(0)}pt, then ${small.after.toFixed(0)}pt more, a setting is ${step.toFixed(0)}pt`);
   const fast = await swipe(150, 5, 0);
-  ok('a quick flick carries on well past where the finger left it', fast.after > 2 * step, `dragged ${fast.dragged.toFixed(0)}pt, then flew ${fast.after.toFixed(0)}pt more, a setting is ${step.toFixed(0)}pt`);
+  ok('a quick flick still carries on past where the finger left it', fast.after > step * 0.75, `dragged ${fast.dragged.toFixed(0)}pt, then flew ${fast.after.toFixed(0)}pt more`);
   ok('and lands on the middle of a setting', (await centred()) < 1, `${(await centred()).toFixed(2)}pt off`);
   const slow = await swipe(150, 5, 150);
   ok('a drag that stopped before it lifted only glides onto the nearest setting', Math.abs(slow.after) <= step / 2 + 1, `${slow.after.toFixed(0)}pt after letting go`);
   ok('and lands in the middle too', (await centred()) < 1, `${(await centred()).toFixed(2)}pt off`);
   // Faster still goes further: speed, not a fixed hop, decides how far.
   const faster = await swipe(240, 4, 0);
-  ok('a harder flick goes further than a quick one', faster.after > fast.after, `${faster.after.toFixed(0)}pt against ${fast.after.toFixed(0)}pt`);
+  ok('a harder flick goes further than a quick one, across several', faster.after > fast.after && faster.after > step * 2, `${faster.after.toFixed(0)}pt against ${fast.after.toFixed(0)}pt`);
   ok('the row pans no page itself: no native scroll, so no scroll indicator', await p.evaluate(() => getComputedStyle(document.getElementById('adjust-reel')).touchAction === 'pan-y'));
   // A tap on a setting to either side still chooses it.
   const target = await p.evaluate(() => { const s = document.getElementById('adjust-reel'); const mid = s.getBoundingClientRect(); const el = document.elementFromPoint(mid.left + mid.width / 2 + 120, mid.top + mid.height / 2)?.closest('.setting, .reel-echo'); return el ? el.querySelector('.setting-name').textContent : null; });

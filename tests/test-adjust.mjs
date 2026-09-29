@@ -223,9 +223,12 @@ await slide(-100);
 const wpDown = await read();
 likeGoogle(wpDown, 'whitePoint-100', 'White point -100 bends the top over, white down to 183');
 
-// Back to nought by hand lands on nought, not one either side of it.
+// Two is a value in its own right: nothing pulls it onto nought any more.
+// Nought is found by the dial's notch, which adjustfeel measures.
 await slide(2);
-check(await p.$eval('#adjust', (e) => e.value) === '0', 'the slider catches nought on the way past');
+check(await p.$eval('#adjust', (e) => e.value) === '2', 'two stays two: values next to nought are reachable');
+await slide(0);
+check(await p.$eval('#adjust', (e) => e.value) === '0', 'and back to nought is nought');
 const zero = await read();
 check(near(zero.bands, BANDS, 1) && await p.locator('#sheet-float').isHidden(), 'nought is the photo again, with nothing left to reset', show(zero));
 
