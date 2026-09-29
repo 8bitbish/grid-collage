@@ -8330,7 +8330,8 @@
         const a = recent[0], b = recent[recent.length - 1];
         const v = a && b && b.t > a.t && e.timeStamp - b.t < 60 ? -(b.x - a.x) / (b.t - a.t) : 0;
         const start = scroller.scrollLeft;
-        const target = land(start + v * FLING_TAU);
+        const carry = Math.sign(v) * Math.max(0, Math.abs(v) - FLING_DEAD) * FLING_TAU;
+        const target = land(start + carry);
         const span = target - start;
         if (Math.abs(span) < 0.5) return;
         // An exponential ease whose opening speed is the speed it was let go
@@ -8373,18 +8374,24 @@
   // of a slider and the right way round for something being held. It is
   // drawn on a canvas at the screen's own resolution whenever the value
   // moves, the needle is CSS, and the value itself is always the caller's.
-  // How the settings reel flies when flung. TAU is how far a flick carries:
-  // the distance is the speed let go at times this many milliseconds, about
-  // a third more than a native list on a phone gives, because each option
-  // here is wide and a flick is meant to cross several. K shapes the ease,
-  // and the flight is kept between a glide and a second.
+  // How the settings reel flies when flung. The first DEAD of speed, in
+  // points a millisecond, carries nothing: a small movement lets go at about
+  // that, and it should land on the option it was moved to, not two along.
+  // Past it, the distance is the rest of the speed times TAU milliseconds,
+  // so a real flick still crosses several. K shapes the ease, and the flight
+  // is kept between a glide and a second.
   const FLING_SLOP = 6;
-  const FLING_TAU = 420;
+  const FLING_DEAD = 0.35;
+  const FLING_TAU = 300;
   const FLING_K = 4.5;
   const FLING_MIN_MS = 220;
   const FLING_MAX_MS = 1100;
 
-  function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity }) {
+  // `toValue` and `toRaw` put a dead stretch into the drag, as Adjust's nought
+  // has: the finger is followed in raw units and the value read off them, so
+  // a notch can hold the value still for part of the travel without the
+  // drag ever jumping when it starts from a value past the notch.
+  function dialRuler(track, { get, set, begin = () => {}, end = () => {}, ticks, unitPx, min = -Infinity, max = Infinity, toValue = (r) => r, toRaw = (v) => v }) {
     const ruler = track.querySelector('.dial-ruler');
     let press = null;
     // A range can move under a dial: Adjust's goes from -100 to 0 when the
@@ -8424,13 +8431,13 @@
       if (e.button > 0) return;
       e.preventDefault();
       track.setPointerCapture(e.pointerId);
-      press = { id: e.pointerId, x: e.clientX, from: get() };
+      press = { id: e.pointerId, x: e.clientX, from: toRaw(get()) };
       track.classList.add('is-held');
       begin(e);
     });
     track.addEventListener('pointermove', (e) => {
       if (!press || e.pointerId !== press.id) return;
-      const v = clamp(press.from - (e.clientX - press.x) / unitPx, lo(), hi());
+      const v = clamp(toValue(press.from - (e.clientX - press.x) / unitPx), lo(), hi());
       set(v);
       draw();
     });
@@ -8465,15 +8472,36 @@
   // one at a time, and each line is also a tick under the finger. Every fifth
   // stands a little taller and every tenth taller again, or two hundred lines
   // 3pt apart read as a comb with nothing to count by.
-  function valueDial(id, { fromNought = false, everyUnit = false, unitPx = DIAL_PX } = {}) {
+  //
+  // `notch` is how many values' worth of travel nought holds still for on
+  // either side. The finger has to push through it to leave nought, so
+  // nought is easy to find and to stay on, and every value past it — one and
+  // two included — is still there, one line each.
+  function valueDial(id, { fromNought = false, everyUnit = false, unitPx = DIAL_PX, notch = 0 } = {}) {
     const input = $(id);
     const panel = input.closest('.dial');
     const step = Number(input.step) || 1;
     const fire = (type) => input.dispatchEvent(type.startsWith('pointer')
       ? new PointerEvent(type, { bubbles: true })
       : new Event(type, { bubbles: true }));
+    // Rounded half away from nought so the notch is the same width either
+    // side: Math.round would take -1.5 to -1 but 1.5 to 2.
+    const outward = (x) => Math.sign(x) * Math.round(Math.abs(x));
+    const HYSTERESIS = 0.25;
     dials[id] = dialRuler(panel.querySelector('.dial-track'), {
       unitPx,
+      toValue: everyUnit ? (r) => {
+        // Where the finger is, in values, once the notch is taken out.
+        const x = Math.abs(r) <= notch ? 0 : r - Math.sign(r) * notch;
+        // A value changes only once the finger is clearly past the line
+        // between it and the next, a quarter of a value beyond halfway. A
+        // thumb resting on that line otherwise flickers across it with its
+        // own tremor, and every flicker is a buzz.
+        const now = Number(input.value);
+        const next = outward(x);
+        return next !== now && Math.abs(x - now) < 0.5 + HYSTERESIS ? now : next;
+      } : undefined,
+      toRaw: notch ? (v) => (v === 0 ? 0 : v + Math.sign(v) * (notch + 0.5)) : undefined,
       min: () => Number(input.min),
       max: () => Number(input.max),
       get: () => Number(input.value),
@@ -8630,7 +8658,7 @@
       const band = perUnit ? Math.round(Number(input.value)) : Math.round(frac * NOTCHES);
       const end = frac === 0 || frac === 1;
       if (end && !atEnd) buzz('limit');
-      else if (!end && notch !== null && band !== notch) buzz('tick');
+      else if (!end && notch !== null && band !== notch) buzz(perUnit && band === 0 && Number(input.min) < 0 ? 'snap' : 'tick');
       atEnd = end;
       notch = band;
     });
@@ -9689,15 +9717,10 @@
     const tool = adjustment(adjustTool);
     const input = $('adjust');
     let value = Number(input.value);
-    // Nought is caught on the way past, for a tool that has one in the
-    // middle. Getting a dial back to exactly nought by eye is otherwise a
-    // matter of luck, and nought is the one value that means "leave it".
-    if (tool.min < 0 && Math.abs(value) <= 2 && value !== 0) {
-      value = 0;
-      input.value = '0';
-      paintSlider(input);
-      buzz('snap');
-    }
+    // Nought is found by the dial's notch (see valueDial), not by pulling
+    // near values onto it here. Pulling one and two to nought made them
+    // unreachable, and a finger resting at one fought the pull, flicking
+    // between the two and buzzing each time.
     if (((cell.adjust && cell.adjust[tool.id]) || 0) === value) return;
     if (comparing) setCompare(false);
     snapshot(`adjust:${tool.id}`);
@@ -12175,7 +12198,7 @@
   // Lines as far apart as they always were, but one value each rather than
   // two: the same sweep of the thumb now moves half as far, which is the
   // precision these settings want.
-  valueDial('adjust', { fromNought: true, everyUnit: true, unitPx: DIAL_PX * 2 });
+  valueDial('adjust', { fromNought: true, everyUnit: true, unitPx: DIAL_PX * 2, notch: 1 });
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not

@@ -107,7 +107,9 @@ console.log('\n== the first change brings Compare and Reset ==');
   await p.mouse.move(x, y); await p.mouse.down();
   let arrived = null;
   const edgeFrames = [];
-  for (let k = 1; k <= 12; k++) {
+  // Thirteen values of travel: nought's notch holds for one, so the dial
+  // lands on twelve.
+  for (let k = 1; k <= 13; k++) {
     await p.mouse.move(x - k * 6, y);
     if (!arrived && await p.locator('#sheet-float').isVisible()) {
       arrived = await p.evaluate(() => document.getElementById('sheet-float').getAnimations().map((a) => {

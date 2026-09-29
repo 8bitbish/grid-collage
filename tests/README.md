@@ -119,7 +119,8 @@ and between them they are what to run after touching either:
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
 - `adjustfeel` — Adjust's dial drawing a line for every value and ticking once
-  for every value crossed, counted off the ruler's pixels and the vibration
+  for every value crossed; nought as a notch the finger pushes through, with
+  one and two still reachable and a resting thumb quiet; counted off the ruler's pixels and the vibration
   calls; the row of settings choosing as a real touch drags it, lighting what
   is under the needle and sliding the dial in from the side it is moving to,
   all before the row settles; a flick carrying on in proportion to its speed
