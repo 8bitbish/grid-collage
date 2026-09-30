@@ -12491,7 +12491,21 @@
     btn.addEventListener('click', () => { if (drawer !== btn.dataset.drawer) openDrawer(btn.dataset.drawer); });
   });
   $('btn-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
-  $('float-close').addEventListener('click', () => {
+  // A click on the buttons that come up in answer to a tap on the photo only
+  // counts if the press went down on the button. The tile's actions appear
+  // on the tile it chooses, bottom centre, and Close, Compare and Reset over
+  // the bottom of the stage; on a touchscreen the click that ends a tap is
+  // aimed where the finger lifts, so a tap near the bottom of a tile chose it
+  // and pressed whatever had just arrived under the finger — Delete, as often
+  // as not, which took the photo off the page on its first touch. A click
+  // from a keyboard or a screen reader has no press, and is let through.
+  let pressedOn = null;
+  document.addEventListener('pointerdown', (e) => { pressedOn = e.target; }, true);
+  const onPress = (btn, act) => btn.addEventListener('click', (e) => {
+    if (e.detail === 0 || (pressedOn && btn.contains(pressedOn))) act(e);
+  });
+
+  onPress($('float-close'), () => {
     // On a tile, closing lets go of it, which puts the canvas back into
     // swiping. From Replace too: the X is the way out, not a step back, and
     // syncPanel keeps an empty tile's reel open unless Replace is left first.
@@ -12504,9 +12518,7 @@
     closeDrawer();
   });
 
-  [...$('tile-actions').children].forEach((btn) => {
-    btn.addEventListener('click', () => tileAction(btn.dataset.tile));
-  });
+  [...$('tile-actions').children].forEach((btn) => onPress(btn, () => tileAction(btn.dataset.tile)));
   [...$('tile-tabs').children].forEach((btn) => {
     btn.addEventListener('click', () => chooseTool(btn.dataset.tile));
   });
@@ -12558,8 +12570,8 @@
   // The filmstrip, the cover and the saved deck catch up on letting go, not
   // on every step of the drag: the preview is the only thing being watched.
   $('adjust').addEventListener('change', () => { endRun(); refresh(); });
-  $('btn-compare').addEventListener('click', () => setCompare(!comparing));
-  $('btn-reset').addEventListener('click', resetTool);
+  onPress($('btn-compare'), () => setCompare(!comparing));
+  onPress($('btn-reset'), resetTool);
 
   buildEffects();
   $('pop-pick').addEventListener('click', () => setPicking(!picking));
