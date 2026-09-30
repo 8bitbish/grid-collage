@@ -142,7 +142,7 @@ async function run(flags) {
 console.log('\n== every switch on draws the same pages ==');
 {
   const off = await run({});
-  const on = await run({ meter: true, peekOnce: true, peekAhead: true, peekHalf: true, stillClips: true, landLight: true, clipTile: true, clipsHalf: true });
+  const on = await run({ meter: true, peekOnce: true, peekAhead: true, peekHalf: true, stillClips: true, landLight: true, clipFrames: true, clipTile: true, clipsHalf: true });
   off.seen.forEach((s, i) => {
     const t = on.seen[i];
     const diff = Math.max(...s.px.map((v, k) => Math.abs(v - t.px[k])));
@@ -151,6 +151,34 @@ console.log('\n== every switch on draws the same pages ==');
   ok('the frame meter reports the swipe', /^Last swipe: \d+ of \d+ frames late · worst \d+ms$/.test(on.meter), on.meter || 'nothing shown');
   ok('and with the switches off it is not there', off.meter === '');
   ok('no page errors either way', off.errs.length + on.errs.length === 0, [...off.errs, ...on.errs].join(' | '));
+}
+
+console.log('\n== a clip redrawn only on its new frames still plays at its own rate ==');
+{
+  // moving0.webm is a moving test pattern. What is compared is how many
+  // different pictures a strip of the canvas shows in a second, painted every
+  // refresh and painted only on new frames: the same motion, from fewer
+  // copies. (The strip does not change on every one of the clip's frames, so
+  // the count is well under 30 either way.)
+  const count = async (flags) => {
+    const { ctx, p, errs } = await open(flags);
+    await p.setInputFiles('#file-input', [{ name: 'moving0.webm', mimeType: 'video/webm', buffer: fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'moving0.webm')) }]);
+    await p.waitForFunction(() => { const v = document.querySelector('#players video'); return !!v && !v.paused && v.currentTime > 0.3; }, null, { timeout: 20000 });
+    const r = await p.evaluate(() => new Promise((res) => {
+      const c = document.getElementById('canvas'); const g = c.getContext('2d'); const seen = new Set(); let paints = 0; const t0 = performance.now();
+      const draw = CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage = function (src, ...rest) { if (this.canvas === c && src instanceof HTMLVideoElement) paints += 1; return draw.call(this, src, ...rest); };
+      const tick = () => { const d = g.getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 8, 1).data; seen.add(d.join(',')); if (performance.now() - t0 < 1000) requestAnimationFrame(tick); else res({ pictures: seen.size, paints }); };
+      requestAnimationFrame(tick);
+    }));
+    await ctx.close();
+    return { ...r, errs };
+  };
+  const every = await count({});
+  const fresh = await count({ clipFrames: true });
+  ok('it shows as many different pictures a second as painting every refresh does', fresh.pictures >= every.pictures - 2 && fresh.pictures >= 5, `${fresh.pictures} against ${every.pictures}`);
+  ok('while copying the video far fewer times', fresh.paints <= every.paints * 0.7, `${fresh.paints} copies against ${every.paints}`);
+  ok('no page errors', every.errs.length + fresh.errs.length === 0);
 }
 
 await b.close(); srv.close();

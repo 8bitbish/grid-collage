@@ -159,6 +159,7 @@
     { id: 'peekHalf', label: 'Neighbours at half resolution', note: 'The pages sliding in are drawn at half size, a quarter of the pixels, while they move.' },
     { id: 'stillClips', label: 'Hold clips still while swiping', note: 'A clip keeps playing but is not redrawn while a finger is dragging the page.' },
     { id: 'landLight', label: 'Land first, tidy after', note: 'Show the page that slid in straight away and leave the filmstrip, saving and clips for a frame later.' },
+    { id: 'clipFrames', label: 'Redraw clips only on a new frame', note: 'A clip has 30 pictures a second and the screen 60 to 120 refreshes: repaint only when the clip has a new one.' },
     { id: 'clipTile', label: 'Redraw only the clip’s tile', note: 'While a clip plays, each frame repaints just its tile rather than the whole page around it.' },
     { id: 'clipsHalf', label: 'Clip pages at 2× rather than 3×', note: 'A page with a clip playing is drawn at two pixels a point, as every page was before full resolution.' },
   ];
@@ -5995,6 +5996,7 @@
       const p = { el, url, cell, photoId: photo.id, ready: false };
       const gotFrame = () => {
         p.ready = true;
+        p.fresh = true;
         if (el.requestVideoFrameCallback && players.get(i) === p) el.requestVideoFrameCallback(gotFrame);
       };
       if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(gotFrame);
@@ -6039,6 +6041,17 @@
     // A finger dragging the page is the one thing that must keep every frame;
     // the clip plays on underneath and is drawn again when it lets go.
     if (dev('stillClips') && swipe && swipe.locked) { painting = requestAnimationFrame(paintPlaying); return; }
+
+    // The screen refreshes 60 to 120 times a second and a clip changes 24 to
+    // 30: most of those repaints copy a picture that has not changed, and
+    // copying one is nearly all a playing page costs. With the switch on it
+    // waits for a player to have presented a new frame since the last one.
+    if (dev('clipFrames')) {
+      let fresh = false;
+      players.forEach((p) => { if (p.fresh) fresh = true; });
+      if (!fresh) { painting = requestAnimationFrame(paintPlaying); return; }
+      players.forEach((p) => { p.fresh = false; });
+    }
 
     const lent = lendFrames(pg);
     if (lent.length) {
