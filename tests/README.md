@@ -1,6 +1,6 @@
 # Browser tests
 
-69 standalone Node scripts that serve the repository over http, drive Chromium
+70 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -125,6 +125,11 @@ and between them they are what to run after touching either:
   and a tile's own actions going up to stay 8 clear of Close, Compare and
   Reset on a page tall enough to reach them, and back to 12 up from the tile
   where nothing is in the way.
+- `tapthrough` — a touch tap near the bottom of a tile choosing it without
+  pressing the Delete that comes up under the finger, from nothing and from
+  another tile alike, with the click checked to have landed on Delete so the
+  test cannot pass by missing it; and Delete still working from a tap on it
+  and from the keyboard.
 - `devmode` — the dev mode panel: `?dev`, five taps on the version, a hold
   on it (without the lift closing it again), and three firm shakes open it,
   and moving the phone about does not; a switch per flag, all off to begin
