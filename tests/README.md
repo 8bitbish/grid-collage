@@ -118,7 +118,8 @@ and between them they are what to run after touching either:
   edges holding still while they do, and leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
-- `devmode` — the dev mode panel: `?dev` opens it, a switch per flag, all
+- `devmode` — the dev mode panel: `?dev`, five taps on the version, a hold
+  on it, and three firm shakes open it, and moving the phone about does not; a switch per flag, all
   off to begin with, kept on the device; and three pages reached with every
   swipe switch on reading pixel for pixel the same as with them all off, with
   the frame meter reporting the swipe.

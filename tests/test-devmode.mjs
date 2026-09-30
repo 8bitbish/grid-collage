@@ -67,6 +67,53 @@ console.log('== the panel ==');
   await ctx.close();
 }
 
+console.log('\n== the ways in, from the homepage ==');
+{
+  // The homepage as it opens, not walked through into the editor.
+  const home = async () => {
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', (e) => errs.push(String(e)));
+    await p.goto(`http://localhost:${PORT}/`);
+    await p.waitForFunction(() => document.body.classList.contains('on-home') && /^v/.test(document.getElementById('home-hint').textContent));
+    return { ctx, p, errs };
+  };
+  {
+    const { ctx, p } = await home();
+    ok('the version number cannot be selected, so a hold on it is not taken for a selection', await p.evaluate(() => getComputedStyle(document.getElementById('home-hint')).userSelect === 'none'));
+    for (let i = 0; i < 4; i++) await p.tap('#home-hint');
+    ok('four taps on the version do nothing', await p.locator('#dev-panel').isHidden());
+    await p.tap('#home-hint');
+    ok('the fifth opens dev mode', await p.locator('#dev-panel').isVisible());
+    await ctx.close();
+  }
+  {
+    const { ctx, p } = await home();
+    const r = await p.locator('#home-hint').boundingBox();
+    const cdp = await ctx.newCDPSession(p);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: r.x + r.width / 2, y: r.y + r.height / 2 }] });
+    await p.waitForTimeout(900);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    ok('holding the version for most of a second opens it', await p.locator('#dev-panel').isVisible());
+    await ctx.close();
+  }
+  {
+    const { ctx, p, errs } = await home();
+    // Motion as Android reports it: acceleration without gravity, in m/s².
+    const move = (force, n, gap) => p.evaluate(async ({ force, n, gap }) => {
+      for (let i = 0; i < n; i++) {
+        window.dispatchEvent(new DeviceMotionEvent('devicemotion', { acceleration: { x: force * (i % 2 ? -1 : 1), y: 0, z: 0 }, accelerationIncludingGravity: { x: force, y: 9.81, z: 0 }, interval: 16 }));
+        await new Promise((r) => setTimeout(r, gap));
+      }
+    }, { force, n, gap });
+    await move(7, 6, 150);
+    ok('moving the phone about does not open it', await p.locator('#dev-panel').isHidden());
+    await move(15, 3, 180);
+    ok('three firm shakes inside a second do', await p.locator('#dev-panel').isVisible());
+    ok('no page errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
+}
+
 // The same three pages, swiped to the last and back to the second, with the
 // switches all off and then all on, and the settled canvas read each time.
 async function run(flags) {
