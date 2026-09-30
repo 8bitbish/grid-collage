@@ -154,12 +154,11 @@
   const DEV_KEY = 'grid-collage:dev';
   const DEV_FLAGS = [
     { id: 'meter', label: 'Frame meter', note: 'After each swipe, how many frames it lost and the longest one, at the top of the screen.' },
-    { id: 'peekOnce', label: 'Draw the pages either side once', note: 'Keep the neighbours drawn when the finger starts, instead of drawing both again on letting go.' },
-    { id: 'peekAhead', label: 'Draw them ahead of time', note: 'Draw the neighbours while nothing is happening after landing, so a swipe starts with them ready.' },
-    { id: 'peekHalf', label: 'Neighbours at half resolution', note: 'The pages sliding in are drawn at half size, a quarter of the pixels, while they move.' },
-    { id: 'stillClips', label: 'Hold clips still while swiping', note: 'A clip keeps playing but is not redrawn while a finger is dragging the page.' },
-    { id: 'landLight', label: 'Land first, tidy after', note: 'Show the page that slid in straight away and leave the filmstrip, saving and clips for a frame later.' },
-    { id: 'clipFrames', label: 'Redraw clips only on a new frame', note: 'A clip has 30 pictures a second and the screen 60 to 120 refreshes: repaint only when the clip has a new one.' },
+    // Five more were tried here for smoother page swipes and are now simply
+    // how swiping works: the neighbours drawn ahead, once, at half size;
+    // clips held still under a dragging finger and redrawn only on a new
+    // frame; and landing done a frame at a time. What is left is the meter
+    // and the two that were tried and not taken, kept for coming back to.
     { id: 'clipTile', label: 'Redraw only the clip’s tile', note: 'While a clip plays, each frame repaints just its tile rather than the whole page around it.' },
     { id: 'clipsHalf', label: 'Clip pages at 2× rather than 3×', note: 'A page with a clip playing is drawn at two pixels a point, as every page was before full resolution.' },
   ];
@@ -6039,19 +6038,20 @@
     });
 
     // A finger dragging the page is the one thing that must keep every frame;
-    // the clip plays on underneath and is drawn again when it lets go.
-    if (dev('stillClips') && swipe && swipe.locked) { painting = requestAnimationFrame(paintPlaying); return; }
+    // the clip plays on underneath and is drawn again when it lets go. Tried
+    // in dev mode first: drag frames lost went from 32 in 159 to 11.
+    if (swipe && swipe.locked) { painting = requestAnimationFrame(paintPlaying); return; }
 
     // The screen refreshes 60 to 120 times a second and a clip changes 24 to
-    // 30: most of those repaints copy a picture that has not changed, and
-    // copying one is nearly all a playing page costs. With the switch on it
-    // waits for a player to have presented a new frame since the last one.
-    if (dev('clipFrames')) {
-      let fresh = false;
-      players.forEach((p) => { if (p.fresh) fresh = true; });
-      if (!fresh) { painting = requestAnimationFrame(paintPlaying); return; }
-      players.forEach((p) => { p.fresh = false; });
-    }
+    // 30: most of those repaints copied a picture that had not changed, and
+    // copying one is nearly all a playing page costs — 68% of the second
+    // after landing on a clip, profiled. So it waits for a player to have
+    // presented a new frame since the last repaint: landing on a clip went
+    // from 21 frames in 91 lost to 2 in 110, at full resolution.
+    let fresh = false;
+    players.forEach((p) => { if (p.fresh) fresh = true; });
+    if (!fresh) { painting = requestAnimationFrame(paintPlaying); return; }
+    players.forEach((p) => { p.fresh = false; });
 
     const lent = lendFrames(pg);
     if (lent.length) {
@@ -6998,23 +6998,24 @@
   const peekKey = (pg, w, h) => [pg.id, pg.rev || 0, styleRev, state.ratio.id, w, h,
     photosOn(pg).map((ph) => (ph.full ? 'f' : 'p')).join('')].join('|');
 
-  // The pages either side, drawn onto their peek canvases. Without dev mode
-  // this happens twice a swipe, as the finger commits and again on letting
-  // go, each time drawing two whole pages before the frame can go out.
+  // The pages either side, drawn onto their peek canvases: ahead of time
+  // (drawPeeksAhead), and only again if they have changed. They used to be
+  // drawn twice a swipe, as the finger committed and again on letting go,
+  // each time two whole pages before the frame could go out. And at half
+  // size, a quarter of the pixels, since they are only ever seen moving; the
+  // page they become is drawn at full size the moment it lands.
   function drawPeeks(only = 0) {
     const full = previewSize();
-    const half = dev('peekHalf');
-    const w = half ? Math.round(full.w / 2) : full.w;
-    const h = half ? Math.round(full.h / 2) : full.h;
-    const keep = dev('peekOnce') || dev('peekAhead');
+    const w = Math.round(full.w / 2);
+    const h = Math.round(full.h / 2);
     [[$('canvas-prev'), state.current - 1, -1], [$('canvas-next'), state.current + 1, 1]].forEach(([el, index, side]) => {
       const pg = state.pages[index];
       if (!pg || (only && side !== only)) return;
       const key = peekKey(pg, w, h);
-      if (keep && el.dataset.drawn === key) return;
+      if (el.dataset.drawn === key) return;
       if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
       drawPage(el.getContext('2d'), pg, w, h, { placeholders: true });
-      el.dataset.drawn = keep ? key : '';
+      el.dataset.drawn = key;
     });
   }
 
@@ -7023,7 +7024,6 @@
   // enough to be clear of the landing does the same job.
   let peekAheadTimer = 0;
   function drawPeeksAhead() {
-    if (!dev('peekAhead')) return;
     clearTimeout(peekAheadTimer);
     // One page a turn, the next first, since that is the way most swipes
     // go: two pages in one task is one long stall, and one is half of it.
@@ -7123,12 +7123,12 @@
 
   // A slide that has arrived. Landing is everything a page change does —
   // draw the page, redraw the strip, save, start its clips, fetch its photos
-  // at full size — and all of it lands in the frame the slide stops in. Dev
-  // mode can put the page that slid in on the real canvas from its peek,
-  // which is one copy, and leave the rest for the frame after.
+  // at full size — and all of it used to land in the frame the slide stopped
+  // in. So the page that slid in goes onto the real canvas from its peek,
+  // which is one copy, and the rest follows a frame later, full size.
   function land(target, delta) {
     const from = delta > 0 ? $('canvas-next') : $('canvas-prev');
-    if (!dev('landLight') || !from.width) { endSlide(); goTo(target); return; }
+    if (!from.width) { endSlide(); goTo(target); return; }
     state.current = clamp(target, 0, state.pages.length - 1);
     state.selected = -1;
     const { w: W, h: H } = previewSize();
@@ -12571,8 +12571,10 @@
       rows.appendChild(row);
     });
   }
+  let devOpenedAt = -Infinity;
   function openDev() {
     buildDevPanel();
+    devOpenedAt = performance.now();
     $('dev-panel').hidden = false;
     buzz('pick');
   }
@@ -12581,7 +12583,12 @@
   // report motion: so shaking to open it works from the next time on.
   $('dev-panel').addEventListener('click', () => askForMotion(), true);
   $('dev-close').addEventListener('click', closeDev);
-  $('dev-panel').addEventListener('click', (e) => { if (e.target === $('dev-panel')) closeDev(); });
+  // A tap on the dimmed screen around the card closes it, except the one
+  // that ends the hold which opened it: the panel appears under a finger
+  // still down, and lifting it lands on the backdrop.
+  $('dev-panel').addEventListener('click', (e) => {
+    if (e.target === $('dev-panel') && performance.now() - devOpenedAt > 500) closeDev();
+  });
 
   // Shaking the phone. iOS only reports motion once asked, and only asks from
   // a tap, so the first way in there is holding the version on the homepage,
