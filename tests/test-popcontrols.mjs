@@ -98,7 +98,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x2"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.setInputFiles('#file-input', [{ name: 'building.png', mimeType: 'image/png', buffer: building }]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 30000 });
 await p.keyboard.press('Escape');
@@ -282,7 +282,7 @@ check(!/Finding/.test(await p.textContent('#pop-note')), 'and picking a colour c
 await p.click('#edge-reset');
 await p.waitForTimeout(600);
 await p.click('#edge-done');
-await p.click('#dock-back');
+await p.click('#float-close');
 
 /* -------------------------------------------------------------- turning */
 

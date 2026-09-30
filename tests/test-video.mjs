@@ -123,7 +123,7 @@ await p.waitForTimeout(300);
 await p.click('.layout-btn:nth-child(2)');     // 2x1: video left, empty right
 await p.waitForTimeout(700);
 // The sheet opens over the bar, and Photos lives in the bar; close it.
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.waitForTimeout(300);
 // Changing the layout opens a slot; it does not fill it. Put the photo in
 // the way a person would.

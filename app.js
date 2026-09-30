@@ -6946,6 +6946,24 @@
     }
   }
 
+  // Moving from one tile's tools to another's keeps the tool that was open,
+  // where the new tile has a use for it, so going along a row of photos
+  // adjusting each is a tap per photo. Replace is choosing for the tile it
+  // was opened on, so another tile goes back to the tool Replace came from.
+  function switchTile(i) {
+    const photo = photoFor(page().cells[i]);
+    if (!photo) {
+      if (state.photos.length) fillEmptyTile(i); else select(-1);
+      return;
+    }
+    const from = tileSub === 'replace' ? replaceFrom : tileSub;
+    if (tileSub === 'replace') endRun();
+    morph(() => {
+      select(i);
+      showTileSubNow(from && toolFits(from, photo) ? from : toolFor(photo));
+    });
+  }
+
   // An empty tile opens the same reel as Replace, rather than the device
   // picker, so the photos already imported are the first thing offered.
   function fillEmptyTile(i) {
@@ -7238,9 +7256,10 @@
       return;
     }
 
-    if (pointers.size === 0) {
-      if (i !== state.selected) { select(-1); return; }
-    } else if (i !== state.selected) {
+    if (i !== state.selected) {
+      // Another tile is a tap on that tile, not a way out of this one: its
+      // tools open in place of these. Only off every tile is letting go.
+      if (pointers.size === 0) { if (i === -1) select(-1); else switchTile(i); }
       return;
     }
 
@@ -9032,7 +9051,7 @@
     // Page thumbnails catch up on the way out of choosing, rather than being
     // redrawn for every photo scrolled past.
     else if (choseAny) { choseAny = false; renderFilmstrip(); }
-    setBackIcon();
+    syncTileSheet();
     syncSheet();
     syncFades();
     placeTileOverlays();
@@ -9170,12 +9189,10 @@
     grab.addEventListener('pointercancel', () => { press = null; });
     grab.addEventListener('click', () => setTray(false));
     // The grid fades under the grabber once it has been scrolled, and under
-    // Back and the fold always, since there is always more below them to
-    // scroll up past.
+    // the fold always, since there is always more below it to scroll up past.
     $('tray-grid').addEventListener('scroll', (e) => {
       $('choose-tray').classList.toggle('is-scrolled', e.target.scrollTop > 2);
     }, { passive: true });
-    $('tray-back').addEventListener('click', leaveReplace);
     $('tray-fold').addEventListener('click', () => setTray(false));
     $('choose-open').addEventListener('click', () => setTray(true));
     chooseReel = reel($('choose-reel'), $('choose-strip'), {
@@ -9188,11 +9205,10 @@
     });
   }
 
-  // Back is an arrow everywhere. On a tile's tools the step back is letting go
-  // of the tile, and it says so to a screen reader.
-  function setBackIcon() {
-    const letsGo = drawer === 'tile' && tileSub !== 'replace';
-    $('dock-back').setAttribute('aria-label', letsGo ? 'Done with this tile' : 'Back');
+  // Close lets go of the tile on a tile's tools, and says so to a screen
+  // reader.
+  function syncTileSheet() {
+    $('float-close').setAttribute('aria-label', drawer === 'tile' ? 'Done with this tile' : 'Close');
     $('dock-drawer').classList.toggle('is-tile', drawer === 'tile');
   }
 
@@ -9255,8 +9271,9 @@
     if (!pill.hidden) {
       const room = $('track').clientWidth;
       const left = clamp(box.x + box.w / 2 - pill.offsetWidth / 2, 4, Math.max(4, room - pill.offsetWidth - 4));
+      const top = clearOfFloats(left, box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight, pill, box);
       pill.style.left = `${Math.round(left)}px`;
-      pill.style.top = `${Math.round(box.y + box.h - TILE_ACTIONS_LIFT - pill.offsetHeight)}px`;
+      pill.style.top = `${Math.round(top)}px`;
     }
     // Whatever the tile is showing that it would not otherwise, said on the
     // tile itself, 12 in from its corner.
@@ -9278,11 +9295,45 @@
   }
   const TILE_CHIP_INSET = 12;
 
+  // A tile low on the stage puts its actions down where Close, Compare and
+  // Reset hang over the photo, and the one drawn later wins the tap. The
+  // tile's pill goes up until it is 8 clear of any it would sit on, but no
+  // higher than 12 inside the tile's top, so it still reads as the tile's.
+  // Both are measured from layout rather than getBoundingClientRect, for the
+  // same reason tileBox is: a sheet arriving is scaling the stage mid-flight.
+  const FLOAT_CLEARANCE = 8;
+  function clearOfFloats(left, top, pill, box) {
+    const row = $('float-row');
+    if (row.hidden) return top;
+    const at = layoutOrigin($('track'));
+    const w = pill.offsetWidth, h = pill.offsetHeight;
+    let y = top;
+    row.querySelectorAll('.float-pill').forEach((f) => {
+      if (f.hidden) return;
+      const o = layoutOrigin(f);
+      const fx = o.x - at.x, fy = o.y - at.y;
+      const across = left < fx + f.offsetWidth + FLOAT_CLEARANCE && fx < left + w + FLOAT_CLEARANCE;
+      if (across && y + h > fy - FLOAT_CLEARANCE) y = Math.min(y, fy - FLOAT_CLEARANCE - h);
+    });
+    return Math.max(y, Math.min(top, box.y + TILE_CHIP_INSET));
+  }
+  // Where an element is laid out on the page, with no transform in it.
+  function layoutOrigin(el) {
+    let x = 0, y = 0;
+    for (let n = el; n; n = n.offsetParent) {
+      x += n.offsetLeft + (n === el ? 0 : n.clientLeft);
+      y += n.offsetTop + (n === el ? 0 : n.clientTop);
+    }
+    return { x, y };
+  }
+
   /* -------------------------------------------------- floating actions */
   //
-  // Compare and Reset belong to the photo rather than to the controls, so they
-  // float above the sheet's top right instead of sitting in it. Which of them
-  // are there, and whether at all, depends on the tool:
+  // A row hung above the sheet. Close is at its start for as long as a sheet
+  // is open, and arrives and leaves with it. Compare and Reset belong to the
+  // photo rather than to the controls, so they float at the row's end instead
+  // of sitting in the sheet. Which of them are there, and whether at all,
+  // depends on the tool:
   //
   // - Adjust: both, but only once something has changed. There is nothing to
   //   compare with or reset until then.
@@ -9292,7 +9343,8 @@
   // - Trim: Reset alone, once the clip has been cut. A clip is always playing,
   //   so there is nothing to compare it with.
   //
-  // It arrives fading in and rising 6pt over 180ms, and leaves the same way.
+  // That pill arrives fading in and rising 6pt over 180ms, and leaves the same
+  // way.
   const FLOAT_MS = 180;
   const FLOAT_RISE = 6;
 
@@ -9308,37 +9360,45 @@
   }
 
   function syncFloat() {
-    const row = $('sheet-float');
+    const row = $('float-row');
+    const pill = $('sheet-float');
+    const open = drawer !== null;
     const want = floatWanted();
-    const was = !row.hidden;
+    const rowWas = !row.hidden;
+    const pillWas = rowWas && !pill.hidden;
     const apply = () => {
-      row.hidden = !want;
+      row.hidden = !open;
+      pill.hidden = !want;
       if (!want) return;
       $('btn-compare').hidden = !want.compare;
-      row.classList.toggle('is-resting', want.resting);
+      pill.classList.toggle('is-resting', want.resting);
       $('btn-reset').disabled = want.resting;
       $('btn-compare').disabled = want.resting;
     };
     // Nothing left to compare with, so nothing is being compared.
     if ((!want || !want.compare || want.resting) && comparing) setCompare(false);
-    if (!!want === was) { apply(); return; }
-    // Leaving, a picture of it goes the way it came while the row itself is
+    // Leaving, a picture of it goes the way it came while the real one is
     // hidden at once, so a tap in the next 180ms reaches the photo under it.
-    if (was && !calmMotion.matches && row.getClientRects().length) {
-      const r = row.getBoundingClientRect();
-      const { copy } = lookalike(row);
+    // The whole row goes when the sheet does; the photo's pill alone goes
+    // when there is nothing left for it to do.
+    const leaving = rowWas && !open ? row : (pillWas && !want ? pill : null);
+    if (leaving && !calmMotion.matches && leaving.getClientRects().length) {
+      const r = leaving.getBoundingClientRect();
+      const { copy } = lookalike(leaving);
       const host = $('dock').getBoundingClientRect();
-      Object.assign(copy.style, { position: 'absolute', left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${r.width}px`, margin: '0', pointerEvents: 'none' });
+      Object.assign(copy.style, { position: 'absolute', left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, right: 'auto', bottom: 'auto', width: `${r.width}px`, margin: '0', pointerEvents: 'none' });
       $('dock').appendChild(copy);
       const out = copy.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }],
         { duration: FLOAT_MS, easing: 'ease-in', fill: 'forwards' });
       out.addEventListener('finish', () => copy.remove());
     }
     morph(apply);
-    if (want && !was && !calmMotion.matches) {
-      row.animate([{ opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }, { opacity: 1, transform: 'none' }],
+    if (want && !pillWas && !calmMotion.matches) {
+      pill.animate([{ opacity: 0, transform: `translateY(${FLOAT_RISE}px)` }, { opacity: 1, transform: 'none' }],
         { duration: FLOAT_MS, easing: 'ease-out' });
     }
+    // The tile's own actions keep clear of whatever is now floating.
+    placeTileOverlays();
   }
 
   // Compare shows the chosen tile as it came, and says so on the tile. It
@@ -10543,16 +10603,23 @@
 
     if (open && !before.open) {
       const r = sheet.getBoundingClientRect();
+      // Close rides in on the sheet it closes, rather than waiting where the
+      // sheet is going to be.
+      const floats = $('float-row');
       if (calm) {
         play(sheet, [{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_CALM_MS, easing: 'ease-out' });
+        play(floats, [{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_CALM_MS, easing: 'ease-out' });
       } else {
         const from = before.sheetTop !== null ? before.sheetTop - r.top : window.innerHeight - r.top;
-        play(sheet, [{ transform: `translateY(${from}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
-        play(sheet, [
+        const fade = [
           { opacity: Math.min(before.sheetOpacity, 0.6) },
           { opacity: 1, offset: 0.33 },
           { opacity: 1 },
-        ], { duration: SHEET_OPEN_MS, easing: 'linear' });
+        ];
+        [sheet, floats].forEach((el) => {
+          play(el, [{ transform: `translateY(${from}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
+          play(el, fade, { duration: SHEET_OPEN_MS, easing: 'linear' });
+        });
       }
       if (before.barRect && before.barOpacity > 0 && !calm) {
         const barCopy = lookalike(bar);
@@ -10596,6 +10663,9 @@
     // and the preview move once.
     const rise = r.top - before.sheetTop;
     if (!calm && Math.abs(rise) > 0.5) {
+      // The row above the sheet is already where the new edge is; it goes
+      // there with the edge rather than ahead of it.
+      play($('float-row'), [{ transform: `translateY(${-rise}px)` }, { transform: 'none' }], { duration: SHEET_OPEN_MS, easing: SHEET_EASE_OPEN });
       if (rise > 0) {
         const pad = parseFloat(getComputedStyle(sheet).paddingTop);
         motion.hold = rise;
@@ -10655,7 +10725,7 @@
     const panel = $(`dp-${name}`);
     const target = panel.querySelector('button.is-active, [aria-pressed="true"]')
       || panel.querySelector('input[type="range"], select, button:not([hidden])')
-      || $('dock-back');
+      || $('float-close');
     target.focus({ preventScroll: true });
   }
 
@@ -10670,7 +10740,7 @@
     if (name === 'tile') showTileSubNow(toolFor(photoFor(page().cells[state.selected])));
     else tileSub = null;
     if (name !== 'background') { $('bg-custom').hidden = true; $('bg-ticker').hidden = false; }
-    setBackIcon();
+    syncTileSheet();
     $('dock-root').hidden = true;
     $('dock-drawer').hidden = false;
     $('dock').classList.add('is-open');
@@ -10685,6 +10755,7 @@
     if (['gap', 'padding', 'corners'].includes(name)) paintSlider($(name === 'corners' ? 'radius' : name));
     if (fromBar) focusSheet(name);
     syncFades();
+    syncFloat();
   }
 
   function closeDrawer() { morph(() => closeDrawerNow()); }
@@ -10701,7 +10772,7 @@
     trayOpen = false;
     syncTray();
     cancelSwap();
-    setBackIcon();
+    syncTileSheet();
     DRAWERS.forEach((d) => { $(`dp-${d}`).hidden = true; });
     $('dock-drawer').hidden = true;
     $('dock-root').hidden = false;
@@ -12420,11 +12491,16 @@
     btn.addEventListener('click', () => { if (drawer !== btn.dataset.drawer) openDrawer(btn.dataset.drawer); });
   });
   $('btn-add').addEventListener('click', () => { pendingCell = null; fileInput.click(); });
-  $('dock-back').addEventListener('click', () => {
-    // Replace steps back to the tool it was opened from. Anywhere else on a
-    // tile, Back lets go of it, which puts the canvas back into swiping.
-    if (drawer === 'tile' && tileSub === 'replace') { leaveReplace(); return; }
-    if (drawer === 'tile') { cancelSwap(); select(-1); return; }
+  $('float-close').addEventListener('click', () => {
+    // On a tile, closing lets go of it, which puts the canvas back into
+    // swiping. From Replace too: the X is the way out, not a step back, and
+    // syncPanel keeps an empty tile's reel open unless Replace is left first.
+    if (drawer === 'tile') {
+      if (tileSub === 'replace') { endRun(); tileSub = null; }
+      cancelSwap();
+      select(-1);
+      return;
+    }
     closeDrawer();
   });
 
@@ -12484,7 +12560,6 @@
   $('adjust').addEventListener('change', () => { endRun(); refresh(); });
   $('btn-compare').addEventListener('click', () => setCompare(!comparing));
   $('btn-reset').addEventListener('click', resetTool);
-  buzzTaps($('sheet-float'));
 
   buildEffects();
   $('pop-pick').addEventListener('click', () => setPicking(!picking));

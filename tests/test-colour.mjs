@@ -234,7 +234,7 @@ check(Math.max(...offAll(back, COLOURS)) <= 1, 'every tool back at nought is the
 // arrived before the export began, and it passed without the wait.
 await choose('warmth');
 await slide(100);
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.waitForTimeout(300);
 await p.route('**/colour-tables.png*', async (route) => {
   await new Promise((r) => setTimeout(r, 3000));
@@ -244,7 +244,7 @@ await p.reload();
 await p.waitForTimeout(500);
 fetched = 0;
 for (let k = 0; k < 3 && !(await p.locator('#btn-export-open').isVisible()); k++) {
-  await p.click('#dock-back').catch(() => {});
+  await p.click('#float-close').catch(() => {});
   await p.waitForTimeout(250);
 }
 await p.click('#btn-export-open');

@@ -98,12 +98,12 @@ await check('the chevron that opens the tray', '#choose-open svg', 22);
 await check('Add from your photos, on the reel', '#choose-strip .is-add svg', 22);
 await p.click('#choose-open');
 await rest();
-await check('Back, over the tray', '#tray-back svg', 22);
+await check('Close, above the tray', '#float-close svg', 22);
 await check('the fold', '#tray-fold svg', 22);
 await check('Add from your photos, in the tray', '#tray-grid .is-add svg', 22);
-await p.click('#tray-back');
+await p.click('#tray-fold');
 await rest();
-await p.click('#dock-back');
+await p.click('#float-close');
 await rest();
 
 console.log('\n== a photo: Compare, and Adjust\'s settings ==');

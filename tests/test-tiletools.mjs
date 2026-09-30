@@ -129,12 +129,14 @@ console.log('\n== the first change brings Compare and Reset ==');
   ok('Compare and Reset are there', await p.locator('#btn-compare').isVisible() && await p.locator('#btn-reset').isVisible());
   ok('they arrived fading in and rising 6pt over 180ms', !!arrived && arrived.some((a) => a.ms === 180 && Number(a.from) === 0 && /translateY\(6px\)/.test(a.rise)), JSON.stringify(arrived));
 
-  const pill = await rect('.float-pill');
+  const pill = await rect('#sheet-float');
   const sheet = await rect('#dock-drawer');
   const after = await rect('#canvas');
   ok('the pill sits 8 above the sheet', Math.abs(sheet.top - pill.bottom - 8) < 1, `${(sheet.top - pill.bottom).toFixed(1)}px`);
   ok('in line with its inner edge', Math.abs(sheet.right - 8 - pill.right) < 1, `sheet right ${sheet.right}, pill right ${pill.right}`);
-  ok('100 by 52, as Figma draws it', Math.round(pill.width) === 100 && Math.round(pill.height) === 52, `${pill.width} by ${pill.height}`);
+  // 4 in from the outside of the border at the ends as well as top and
+  // bottom, so a lone Reset is a circle: 98, not the 100 it was.
+  ok('98 by 52, as Figma draws it', Math.round(pill.width) === 98 && Math.round(pill.height) === 52, `${pill.width} by ${pill.height}`);
   ok('the page stayed exactly where it was, and the pill sits over it', Math.abs(after.top - before.top) < 0.5 && Math.abs(after.height - before.height) < 0.5,
     `page ${before.top}..${before.bottom} -> ${after.top}..${after.bottom}, pill from ${pill.top}`);
   const settled = await edges();
@@ -278,8 +280,8 @@ console.log('\n== Replace: the reel, and the tile\'s own actions stepping aside 
       return strip.children[0].classList.contains('is-add') && strip.querySelector('.is-current')?.getAttribute('aria-label') === 'quarters.png';
     }));
   ok('its sheet sits 8 from the top, on the reel', await p.evaluate(() => getComputedStyle(document.getElementById('dock-drawer')).paddingTop) === '8px');
-  ok('and its foot is Back and the chevron up', await p.locator('#dock-back').isVisible() && await p.locator('#choose-open').isVisible()
-    && await p.locator('#tile-tabs').isHidden());
+  ok('and its foot is the chevron up alone, with Close floating above', await p.locator('#float-close').isVisible() && await p.locator('#choose-open').isVisible()
+    && await p.locator('#tile-tabs').isHidden() && (await p.locator('.sheet-foot > :not([hidden])').evaluateAll((els) => els.filter((e) => getComputedStyle(e).display !== 'none').map((e) => e.id))).join() === 'choose-open');
 }
 
 console.log('\n== the whole tray ==');
@@ -297,8 +299,8 @@ console.log('\n== the whole tray ==');
   const trayPage = await rect('#canvas');
   ok('the page shrinks and moves up to stay above it, rather than being covered',
     trayPage.bottom <= sheet.top && trayPage.height < reelPage.height, `page ${trayPage.top}..${trayPage.bottom}, card from ${sheet.top}`);
-  ok('the foot goes; Back and the fold float over the bottom of the grid', await p.locator('.sheet-foot').isHidden()
-    && await p.locator('#tray-back').isVisible() && await p.locator('#tray-fold').isVisible());
+  ok('the foot goes; the fold floats over the bottom of the grid, Close above it all', await p.locator('.sheet-foot').isHidden()
+    && await p.locator('#tray-fold').isVisible() && await p.locator('#float-close').isVisible());
   ok('the tile\'s actions are still out of the way', await p.locator('#tile-actions').isHidden());
 
   await p.click('#tray-grid [aria-label="blue.png"]');
@@ -318,16 +320,20 @@ console.log('\n== the whole tray ==');
   await rest();
   ok('a pull down on the grabber folds it back to the reel', await p.locator('#choose-tray').isHidden() && await p.locator('#choose-reel').isVisible());
   ok('with the new photo under the centre', await p.evaluate(() => document.querySelector('#choose-strip .is-current')?.getAttribute('aria-label') === 'blue.png'));
-  // Back from the open tray, rather than folding it first: the tool it goes
-  // back to has its foot. It once came back with the tray's classes still on
-  // the sheet, and no foot, so no way to let go of the tile.
+  // Close from the open tray, rather than folding it first, lets go of the
+  // tile — and the next tile chosen has its foot. Leaving the tray once kept
+  // its classes on the sheet, and no foot.
   await p.click('#choose-open');
   await rest();
-  await p.click('#tray-back');
+  await p.click('#float-close');
   await rest();
-  ok('Back from the open tray goes back to the tool, foot and all', await p.locator('#tile-crop').isVisible()
-    && await p.locator('#dock-back').isVisible() && await p.locator('#tile-tabs').isVisible() && await p.locator('#choose-tray').isHidden());
-  await p.click('#dock-back');
+  ok('Close from the open tray lets go of the tile', await p.locator('#dock-drawer').isHidden() && await p.locator('#float-row').isHidden());
+  const again = await p.locator('#canvas').boundingBox();
+  await p.mouse.click(again.x + again.width / 2, again.y + again.height / 2);
+  await rest();
+  ok('and choosing it again opens its tool, foot and all', await p.locator('#tile-crop').isVisible()
+    && await p.locator('#tile-tabs').isVisible() && await p.locator('#choose-tray').isHidden());
+  await p.click('#float-close');
   await rest();
   await p.click('#btn-undo');
   await p.waitForTimeout(300);

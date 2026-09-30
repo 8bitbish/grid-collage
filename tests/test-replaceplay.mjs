@@ -111,8 +111,8 @@ console.log('\n== it keeps playing while Replace is open ==');
 console.log('\n== scrolling onto a photo stops it, scrolling back starts it again ==');
 {
   // Two things in the tray, so the reel has somewhere to go.
-  await p.evaluate(()=>document.getElementById('dock-back').click());
-  await settle(()=>document.getElementById('tile-replace').hidden);
+  await p.evaluate(()=>document.getElementById('float-close').click());
+  await settle(()=>document.getElementById('dock-drawer').hidden);
   await p.setInputFiles('#file-input',[{name:'still.jpg',mimeType:'image/jpeg',buffer:still}]);
   await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='2',{timeout:25000});
 
@@ -151,8 +151,8 @@ console.log('\n== scrolling onto a photo stops it, scrolling back starts it agai
 
 console.log('\n== the export is unaffected by any of this ==');
 {
-  await p.evaluate(()=>document.getElementById('dock-back').click());
-  await settle(()=>document.getElementById('tile-replace').hidden);
+  await p.evaluate(()=>document.getElementById('float-close').click());
+  await settle(()=>document.getElementById('dock-drawer').hidden);
   const cell = await p.evaluate(()=>{
     const c=document.querySelector('#canvas');
     return !!c;

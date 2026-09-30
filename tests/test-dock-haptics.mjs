@@ -52,14 +52,14 @@ await open('layout');
 console.log('open Layout        ->', JSON.stringify(await buzzes()));
 await tap('.layout-btn[data-id="2x2"]');
 console.log('pick a layout      ->', JSON.stringify(await buzzes()));
-await tap('#dock-back');
+await tap('#float-close');
 console.log('back out           ->', JSON.stringify(await buzzes()));
 
 await open('background');
 await buzzes();
 await tap('.swatch', 1);
 console.log('pick a colour      ->', JSON.stringify(await buzzes()));
-await tap('#dock-back'); await buzzes();
+await tap('#float-close'); await buzzes();
 
 // A slider used to stay silent. It has detents now: one buzz for taking hold
 // of the knob, one per notch crossed, and the firmer double at either end.
@@ -97,7 +97,7 @@ console.log('touch the track    ->', JSON.stringify(await buzzes()), '(one for t
   console.log(`sweep end to end   -> ${run.length} buzzes: 1 grab, ${ticks} ticks, ${ends} at the limit`,
     ticks>=10&&ticks<=13?'✓ a dozen notches':`✗ ${ticks} notches, wanted about 12`);
 }
-await tap('#dock-back'); await buzzes();
+await tap('#float-close'); await buzzes();
 
 // scrolling the settings row must stay silent
 const row=await p.locator('#dock-root').boundingBox();
@@ -133,7 +133,9 @@ await p.touchscreen.tap(item.x+item.width/2, item.y+item.height/2);
 await p.waitForTimeout(600);
 const reel=await buzzes();
 console.log('tap a reel option  ->', JSON.stringify(reel), '(the ordinary tap; the reel ticks only as it is scrolled)');
-await tap('#dock-back'); await buzzes();
+// Back to the tool Replace came from, keeping the tile for the delete below:
+// the X over the sheet would let go of it.
+await p.keyboard.press('Escape'); await p.waitForTimeout(250); await buzzes();
 
 // Deleting is the one thing in the dock a tap cannot take back, and it used to
 // feel exactly like picking a colour. A pattern rather than a single number is
@@ -147,7 +149,7 @@ await tap('#dock-back'); await buzzes();
 
   // Back out to the settings list however deep the delete left us.
   for (let i=0; i<3 && !(await p.locator('#dock-root').isVisible()); i++) {
-    await p.click('#dock-back'); await p.waitForTimeout(200);
+    await p.click('#float-close'); await p.waitForTimeout(200);
   }
   await buzzes();
   await open('page'); await buzzes();
@@ -155,7 +157,7 @@ await tap('#dock-back'); await buzzes();
   const pg=await buzzes();
   console.log('delete a page      ->', JSON.stringify(pg), pg.some(dbl)?'✓ the double':'✗ wanted the double');
   if(!pg.some(dbl)) process.exitCode=1;
-  await tap('#dock-back'); await buzzes();
+  await tap('#float-close'); await buzzes();
 }
 
 // The export's sizes are tabs on a card off the bar, and a size is a tap like

@@ -95,19 +95,19 @@ for (const [label, vp, floor] of [
   await open('layout');
   const tabs = await worst('.dock-tab');
   ok('the tabs: smallest control', tabs.side >= floor, `${tabs.id} at ${tabs.side}px`);
-  await p.click('#dock-back');
+  await p.click('#float-close');
 
   for (const [name, sel] of DRAWERS) {
     await open(name);
     const w = await worst(sel);
     ok(`${name}: smallest control`, w && w.side >= floor, `${w ? w.id : 'nothing found'} at ${w ? w.side : '-'}px`);
-    await p.click('#dock-back');
+    await p.click('#float-close');
   }
 
   await open('background');
-  const back = await worst('#dock-back');
-  ok('the back button', back.side >= floor, `${back.side}px`);
-  await p.click('#dock-back');
+  const close = await worst('#float-close');
+  ok('the close button', close.side >= floor, `${close.side}px`);
+  await p.click('#float-close');
 
   // The two pinned controls, which must be on screen whatever the width.
   // The colour well is no longer pinned beside the presets: any colour is the
@@ -124,7 +124,7 @@ for (const [label, vp, floor] of [
   ok('and the panel around it does not scroll', well.scrolls <= 2, `${well.scrolls}px of slack`);
   const customs = await worst('#bg-presets, .hex-field, #bg, .colour-ruler');
   ok('any colour: smallest control', customs.side >= floor, `${customs.id} at ${customs.side}px`);
-  await p.click('#dock-back');
+  await p.click('#float-close');
 
   // Export is a card off the bar rather than a sheet: its sizes and its
   // button are controls like any other, and all of it has to be on screen.
@@ -156,7 +156,7 @@ for (const [label, vp, floor] of [
   }
 
   // Back lets go of the tile, which is what puts the settings list back.
-  await p.click('#dock-back');
+  await p.click('#float-close');
 
   // Nothing may hang out of the bar. A panel that overflows downward is a
   // control pressed against the bottom edge of the screen, which is how the
@@ -173,7 +173,7 @@ for (const [label, vp, floor] of [
       return { over: Math.round(Math.max(0, dock.top - panel.top) + Math.max(0, panel.bottom - dock.bottom)) };
     }, name);
     ok(`${name} sits inside the dock`, fits.over === 0, fits.over ? `${fits.over}px outside` : 'no overflow');
-    await p.click('#dock-back');
+    await p.click('#float-close');
   }
 
   await p.screenshot({path: path.join(SHOTS, `reach-${label.split(' ')[0]}.png`)});

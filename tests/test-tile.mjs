@@ -85,7 +85,7 @@ console.log('reset -> left tile:', await sample(0.15,0.5), '(matches original:',
 await p.keyboard.press('Escape');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x1"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.click('#btn-photos');
 // By name, not position: the library is ordered by the day the photo was
 // taken now, which for two fixtures made in the same millisecond is not the
@@ -122,7 +122,7 @@ await p.waitForTimeout(200);
 
 await tapTile(0.25);
 await p.waitForTimeout(150);
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.waitForTimeout(150);
 console.log('back lets go of the tile:', await p.locator('#dock-root').isVisible() ? '✓' : '✗');
 await p.screenshot({path:'/tmp/shot-tile.png'});

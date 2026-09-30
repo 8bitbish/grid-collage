@@ -98,7 +98,7 @@ const onScreen = () => p.evaluate((fine) => {
 // Back out of whatever tile panel is open to the page's own dock.
 const toPage = async () => {
   for (let k = 0; k < 3 && !(await p.locator('#btn-export-open').isVisible()); k++) {
-    await p.click('#dock-back');
+    await p.click('#float-close');
     await p.waitForTimeout(250);
   }
 };

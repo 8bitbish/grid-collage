@@ -33,7 +33,7 @@ await page.reload();
 // A 2x1 grid with no gap or padding: the left tile is exactly the left half.
 await page.click('.dock-item[data-drawer="layout"]');
 await page.click('.layout-btn[data-id="2x1"]');
-await page.click('#dock-back');
+await page.click('#float-close');
 // the sliders live inside dock drawers now, so drive them directly
 await page.evaluate(() => {
   for (const id of ['gap', 'padding', 'radius']) {

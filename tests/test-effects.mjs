@@ -91,7 +91,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x2"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.setInputFiles('#file-input', [{ name: 'disc.png', mimeType: 'image/png', buffer: disc }]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2);
 await p.keyboard.press('Escape');
@@ -230,11 +230,11 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.locator('#filmstrip canvas').first().click();
 await p.waitForTimeout(400);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x3"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.click('#btn-photos');
 await p.locator('.pm-pick[aria-label*="clip.webm"]').first().click();
 await p.keyboard.press('Escape');
@@ -242,7 +242,7 @@ await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width / 2, box.y + box.height * 0.84);
 await p.waitForTimeout(300);
 check(await p.locator('#tile-tabs [data-tile="trim"]').isVisible() && !(await p.locator('#tile-tabs [data-tile="effects"]').isVisible()), 'a clip does not offer Effects');
-await p.click('#dock-back');
+await p.click('#float-close');
 // The page is still growing back into the room the sheet gave up, and a tap
 // mid-flight lands wherever the animation has got to.
 await p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));

@@ -40,7 +40,7 @@ await p.setInputFiles('#file-input',[clip('voice3s.webm')]);
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='1',{timeout:20000});
 await p.click('.chip[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x1"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.setInputFiles('#file-input',[clip('voice2s.webm')]);
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='2',{timeout:20000});
 await p.waitForTimeout(800);
@@ -76,7 +76,7 @@ async function mute(fx) {
   await p.click('#btn-sound');
   await p.waitForTimeout(150);
   const muted = await p.getAttribute('#btn-sound', 'aria-pressed') === 'false';
-  await p.click('#dock-back');
+  await p.click('#float-close');
   await p.waitForTimeout(300);
   return muted;
 }

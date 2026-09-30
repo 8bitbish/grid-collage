@@ -47,7 +47,7 @@ await p.waitForFunction(()=>document.querySelectorAll('.film').length===4);
 console.log('after import:', await pages(), 'pages,', await photos(), 'photos | undo enabled:', await undoOn());
 
 // delete a page, undo it
-await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#dock-back');
+await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#float-close');
 const afterDelete = await pages();
 await p.click('#btn-undo');
 console.log(`delete page: ${afterDelete} -> undo -> ${await pages()}`, (await pages())===4?'✓':'✗');
@@ -82,7 +82,7 @@ const settled = await p.evaluate(()=>{const c=document.getElementById('canvas');
 console.log('  and settles to the original, exactly:', settled, settled==='220,40,40'?'✓':'✗');
 
 // keyboard
-await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#dock-back');
+await _openDrawer(p, 'page'); await p.click('#btn-delete-page'); await p.click('#float-close');
 await p.keyboard.press('Control+z');
 console.log('Ctrl+Z:', await pages(), (await pages())===4?'✓':'✗');
 await p.keyboard.press('Control+Shift+z');

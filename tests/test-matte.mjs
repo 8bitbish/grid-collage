@@ -116,7 +116,7 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="1x2"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.setInputFiles('#file-input', [{ name: 'strands.png', mimeType: 'image/png', buffer: disc }]);
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 30000 });
 await p.keyboard.press('Escape');
@@ -133,8 +133,8 @@ await p.waitForTimeout(500);
 check(fetched.some((f) => /vitmatte/.test(f)) && fetched.some((f) => /ort/.test(f)), 'with WebGPU here, the subject is matted by ViTMatte',
   `${Date.now() - t0}ms, fetched ${[...new Set(fetched)].join(', ')}`);
 
-await p.click('#dock-back');
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+await p.click('#float-close');
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.click('#btn-export-open');
 await p.click('#export-card [data-quality=\"2160\"]');
 const got = p.waitForEvent('download', { timeout: 120000 }).catch(() => null);

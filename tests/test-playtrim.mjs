@@ -220,7 +220,7 @@ console.log('\n== a photo tile has no Trim ==');
   // (and with it the layout drawer) is out of reach. Walk back to it first.
   for (let i = 0; i < 4; i++) {
     if (await p.evaluate(() => !document.getElementById('dock-root').hidden)) break;
-    await p.click('#dock-back');
+    await p.click('#float-close');
     await p.waitForTimeout(350);
   }
   // The slide is a full 1x1, so importing does not place the photo anywhere.
@@ -230,7 +230,7 @@ console.log('\n== a photo tile has no Trim ==');
   await p.click('.layout-btn:nth-child(2)');
   await p.waitForTimeout(600);
   // The sheet opens over the bar, and Photos lives in the bar; close it.
-  await p.click('#dock-back');
+  await p.click('#float-close');
   await p.waitForTimeout(300);
   await p.click('#btn-photos');
   await p.waitForTimeout(500);

@@ -123,7 +123,7 @@ await p.locator('.stage').screenshot({path:`${OUT}/page-cross.png`});
 await p.click('.dock-item[data-drawer="shape"]'); await p.waitForTimeout(250);
 await p.locator('#ratios button', {hasText:'9:16'}).first().click();
 await p.waitForTimeout(500);
-await p.click('#dock-back'); await p.waitForTimeout(300);
+await p.click('#float-close'); await p.waitForTimeout(300);
 console.log('  follows the page at 9:16:', j(await p.evaluate(()=>{
   const c=document.getElementById('canvas').getBoundingClientRect();
   const x=document.getElementById('btn-page-x').getBoundingClientRect();
@@ -131,7 +131,7 @@ console.log('  follows the page at 9:16:', j(await p.evaluate(()=>{
            pageWidth:Math.round(c.width) };})));
 await p.click('.dock-item[data-drawer="shape"]'); await p.waitForTimeout(200);
 await p.locator('#ratios button', {hasText:'1:1'}).first().click();
-await p.waitForTimeout(400); await p.click('#dock-back'); await p.waitForTimeout(300);
+await p.waitForTimeout(400); await p.click('#float-close'); await p.waitForTimeout(300);
 
 // it steps aside while a tile is selected, and while a page turns
 const box=await p.locator('#canvas').boundingBox();
