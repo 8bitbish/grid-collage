@@ -12566,17 +12566,18 @@
   const closeDev = () => { $('dev-panel').hidden = true; };
   // Any tap in the panel is a tap, which is what iOS wants before it will
   // report motion: so shaking to open it works from the next time on.
-  $('dev-panel').addEventListener('click', () => {
-    if (listenForShake.on || !(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')) return;
-    DeviceMotionEvent.requestPermission().then((r) => { if (r === 'granted') listenForShake(); }).catch(() => { /* declined */ });
-  }, true);
+  $('dev-panel').addEventListener('click', () => askForMotion(), true);
   $('dev-close').addEventListener('click', closeDev);
   $('dev-panel').addEventListener('click', (e) => { if (e.target === $('dev-panel')) closeDev(); });
 
   // Shaking the phone. iOS only reports motion once asked, and only asks from
   // a tap, so the first way in there is holding the version on the homepage,
   // which asks at the same time; after that a shake works too. Android needs
-  // no asking. Three jolts of more than about twice gravity inside a second.
+  // no asking. Three jolts of more than about a g and a quarter, beyond the
+  // pull of gravity, inside a second and a bit: a firm shake, not a flourish.
+  // The first threshold, nearly twice gravity, took a harder shake than
+  // anyone gives a phone without meaning to throw it.
+  const SHAKE_FORCE = 12;
   let jolts = [];
   function listenForShake() {
     if (listenForShake.on || !('DeviceMotionEvent' in window)) return;
@@ -12588,26 +12589,43 @@
       if (!src || src.x === null) return;
       const force = Math.abs(Math.hypot(src.x, src.y, src.z) - g);
       const now = performance.now();
-      if (force < 18) return;
-      jolts = jolts.filter((t) => now - t < 1000);
-      if (jolts.length && now - jolts[jolts.length - 1] < 120) return;
+      if (force < SHAKE_FORCE) return;
+      jolts = jolts.filter((t) => now - t < 1200);
+      if (jolts.length && now - jolts[jolts.length - 1] < 100) return;
       jolts.push(now);
       if (jolts.length >= 3 && $('dev-panel').hidden) { jolts = []; openDev(); }
     });
   }
-  if (!(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')) listenForShake();
+  // Listened for from the start everywhere. Whether a browser has
+  // requestPermission says nothing about whether it needs it: Chrome now has
+  // one too and delivers motion without it being called, and waiting on it
+  // there, as for iOS, meant a shake on Android never opened anything. iOS
+  // delivers nothing until it has been asked, from a tap: see the version's.
+  listenForShake();
+  const askForMotion = () => {
+    if (!(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') || askForMotion.done) return;
+    askForMotion.done = true;
+    DeviceMotionEvent.requestPermission().catch(() => { askForMotion.done = false; });
+  };
 
-  // Holding the version number, the one piece of the homepage that is
-  // already about builds rather than about carousels.
+  // The version number, the one piece of the homepage that is already about
+  // builds rather than about carousels: held, or tapped five times quickly,
+  // as Android's own build number opens its developer options. The taps are
+  // the sure way in, since a tap is never taken over by the system.
   {
     const hint = $('home-hint');
     let timer = 0;
+    let taps = [];
+    hint.addEventListener('click', () => {
+      askForMotion();
+      const now = performance.now();
+      taps = taps.filter((t) => now - t < 2000);
+      taps.push(now);
+      if (taps.length >= 5) { taps = []; openDev(); }
+    });
     hint.addEventListener('pointerdown', () => {
-      timer = setTimeout(async () => {
+      timer = setTimeout(() => {
         timer = 0;
-        if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
-          try { if (await DeviceMotionEvent.requestPermission() === 'granted') listenForShake(); } catch { /* asked outside a tap */ }
-        }
         openDev();
       }, 700);
     });
