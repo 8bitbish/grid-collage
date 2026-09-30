@@ -1,6 +1,6 @@
-/* Dev mode: the panel of switches, and the swipe switches in it changing how
-   pages are drawn on the way past without changing what they look like once
-   they land.
+/* Dev mode: the panel of switches, and the switches in it changing how pages
+   are drawn on the way past without changing what they look like once they
+   land.
 
    The switches exist to be compared on a phone, so the one thing this has to
    hold them to is that none of them is a different picture: a page reached
@@ -55,7 +55,7 @@ console.log('== the panel ==');
   await p.waitForTimeout(400);
   ok('?dev opens it', await p.locator('#dev-panel').isVisible());
   const rows = await p.locator('#dev-rows .dev-row').count();
-  ok('a row for each switch, every one off to begin with', rows >= 8 && (await p.locator('#dev-rows .dev-row[aria-checked="true"]').count()) === 0, `${rows} rows`);
+  ok('a row for each switch, every one off to begin with', rows >= 3 && (await p.locator('#dev-rows .dev-row[aria-checked="true"]').count()) === 0, `${rows} rows`);
   ok('it says which build it is', /^v/.test(await p.textContent('#dev-build')));
   await p.locator('#dev-rows .dev-row').first().click();
   ok('a tap turns a switch on', (await p.locator('#dev-rows .dev-row').first().getAttribute('aria-checked')) === 'true');
@@ -142,7 +142,7 @@ async function run(flags) {
 console.log('\n== every switch on draws the same pages ==');
 {
   const off = await run({});
-  const on = await run({ meter: true, peekOnce: true, peekAhead: true, peekHalf: true, stillClips: true, landLight: true, clipFrames: true, clipTile: true, clipsHalf: true });
+  const on = await run({ meter: true, clipTile: true, clipsHalf: true });
   off.seen.forEach((s, i) => {
     const t = on.seen[i];
     const diff = Math.max(...s.px.map((v, k) => Math.abs(v - t.px[k])));
@@ -153,32 +153,26 @@ console.log('\n== every switch on draws the same pages ==');
   ok('no page errors either way', off.errs.length + on.errs.length === 0, [...off.errs, ...on.errs].join(' | '));
 }
 
-console.log('\n== a clip redrawn only on its new frames still plays at its own rate ==');
+console.log('\n== a clip is redrawn only on its new frames, and still plays ==');
 {
-  // moving0.webm is a moving test pattern. What is compared is how many
-  // different pictures a strip of the canvas shows in a second, painted every
-  // refresh and painted only on new frames: the same motion, from fewer
-  // copies. (The strip does not change on every one of the clip's frames, so
-  // the count is well under 30 either way.)
-  const count = async (flags) => {
-    const { ctx, p, errs } = await open(flags);
-    await p.setInputFiles('#file-input', [{ name: 'moving0.webm', mimeType: 'video/webm', buffer: fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'moving0.webm')) }]);
-    await p.waitForFunction(() => { const v = document.querySelector('#players video'); return !!v && !v.paused && v.currentTime > 0.3; }, null, { timeout: 20000 });
-    const r = await p.evaluate(() => new Promise((res) => {
-      const c = document.getElementById('canvas'); const g = c.getContext('2d'); const seen = new Set(); let paints = 0; const t0 = performance.now();
-      const draw = CanvasRenderingContext2D.prototype.drawImage;
-      CanvasRenderingContext2D.prototype.drawImage = function (src, ...rest) { if (this.canvas === c && src instanceof HTMLVideoElement) paints += 1; return draw.call(this, src, ...rest); };
-      const tick = () => { const d = g.getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 8, 1).data; seen.add(d.join(',')); if (performance.now() - t0 < 1000) requestAnimationFrame(tick); else res({ pictures: seen.size, paints }); };
-      requestAnimationFrame(tick);
-    }));
-    await ctx.close();
-    return { ...r, errs };
-  };
-  const every = await count({});
-  const fresh = await count({ clipFrames: true });
-  ok('it shows as many different pictures a second as painting every refresh does', fresh.pictures >= every.pictures - 2 && fresh.pictures >= 5, `${fresh.pictures} against ${every.pictures}`);
-  ok('while copying the video far fewer times', fresh.paints <= every.paints * 0.7, `${fresh.paints} copies against ${every.paints}`);
-  ok('no page errors', every.errs.length + fresh.errs.length === 0);
+  // moving0.webm is a 30fps moving test pattern. The page is repainted only
+  // when the clip has a new frame, so a second of it is about thirty copies
+  // of the video, not the sixty a 60Hz screen refreshes, and the canvas
+  // still shows a run of different pictures.
+  const { ctx, p, errs } = await open({});
+  await p.setInputFiles('#file-input', [{ name: 'moving0.webm', mimeType: 'video/webm', buffer: fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'moving0.webm')) }]);
+  await p.waitForFunction(() => { const v = document.querySelector('#players video'); return !!v && !v.paused && v.currentTime > 0.3; }, null, { timeout: 20000 });
+  const r = await p.evaluate(() => new Promise((res) => {
+    const c = document.getElementById('canvas'); const g = c.getContext('2d'); const seen = new Set(); let paints = 0; let frames = 0; const t0 = performance.now();
+    const draw = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (src, ...rest) { if (this.canvas === c && src instanceof HTMLVideoElement) paints += 1; return draw.call(this, src, ...rest); };
+    const tick = () => { frames += 1; const d = g.getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 8, 1).data; seen.add(d.join(',')); if (performance.now() - t0 < 1000) requestAnimationFrame(tick); else res({ pictures: seen.size, paints, frames }); };
+    requestAnimationFrame(tick);
+  }));
+  await ctx.close();
+  ok('about one copy of the video for each of its own frames, not one per refresh', r.paints <= 36 && r.paints < r.frames * 0.7, `${r.paints} copies over ${r.frames} refreshes`);
+  ok('and it still moves', r.pictures >= 5, `${r.pictures} different pictures in a second`);
+  ok('no page errors', errs.length === 0, errs.join(' | '));
 }
 
 await b.close(); srv.close();

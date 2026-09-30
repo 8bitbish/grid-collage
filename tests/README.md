@@ -119,10 +119,12 @@ and between them they are what to run after touching either:
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
 - `devmode` — the dev mode panel: `?dev`, five taps on the version, a hold
-  on it, and three firm shakes open it, and moving the phone about does not; a switch per flag, all
-  off to begin with, kept on the device; and three pages reached with every
-  swipe switch on reading pixel for pixel the same as with them all off, with
-  the frame meter reporting the swipe.
+  on it (without the lift closing it again), and three firm shakes open it,
+  and moving the phone about does not; a switch per flag, all off to begin
+  with, kept on the device; three pages reached with every switch on reading
+  pixel for pixel the same as with them off, with the frame meter reporting
+  the swipe; and a playing clip copied onto the page about once per frame of
+  its own rather than once per refresh.
 - `adjustfeel` — Adjust's dial drawing a line for every value, and felt only
   at its fives (4ms), tens (12ms) and nought (20ms), a sweep that jumps a ten
   still knocking for it; nought as a notch the finger pushes through, with
