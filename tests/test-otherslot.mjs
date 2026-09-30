@@ -41,7 +41,7 @@ await settle(()=>document.getElementById('photos-count').textContent==='1');
 // Two slots side by side, the clip on the left.
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn:nth-child(2)');
-await p.click('#dock-back').catch(()=>{});
+await p.click('#float-close').catch(()=>{});
 await p.setInputFiles('#file-input', [0,1,2,3].map((i)=>path.resolve(`fixtures/photo${i}.jpg`)));
 await settle(()=>document.getElementById('photos-count').textContent==='5');
 

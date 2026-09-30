@@ -60,7 +60,7 @@ await p.waitForTimeout(400);
 await p.click('.dock-root [data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x2"]');
 await p.waitForTimeout(500);
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.setInputFiles('#file-input',[1,2,3].map(file));
 await p.waitForFunction(()=>document.getElementById('photos-count').textContent==='4');
 await p.waitForTimeout(800);

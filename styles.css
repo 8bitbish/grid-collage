@@ -1613,16 +1613,17 @@ body.is-picking .tile::after {
   min-width: 0;
 }
 
-/* Back, in the corner, on the sheet's own grey. On a tile it lets go of the
-   tile, which is a step back like any other now that the tile's tools are
-   tabs: it used to be a cross there, over a row of tools that had no tab. */
+/* A circle in the foot on the sheet's own grey: a clip's sound, and the
+   chevron that opens Replace into the whole tray. The class is named for the
+   Back that used to sit in the corner, before the sheet closed from the row
+   floating above it. */
 .dock-back {
   border-color: transparent;
   background: var(--background-control);
 }
 
 /* The page's settings as words. Words read at a glance where icons have to
-   be learnt, and five of them cannot fit beside Back at 390px, so the row
+   be learnt, and five of them cannot fit across 390px, so the row
    scrolls, fades at whichever edge has more, and is kept scrolled so the
    chosen one is in view. 16 inside each, so the next word shows through the
    fade rather than sitting out of sight. */
@@ -1658,8 +1659,7 @@ body.is-picking .tile::after {
 }
 .dock-tab.is-active { background: var(--background-control); color: var(--content-primary); }
 
-/* The value of a sheet's one control, dead centre, balanced by an empty 44
-   opposite Back. */
+/* The value of a sheet's one control, dead centre across the whole foot. */
 .sheet-value {
   flex: 1;
   min-width: 0;
@@ -1682,8 +1682,6 @@ body.is-picking .tile::after {
   mask-image: linear-gradient(transparent, #000 8px, #000 calc(100% - 8px), transparent);
 }
 .sheet-value span { font-size: 12px; color: var(--content-secondary); }
-.sheet-balance { flex: none; width: 44px; display: none; }
-.has-value .sheet-balance { display: block; }
 
 
 /* A panel is a control, centred in the space above the foot. Nothing in one
@@ -2075,10 +2073,7 @@ body.is-picking .tile::after {
   border-radius: 2.5px;
   background: var(--border-subtle);
 }
-.tray-back,
-.tray-fold { position: absolute; z-index: 3; bottom: 0; }
-.tray-back { left: 0; }
-.tray-fold { right: 0; }
+.tray-fold { position: absolute; z-index: 3; bottom: 0; right: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .choose-reel .choose-item, .choose-reel .reel-echo { transition: none; }
@@ -3170,18 +3165,14 @@ body.is-library .toast {
 }
 
 /* ----------------------------------------------------- floating actions */
-/* A row of its own at the top of the dock, so the stage gives up the room
-   and the pill never sits on the photo: 52 tall and 8 above the sheet, its
-   right edge in line with the sheet's inner one. Built like the bar's pills,
-   4 inside and 2 between, and lifted off the page by the same shadow as the
-   tile's own actions. */
 /* Out of the dock's flow, hung 8 above the sheet's top edge: it may sit over
    the photo rather than make room for it. Taking a row of its own meant the
    page shrank and moved up every time it arrived, and the scale that carried
    the page between the two sizes flashed the edges of the screen white. Only
-   the pill takes touches, so the photo under the empty rest of the row still
-   pinches and drags. */
-.sheet-float {
+   the pills take touches, so the photo under the empty middle of the row
+   still pinches and drags. Close is at the start and the photo's own pill at
+   the end, each in line with the sheet's inner edge. */
+.float-row {
   position: absolute;
   z-index: 6;
   left: var(--space-inset-sheet);
@@ -3191,16 +3182,21 @@ body.is-library .toast {
   margin: 0 auto;
   padding: 0 var(--space-inset-sheet);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   pointer-events: none;
 }
-.sheet-float .float-pill { pointer-events: auto; }
+.float-row .float-pill { pointer-events: auto; }
+/* Built like the bar's pills, 4 inside and 2 between, and lifted off the page
+   by the same shadow as the tile's own actions. The 4 is measured from the
+   outside of the border, as it is top and bottom where the height is fixed:
+   counted inside it, a lone button made a pill 54 wide and 52 tall, which
+   read as a circle that had been sat on. */
 .float-pill {
   display: flex;
   align-items: center;
   gap: var(--space-between);
   height: 52px;
-  padding: 0 var(--space-inset-pill);
+  padding: 0 calc(var(--space-inset-pill) - 1px);
   border: 1px solid var(--border-subtle);
   border-radius: 26px;
   background: var(--background-raised);

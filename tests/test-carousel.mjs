@@ -114,7 +114,7 @@ const cellsNow = await page.evaluate(() => document.querySelectorAll('.layout-bt
 console.log('✓ layout switched to 2x2 (active buttons:', cellsNow + ')');
 
 // tap library photos to fill the empty tiles
-await page.click('#dock-back');
+await page.click('#float-close');
 await page.click('#btn-photos');
 await page.waitForTimeout(250);
 for (let i = 0; i < 3; i++) { await page.locator('.pm-item').nth(i + 1).click(); await page.waitForTimeout(150); }
@@ -133,9 +133,7 @@ await page.click('#tile-actions [data-tile="replace"]');
 await page.waitForTimeout(400);
 await page.locator('#choose-strip .choose-item').nth(4).click();
 await page.waitForTimeout(700);
-await page.click('#dock-back');            // out of Replace
-await page.waitForTimeout(250);
-await page.click('#dock-back');            // and let go of the tile
+await page.click('#float-close');            // out of Replace, letting go of the tile
 await page.waitForTimeout(250);
 await page.click('#btn-photos');
 await page.waitForTimeout(250);
@@ -187,7 +185,7 @@ console.log('✓ page cap:', await pageCount(), 'pages, add button disabled:', a
 // 10. delete a page
 await _openDrawer(page, 'page');
 await page.click('#btn-delete-page');
-await page.click('#dock-back');
+await page.click('#float-close');
 console.log('✓ after delete:', await pageCount(), 'pages');
 
 // 11. shape is deck-wide
@@ -210,7 +208,7 @@ console.log('✓ filmstrip thumbs follow the deck ratio:', thumbShape,
 const downloads = [];
 page.on('download', (d) => downloads.push(d.suggestedFilename()));
 // The shape drawer is still open from the ratio check; step back out first.
-await page.click('#dock-back');
+await page.click('#float-close');
 await page.waitForTimeout(250);
 await page.click('#btn-export-open');
 await page.waitForTimeout(300);

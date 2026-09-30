@@ -52,7 +52,7 @@ console.log('tapped Layout -> drawer:', await drawerVisible(), '| layouts visibl
 // choose one and check the page changed
 await p.click('.layout-btn[data-id="2x2"]');
 console.log('  picked 2x2, active layout:', await p.getAttribute('.layout-btn.is-active','data-id'));
-await p.click('#dock-back');
+await p.click('#float-close');
 console.log('  back -> settings list shown:', await rootVisible());
 
 // each category opens its own controls
@@ -61,7 +61,7 @@ for (const [name, sel] of [['shape','#ratios'],['gap','#gap'],['padding','#paddi
   await openDrawer(name);
   const ok = await p.locator(sel).isVisible();
   process.stdout.write(`${name}:${ok?'✓':'✗'} `);
-  await p.click('#dock-back');
+  await p.click('#float-close');
 }
 console.log('');
 
@@ -85,14 +85,14 @@ for (const [name, id] of [['gap','gap'],['padding','padding'],['corners','radius
   }, id);
   console.log(`${name} at max -> ${m.over}px past the panel, scrollLeft ${m.scrolled}`,
     !m.masked && m.scrolled === 0 ? '✓ no fade over the knob' : `✗ masked=${m.masked}`);
-  await p.click('#dock-back');
+  await p.click('#float-close');
 }
 
 // selecting a tile opens the tile drawer by itself
 const box=await p.locator('#canvas').boundingBox();
 await p.mouse.click(box.x+box.width*0.3, box.y+box.height*0.3);
 console.log('tapped a tile -> tile drawer:', await p.locator('#dp-tile').isVisible(), '| zoom control:', await p.locator('#zoom').isVisible());
-await p.click('#dock-back');
+await p.click('#float-close');
 console.log('  back -> deselected, settings list:', await rootVisible());
 
 // preview size in the new shell

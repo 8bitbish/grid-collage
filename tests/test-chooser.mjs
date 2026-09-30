@@ -120,8 +120,9 @@ await p.waitForTimeout(450);
 console.log('  tapping an option chooses it:', await shot(), (await shot())==='230,40,40' ? '✓' : '✗');
 await p.screenshot({path:'/tmp/shot-chooser.png'});
 
-// back restores the layout
-await p.click('#dock-back');
+// leaving Replace restores the layout: Escape steps back to the tool it was
+// opened from, now that the X over the sheet closes rather than steps back
+await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 const back = await dims();
 console.log('after back     :', JSON.stringify(back));

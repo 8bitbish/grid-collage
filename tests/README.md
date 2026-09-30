@@ -1,6 +1,6 @@
 # Browser tests
 
-63 standalone Node scripts that serve the repository over http, drive Chromium
+69 standalone Node scripts that serve the repository over http, drive Chromium
 through Playwright, print a `✓`/`✗` line per assertion and exit non-zero on
 failure. No test framework. Playwright is the only dependency.
 
@@ -118,6 +118,13 @@ and between them they are what to run after touching either:
   edges holding still while they do, and leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
+- `sheetclose` — every sheet closing from the X floating over its top left,
+  52 by 52 and 8 above it, with no Back left in any foot and the ratio's value
+  centred across the whole of one; tapping another tile moving the tools to
+  it on the tool that was open, Replace giving way to the tool it came from;
+  and a tile's own actions going up to stay 8 clear of Close, Compare and
+  Reset on a page tall enough to reach them, and back to 12 up from the tile
+  where nothing is in the way.
 - `devmode` — the dev mode panel: `?dev`, five taps on the version, a hold
   on it (without the lift closing it again), and three firm shakes open it,
   and moving the phone about does not; a switch per flag, all off to begin

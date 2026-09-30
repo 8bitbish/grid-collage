@@ -345,8 +345,8 @@ check(near((await read()).bands, BANDS, 1) && await p.locator('#sheet-float').is
 // step in the history, and the undo, reload and export checks above count on
 // the black point being the last thing done. From the photo as it came, so
 // what sharpening does is measured against nothing else. Undo leaves the dock where it was, so the tile is chosen afresh.
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await p.waitForTimeout(200);
 await p.click('#tile-tabs [data-tile="adjust"]');
@@ -401,8 +401,8 @@ check(half.under > 1 && half.over > 1 && half.under < past(sharpRun).under && ha
 
 // The export carries it too: flat bands untouched, the edge overshooting.
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.click('#btn-export-open');
 const gotSharp = p.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await p.click('#btn-export');
@@ -443,11 +443,11 @@ await p.setInputFiles('#file-input', [path.join(ROOT, 'tests/fixtures/clip.webm'
 await p.waitForFunction(() => document.querySelectorAll('.pm-item').length === 2, null, { timeout: 15000 });
 await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.click('.dock-item[data-drawer="layout"]');
 await p.click('.layout-btn[data-id="2x1"]');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.click('#btn-photos');
 await p.locator('.pm-pick[aria-label*="clip.webm"]').first().click();
 await p.keyboard.press('Escape');
@@ -455,7 +455,7 @@ await p.waitForTimeout(400);
 await p.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
 await p.waitForTimeout(200);
 check(!(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible()), 'a clip does not offer Adjust');
-await p.click('#dock-back');
+await p.click('#float-close');
 await p.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
 await p.waitForTimeout(200);
 check(await p.locator('#tile-tabs [data-tile="adjust"]').isVisible(), 'the photo beside it still does');
@@ -529,8 +529,8 @@ const sharpenedChart = async (name, buffer, amount, kind = 'chart') => {
   await p.click('#tile-tabs [data-tile="adjust"]');
   await choose('sharpen');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-  if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+  if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
   await p.click('#btn-export-open');
   await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
@@ -844,8 +844,8 @@ await p.waitForTimeout(200);
 await p.click('#tile-tabs [data-tile="adjust"]');
 await choose('sharpen');
 await slide(100);
-if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
 await p.click('#btn-export-open');
 await p.click('#export-card [data-quality=\"2160\"]');
 const gotTexture = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
@@ -919,8 +919,8 @@ const tonedChart = async (amount) => {
   await choose('tone');
   const oneWay = await p.$eval('#adjust', (e) => e.min === '0');
   await slide(amount);
-  if (await p.locator('#dp-tile').isVisible()) { await p.click('#dock-back'); }
-  if (await p.locator('#dock-drawer').isVisible()) await p.click('#dock-back');
+  if (await p.locator('#dp-tile').isVisible()) { await p.click('#float-close'); }
+  if (await p.locator('#dock-drawer').isVisible()) await p.click('#float-close');
   await p.click('#btn-export-open');
   await p.click('#export-card [data-quality=\"2160\"]');
   const got = p.waitForEvent('download', { timeout: 60000 }).catch(() => null);
