@@ -118,8 +118,9 @@ and between them they are what to run after touching either:
   edges holding still while they do, and leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
-- `adjustfeel` — Adjust's dial drawing a line for every value and ticking once
-  for every value crossed; nought as a notch the finger pushes through, with
+- `adjustfeel` — Adjust's dial drawing a line for every value, and felt only
+  at its fives (4ms), tens (12ms) and nought (20ms), a sweep that jumps a ten
+  still knocking for it; nought as a notch the finger pushes through, with
   one and two still reachable and a resting thumb quiet; counted off the ruler's pixels and the vibration
   calls; the row of settings choosing as a real touch drags it, lighting what
   is under the needle and sliding the dial in from the side it is moving to,
