@@ -52,7 +52,7 @@ console.log('== a line for every number ==');
   ok('one line per value across the dial', Math.abs(runs.n - expect) <= 3, `${runs.n} lines across ${runs.width}pt, ${expect.toFixed(0)} values`);
 }
 
-console.log('\n== a tick for every number crossed ==');
+console.log('\n== the fives and tens are felt, and nothing between ==');
 {
   const t = await p.locator('#adjust-slide .dial-track').boundingBox();
   const y = t.y + t.height / 2, x = t.x + t.width / 2;
@@ -62,10 +62,18 @@ console.log('\n== a tick for every number crossed ==');
   await p.mouse.up(); await rest();
   const buzz = await p.evaluate(() => window.__buzz);
   const val = await p.textContent('#adjust-val');
-  const ticks = buzz.filter((v) => v === 4).length;
-  // 120pt is twenty values of travel, less the one nought's notch holds.
+  // The pick as the finger lands, then nothing but the marks: +19 crosses
+  // five, ten and fifteen, a light tick, a firmer one, a light one.
+  const marks = buzz.slice(1);
   ok('the dial reads +19', val === '+19', val);
-  ok('one tick for each value crossed', ticks >= 17 && ticks <= 19, `${ticks} ticks, ${JSON.stringify(buzz)}`);
+  ok('only the fives and tens are felt: light, firm, light', JSON.stringify(marks) === '[4,12,4]', JSON.stringify(buzz));
+  // A sweep fast enough to jump from +19 to +7 in one frame crosses fifteen
+  // and ten without landing on either; it still knocks, once, for the ten.
+  await p.evaluate(() => { window.__buzz = []; });
+  await p.mouse.move(x, y); await p.mouse.down();
+  await p.mouse.move(x + 72, y); await p.mouse.up(); await rest();
+  const sweep = await p.evaluate(() => window.__buzz.slice(1));
+  ok('a sweep that jumps over a ten still knocks for it, once', JSON.stringify(sweep) === '[12]', `${await p.textContent('#adjust-val')}: ${JSON.stringify(sweep)}`);
 }
 
 console.log('\n== nought is a notch, not a pull ==');
@@ -95,7 +103,7 @@ console.log('\n== nought is a notch, not a pull ==');
   ok('a finger resting on one stays on one and stays quiet', heldAt === '+1' && heldBuzz === 0, `${heldAt}, ${heldBuzz} buzzes while held`);
   ok('coming back, nought catches and holds either side of it', back[3] === '0' && back[0] === '0' && back[-3] === '0', JSON.stringify(back));
   ok('and the other side starts at one as well', back[-12] === '\u22121' && back[-18] === '\u22122', JSON.stringify(back));
-  ok('landing on nought gives its own firmer tick', buzz.includes(6), JSON.stringify(buzz));
+  ok('landing on nought gives the firmest knock of all', buzz.includes(20), JSON.stringify(buzz));
   if (await p.locator('#btn-reset').isVisible()) { await p.click('#btn-reset'); await p.waitForTimeout(300); await rest(); }
 }
 

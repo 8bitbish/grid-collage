@@ -177,6 +177,15 @@
     // a dozen of them in a second or two and they have to read as texture
     // under the thumb rather than as a dozen separate announcements.
     tick: 4,
+    // Adjust's dial marks its fives and tens under the thumb rather than
+    // every value. The Vibration API has no strength or waveform, only how
+    // long, so the three are told apart by length alone: the five is the
+    // lightest tick a motor will make, the ten about three times as long,
+    // which a phone's motor plays as a firmer knock rather than a longer
+    // buzz, and nought longer again.
+    five: 4,
+    ten: 12,
+    nought: 20,
     limit: [0, 18, 45, 18],
     // Something that cannot be taken back by tapping it again. Two pulses
     // rather than one longer one: length reads as emphasis and is easy to
@@ -8735,10 +8744,11 @@
   // angle can share it with the three deck sliders despite writing to
   // different places.
   //
-  // `perUnit` ticks for every value crossed instead of every twelfth of the
-  // sweep: on a dial that draws a line per value, a buzz that missed most of
-  // them would say the lines were decoration.
-  function feedback(id, { perUnit = false } = {}) {
+  // `marks` ticks at the fives and tens crossed instead of every twelfth of
+  // the sweep, a light tick on a five and a firmer one on a ten, and nought
+  // firmer again: the taller lines on the ruler, felt. Every value was tried
+  // first and was a buzz too dense to count by.
+  function feedback(id, { marks = false } = {}) {
     const input = $(id);
     const panel = input.closest('.dock-slider');
     let notch = null;
@@ -8746,7 +8756,9 @@
 
     input.addEventListener('pointerdown', () => {
       panel.classList.add('is-sliding');
-      notch = null;
+      // Marks are counted from where the finger found the dial, so even the
+      // first movement of a drag knocks for a ten it jumps over.
+      notch = marks ? Math.round(Number(input.value)) : null;
       atEnd = false;
       buzz('pick');
     });
@@ -8763,10 +8775,20 @@
       // value is in against the band it was in last frame is what gives one
       // tick per notch however fast the drag is travelling — checking for a
       // value on a notch instead misses every notch a quick sweep jumps over.
-      const band = perUnit ? Math.round(Number(input.value)) : Math.round(frac * NOTCHES);
+      const band = marks ? Math.round(Number(input.value)) : Math.round(frac * NOTCHES);
       const end = frac === 0 || frac === 1;
       if (end && !atEnd) buzz('limit');
-      else if (!end && notch !== null && band !== notch) buzz(perUnit && band === 0 && Number(input.min) < 0 ? 'snap' : 'tick');
+      else if (!end && notch !== null && band !== notch) {
+        if (!marks) buzz('tick');
+        else {
+          // The strongest mark crossed since last frame, so a quick sweep
+          // that jumps straight over a ten still knocks for it.
+          const lo = Math.min(band, notch + Math.sign(band - notch)), hi = Math.max(band, notch + Math.sign(band - notch));
+          const crossed = (every) => Math.floor(hi / every) * every >= lo;
+          const kind = min < 0 && lo <= 0 && hi >= 0 ? 'nought' : crossed(10) ? 'ten' : crossed(5) ? 'five' : null;
+          if (kind) buzz(kind);
+        }
+      }
       atEnd = end;
       notch = band;
     });
@@ -12326,7 +12348,7 @@
   });
 
   buildAdjustTools();
-  feedback('adjust', { perUnit: true });
+  feedback('adjust', { marks: true });
   // Lines as far apart as they always were, but one value each rather than
   // two: the same sweep of the thumb now moves half as far, which is the
   // precision these settings want.
