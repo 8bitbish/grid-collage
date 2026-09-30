@@ -21,7 +21,7 @@
      Nothing else changes: the URL stays the same until the next deploy, so
      every other launch is still answered from the cache, offline included.
      app.js reads its own stamp back off this, so the two cannot drift. -->
-<link rel="stylesheet" href="styles.css?v=2026.09.29i">
+<link rel="stylesheet" href="styles.css?v=2026.09.30a">
 </head>
 <body class="on-home">
 
@@ -620,6 +620,25 @@
   </div>
 </div>
 
+<!-- Dev mode: switches for trying one way of doing something against another
+     on a real phone. Opened by shaking the phone, or by holding the version
+     on the homepage; the rows are written in by app.js from DEV_FLAGS. -->
+<div class="dev-panel" id="dev-panel" hidden>
+  <div class="dev-card" role="dialog" aria-modal="true" aria-labelledby="dev-title">
+    <header class="dev-head">
+      <div class="dev-title-wrap">
+        <strong id="dev-title">Dev mode</strong>
+        <span id="dev-build"></span>
+      </div>
+      <button class="circle dev-close" id="dev-close" type="button" aria-label="Close dev mode">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="dev-rows" id="dev-rows"></div>
+  </div>
+</div>
+<div class="dev-meter" id="dev-meter" aria-hidden="true" hidden></div>
+
 <div class="update-toast" id="update-toast" role="status" aria-live="polite" hidden>
   <div class="ut-text">
     <strong>Update available</strong>
@@ -719,6 +738,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2026.09.29i"></script>
+<script src="app.js?v=2026.09.30a"></script>
 </body>
 </html>

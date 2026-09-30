@@ -709,6 +709,110 @@ body.is-picking .tile::after {
 /* ------------------------------------------------------- update available
    Over everything, including the dock: it is the one thing on screen that
    isn't about the carousel, and it carries its own way out. */
+/* ------------------------------------------------------------ dev mode
+   The sheet's card, over a dimmed screen: raised, 30 round, 8 from the edges
+   of the screen and 8 inside, so it reads as one more sheet and not a debug
+   overlay bolted on. Each row is a name, a line saying what it changes, and a
+   switch. */
+.dev-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--space-inset-sheet);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-inset-sheet));
+  background: rgba(0, 0, 0, 0.6);
+}
+.dev-panel[hidden] { display: none; }
+.dev-card {
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: var(--space-inset-sheet);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sheet);
+  background: var(--background-raised);
+}
+.dev-card::-webkit-scrollbar { display: none; }
+.dev-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 4px 16px;
+}
+.dev-title-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dev-title-wrap strong { font-size: 17px; font-weight: 600; }
+.dev-title-wrap span { font-size: 12px; color: var(--content-secondary); }
+.dev-close svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.dev-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 8px 10px 16px;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dev-row:active { background: var(--background-control); }
+.dev-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dev-row-text strong { font-size: 15px; font-weight: 500; }
+.dev-row-text span { font-size: 12px; line-height: 1.35; color: var(--content-secondary); }
+/* The switch: 52 by 32, a knob 26 across that rides from one end to the
+   other. Off is the control grey; on is the one white thing in the row. */
+.dev-switch {
+  flex: none;
+  position: relative;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--background-control);
+  transition: background-color 160ms ease-out;
+}
+.dev-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--content-secondary);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.3, 1), background-color 160ms ease-out;
+}
+.dev-row[aria-checked="true"] .dev-switch { background: var(--background-inverse); }
+.dev-row[aria-checked="true"] .dev-switch::after { transform: translateX(20px); background: var(--content-inverse); }
+/* The frame meter: one line at the top of the screen, clear of the status
+   bar, saying what the last swipe cost. */
+.dev-meter {
+  position: fixed;
+  top: max(env(safe-area-inset-top, 0px), 8px);
+  left: 50%;
+  z-index: 85;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--content-primary);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dev-meter[hidden] { display: none; }
+.dev-meter.is-bad { color: var(--content-danger); }
+
 .update-toast {
   position: fixed;
   left: 10px;
