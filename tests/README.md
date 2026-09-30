@@ -118,6 +118,10 @@ and between them they are what to run after touching either:
   edges holding still while they do, and leaving on Reset; Crop's resting pill; Turn left, Turn right and hold to flip
   down, read off the pixels of a photo in four coloured quarters; the tile's own
   actions stepping aside for Replace; the reel and the whole tray.
+- `devmode` — the dev mode panel: `?dev` opens it, a switch per flag, all
+  off to begin with, kept on the device; and three pages reached with every
+  swipe switch on reading pixel for pixel the same as with them all off, with
+  the frame meter reporting the swipe.
 - `adjustfeel` — Adjust's dial drawing a line for every value, and felt only
   at its fives (4ms), tens (12ms) and nought (20ms), a sweep that jumps a ten
   still knocking for it; nought as a notch the finger pushes through, with

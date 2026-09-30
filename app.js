@@ -142,6 +142,33 @@
   const uid = () => { const id = `id${nextId}`; bumpSeq(nextId + 1); return id; };
 
   const $ = (id) => document.getElementById(id);
+
+  /* ------------------------------------------------------------ dev mode */
+  //
+  // Switches for trying one way of doing something against another on a
+  // real phone, where the difference is felt before it can be measured. All
+  // off by default, kept per device, and opened by shaking the phone or by
+  // holding the version number on the homepage. Nobody but whoever is
+  // building this should ever need them; a switch that proves itself becomes
+  // the way the app works and leaves this list.
+  const DEV_KEY = 'grid-collage:dev';
+  const DEV_FLAGS = [
+    { id: 'meter', label: 'Frame meter', note: 'After each swipe, how many frames it lost and the longest one, at the top of the screen.' },
+    { id: 'peekOnce', label: 'Draw the pages either side once', note: 'Keep the neighbours drawn when the finger starts, instead of drawing both again on letting go.' },
+    { id: 'peekAhead', label: 'Draw them ahead of time', note: 'Draw the neighbours while nothing is happening after landing, so a swipe starts with them ready.' },
+    { id: 'peekHalf', label: 'Neighbours at half resolution', note: 'The pages sliding in are drawn at half size, a quarter of the pixels, while they move.' },
+    { id: 'stillClips', label: 'Hold clips still while swiping', note: 'A clip keeps playing but is not redrawn while a finger is dragging the page.' },
+    { id: 'landLight', label: 'Land first, tidy after', note: 'Show the page that slid in straight away and leave the filmstrip, saving and clips for a frame later.' },
+    { id: 'clipTile', label: 'Redraw only the clip’s tile', note: 'While a clip plays, each frame repaints just its tile rather than the whole page around it.' },
+    { id: 'clipsHalf', label: 'Clip pages at 2× rather than 3×', note: 'A page with a clip playing is drawn at two pixels a point, as every page was before full resolution.' },
+  ];
+  let devFlags = {};
+  try { devFlags = JSON.parse(localStorage.getItem(DEV_KEY) || '{}') || {}; } catch { devFlags = {}; }
+  const dev = (id) => !!devFlags[id];
+  function setDev(id, on) {
+    devFlags = { ...devFlags, [id]: !!on };
+    try { localStorage.setItem(DEV_KEY, JSON.stringify(devFlags)); } catch { /* private mode: for this visit only */ }
+  }
   const canvas = $('canvas');
   const ctx = canvas.getContext('2d');
   const fileInput = $('file-input');
@@ -263,7 +290,12 @@
     const bw = box.clientWidth;
     const bh = box.clientHeight;
     if (!bw || !bh) return out;
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    // Clips drawn every frame are the heaviest thing the preview does, so dev
+    // mode can draw a page with one playing at the old two pixels a point.
+    // Read with care: this runs before the players exist on the first draw.
+    let clipPage = false;
+    try { clipPage = dev('clipsHalf') && players.size > 0; } catch { /* not yet */ }
+    const dpr = Math.min(clipPage ? 2 : 3, window.devicePixelRatio || 1);
     // The largest post-shaped box that fits the container, in device pixels.
     const fit = Math.min(bw / out.w, bh / out.h);
     const w = Math.max(360, Math.round(out.w * fit * dpr));
@@ -4369,6 +4401,7 @@
     // matches the cut, which it does for all but the first pass after a trim
     // moves — so this does not loop.
     ensurePosters(page(), () => { render(); redrawFilms(); });
+    drawPeeksAhead();
   }
 
   // An untouched deck is one blank page and no photos: say so on the canvas
@@ -6003,11 +6036,28 @@
       }
     });
 
+    // A finger dragging the page is the one thing that must keep every frame;
+    // the clip plays on underneath and is drawn again when it lets go.
+    if (dev('stillClips') && swipe && swipe.locked) { painting = requestAnimationFrame(paintPlaying); return; }
+
     const lent = lendFrames(pg);
     if (lent.length) {
       const { w: W, h: H } = previewSize();
-      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+      const resized = canvas.width !== W || canvas.height !== H;
+      if (resized) { canvas.width = W; canvas.height = H; }
+      // Only the clips' tiles change from one frame to the next. Clipped to
+      // them, the page is still drawn whole, so whatever reaches into a tile
+      // from outside it is right, but only those pixels are painted.
+      const tilesOnly = dev('clipTile') && !resized;
+      if (tilesOnly) {
+        const rects = cellRectsFor(pg.layout, W, H);
+        ctx.save();
+        ctx.beginPath();
+        lent.forEach((cell) => { const r = rects[pg.cells.indexOf(cell)]; if (r) ctx.rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2); });
+        ctx.clip();
+      }
       drawPage(ctx, pg, W, H, previewOptions());
+      if (tilesOnly) ctx.restore();
     }
     lent.forEach((cell) => { cell.frame = null; });
 
@@ -6929,21 +6979,61 @@
 
   const slideStep = () => canvas.clientWidth + PEEK_GAP;
 
+  // What a neighbour was last drawn as. While it still matches, the peek
+  // canvas already holds that page exactly as it would be drawn now: the same
+  // page, unedited since, at the same size, with the same photos decoded.
+  const peekKey = (pg, w, h) => [pg.id, pg.rev || 0, styleRev, state.ratio.id, w, h,
+    photosOn(pg).map((ph) => (ph.full ? 'f' : 'p')).join('')].join('|');
+
+  // The pages either side, drawn onto their peek canvases. Without dev mode
+  // this happens twice a swipe, as the finger commits and again on letting
+  // go, each time drawing two whole pages before the frame can go out.
+  function drawPeeks(only = 0) {
+    const full = previewSize();
+    const half = dev('peekHalf');
+    const w = half ? Math.round(full.w / 2) : full.w;
+    const h = half ? Math.round(full.h / 2) : full.h;
+    const keep = dev('peekOnce') || dev('peekAhead');
+    [[$('canvas-prev'), state.current - 1, -1], [$('canvas-next'), state.current + 1, 1]].forEach(([el, index, side]) => {
+      const pg = state.pages[index];
+      if (!pg || (only && side !== only)) return;
+      const key = peekKey(pg, w, h);
+      if (keep && el.dataset.drawn === key) return;
+      if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
+      drawPage(el.getContext('2d'), pg, w, h, { placeholders: true });
+      el.dataset.drawn = keep ? key : '';
+    });
+  }
+
+  // Drawn while nothing is moving, a moment after landing, so the next swipe
+  // finds them ready. Safari has no requestIdleCallback; a timeout long
+  // enough to be clear of the landing does the same job.
+  let peekAheadTimer = 0;
+  function drawPeeksAhead() {
+    if (!dev('peekAhead')) return;
+    clearTimeout(peekAheadTimer);
+    // One page a turn, the next first, since that is the way most swipes
+    // go: two pages in one task is one long stall, and one is half of it.
+    const idle = () => !sliding && !(swipe && swipe.locked) && !document.body.classList.contains('on-home');
+    peekAheadTimer = setTimeout(() => {
+      if (idle()) drawPeeks(1);
+      peekAheadTimer = setTimeout(() => { peekAheadTimer = 0; if (idle()) drawPeeks(-1); }, 120);
+    }, 400);
+  }
+
   // Draw the pages either side so they can be seen coming in. Only done when
   // a slide starts, and only for pages that exist.
   function preparePeek() {
-    const { w, h } = previewSize();
     const step = slideStep();
     const cw = `${canvas.clientWidth}px`;
     const ch = `${canvas.clientHeight}px`;
+    drawPeeks();
 
     [[$('canvas-prev'), state.current - 1, -1], [$('canvas-next'), state.current + 1, 1]]
       .forEach(([el, index, side]) => {
         const pg = state.pages[index];
         if (!pg) { el.hidden = true; return; }
         el.hidden = false;
-        if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
-        drawPage(el.getContext('2d'), pg, w, h, { placeholders: true });
         el.style.width = cw;
         el.style.height = ch;
         el.style.translate = `calc(-50% + ${side * step}px) -50%`;
@@ -7014,9 +7104,28 @@
       // hand-off from the peek canvas to the real one isn't visible.
       slideTimer = 0;
       slideTarget = -1;
-      endSlide();
-      goTo(target);
+      land(target, delta);
     }, reducedMotion ? 0 : SLIDE_MS);
+  }
+
+  // A slide that has arrived. Landing is everything a page change does —
+  // draw the page, redraw the strip, save, start its clips, fetch its photos
+  // at full size — and all of it lands in the frame the slide stops in. Dev
+  // mode can put the page that slid in on the real canvas from its peek,
+  // which is one copy, and leave the rest for the frame after.
+  function land(target, delta) {
+    const from = delta > 0 ? $('canvas-next') : $('canvas-prev');
+    if (!dev('landLight') || !from.width) { endSlide(); goTo(target); return; }
+    state.current = clamp(target, 0, state.pages.length - 1);
+    state.selected = -1;
+    const { w: W, h: H } = previewSize();
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    ctx.drawImage(from, 0, 0, W, H);
+    setTrack(0, false);
+    $('canvas-wrap').classList.remove('is-sliding');
+    sliding = false;
+    placePageX();
+    requestAnimationFrame(() => setTimeout(() => { if (!sliding) refresh(); }, 0));
   }
 
   const mean = (pts, k) => pts.reduce((a, p) => a + p[k], 0) / pts.length;
@@ -7157,6 +7266,7 @@
       // committed — otherwise a curved drag keeps dropping in and out of it.
       if (!swipe.locked && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
         swipe.locked = true;
+        meterBegin();
         preparePeek();
       }
       if (!swipe.locked) return;
@@ -7248,6 +7358,7 @@
       const far = Math.abs(dx) > canvas.clientWidth * 0.22;
       const flicked = Math.abs(velocity) > 0.45 && Math.abs(dx) > 12;
 
+      if (swipe.locked) meterEnd();
       if (swipe.locked && (far || flicked)) {
         slidePage(dx < 0 ? 1 : -1);
       } else if (swipe.locked) {
@@ -12389,6 +12500,121 @@
   $('export-later').addEventListener('click', leaveExport);
   $('export-done').addEventListener('click', leaveExport);
   buzzTaps($('export-screen'));
+
+  /* ------------------------------------------------------ dev mode: meter */
+  //
+  // Every frame from the moment a swipe commits until a second after it lets
+  // go, counted: a frame that took longer than 25ms is one the screen showed
+  // twice, which is what a stutter is. Only running while the switch is on
+  // and a swipe is in hand, so it costs nothing otherwise.
+  const meter = { on: false, last: 0, frames: 0, late: 0, worst: 0, until: 0, raf: 0 };
+  function meterBegin() {
+    if (!dev('meter')) return;
+    cancelAnimationFrame(meter.raf);
+    Object.assign(meter, { on: true, last: 0, frames: 0, late: 0, worst: 0, until: Infinity });
+    const tick = (t) => {
+      if (meter.last) {
+        const gap = t - meter.last;
+        meter.frames += 1;
+        if (gap > 25) meter.late += 1;
+        meter.worst = Math.max(meter.worst, gap);
+      }
+      meter.last = t;
+      if (t < meter.until) { meter.raf = requestAnimationFrame(tick); return; }
+      meter.on = false;
+      const m = $('dev-meter');
+      m.textContent = `Last swipe: ${meter.late} of ${meter.frames} frames late · worst ${Math.round(meter.worst)}ms`;
+      m.classList.toggle('is-bad', meter.late > 0);
+      m.hidden = false;
+    };
+    meter.raf = requestAnimationFrame(tick);
+  }
+  function meterEnd() { if (meter.on) meter.until = performance.now() + 1000; }
+
+  /* ------------------------------------------------------ dev mode: panel */
+
+  function buildDevPanel() {
+    $('dev-build').textContent = `v${VERSION}`;
+    const rows = $('dev-rows');
+    rows.replaceChildren();
+    DEV_FLAGS.forEach((f) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'dev-row';
+      row.setAttribute('role', 'switch');
+      row.setAttribute('aria-checked', String(dev(f.id)));
+      row.innerHTML = `<span class="dev-row-text"><strong>${f.label}</strong><span>${f.note}</span></span><span class="dev-switch" aria-hidden="true"></span>`;
+      row.addEventListener('click', () => {
+        setDev(f.id, !dev(f.id));
+        row.setAttribute('aria-checked', String(dev(f.id)));
+        buzz('tap');
+        if (f.id === 'meter' && !dev('meter')) $('dev-meter').hidden = true;
+        // A change to how pages are drawn applies to what is on screen now,
+        // not only to the next swipe.
+        $('canvas-prev').dataset.drawn = '';
+        $('canvas-next').dataset.drawn = '';
+        if (!document.body.classList.contains('on-home')) { render(); syncPlayback(); drawPeeksAhead(); }
+      });
+      rows.appendChild(row);
+    });
+  }
+  function openDev() {
+    buildDevPanel();
+    $('dev-panel').hidden = false;
+    buzz('pick');
+  }
+  const closeDev = () => { $('dev-panel').hidden = true; };
+  // Any tap in the panel is a tap, which is what iOS wants before it will
+  // report motion: so shaking to open it works from the next time on.
+  $('dev-panel').addEventListener('click', () => {
+    if (listenForShake.on || !(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')) return;
+    DeviceMotionEvent.requestPermission().then((r) => { if (r === 'granted') listenForShake(); }).catch(() => { /* declined */ });
+  }, true);
+  $('dev-close').addEventListener('click', closeDev);
+  $('dev-panel').addEventListener('click', (e) => { if (e.target === $('dev-panel')) closeDev(); });
+
+  // Shaking the phone. iOS only reports motion once asked, and only asks from
+  // a tap, so the first way in there is holding the version on the homepage,
+  // which asks at the same time; after that a shake works too. Android needs
+  // no asking. Three jolts of more than about twice gravity inside a second.
+  let jolts = [];
+  function listenForShake() {
+    if (listenForShake.on || !('DeviceMotionEvent' in window)) return;
+    listenForShake.on = true;
+    window.addEventListener('devicemotion', (e) => {
+      const a = e.acceleration && e.acceleration.x !== null ? e.acceleration : null;
+      const g = a ? 0 : 9.81;
+      const src = a || e.accelerationIncludingGravity;
+      if (!src || src.x === null) return;
+      const force = Math.abs(Math.hypot(src.x, src.y, src.z) - g);
+      const now = performance.now();
+      if (force < 18) return;
+      jolts = jolts.filter((t) => now - t < 1000);
+      if (jolts.length && now - jolts[jolts.length - 1] < 120) return;
+      jolts.push(now);
+      if (jolts.length >= 3 && $('dev-panel').hidden) { jolts = []; openDev(); }
+    });
+  }
+  if (!(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')) listenForShake();
+
+  // Holding the version number, the one piece of the homepage that is
+  // already about builds rather than about carousels.
+  {
+    const hint = $('home-hint');
+    let timer = 0;
+    hint.addEventListener('pointerdown', () => {
+      timer = setTimeout(async () => {
+        timer = 0;
+        if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+          try { if (await DeviceMotionEvent.requestPermission() === 'granted') listenForShake(); } catch { /* asked outside a tap */ }
+        }
+        openDev();
+      }, 700);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => hint.addEventListener(t, () => { clearTimeout(timer); timer = 0; }));
+    hint.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  if (/[?&]dev\b/.test(location.search)) openDev();
   // The card goes when anything else is touched: a finger on the page, or
   // another setting opened.
   stageInput.addEventListener('pointerdown', closeExportCard, true);
