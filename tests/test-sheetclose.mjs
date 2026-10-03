@@ -136,9 +136,16 @@ console.log('\n== another tile is a tap on that tile ==');
   await p.click('#tile-actions [data-tile="replace"]');
   await rest();
   await tapAt(0.75);
-  ok('from Replace, another tile opens on the tool Replace came from',
-    await p.locator('#tile-crop').isVisible() && await p.locator('#tile-replace').isHidden() && await chosen() === 'right', await chosen());
+  // Replace carries on for the other tile rather than giving way: see
+  // test-replaceswitch. Its actions are out of the way while it does, so
+  // which tile is chosen is told by the photo the reel has marked.
+  ok('from Replace, another tile stays on Replace, for that tile',
+    await p.locator('#tile-replace').isVisible() && await p.getAttribute('#choose-strip > .is-current', 'aria-label') === 'blue.png');
   ok('with neither photo changed by the move', await sample(0.25, 0.5) === 'red' && await sample(0.75, 0.5) === 'blue');
+  await p.keyboard.press('Escape');
+  await rest();
+  ok('and leaving it goes back to the tool Replace came from, on the right',
+    await p.locator('#tile-crop').isVisible() && await chosen() === 'right', await chosen());
   await p.click('#tile-tabs [data-tile="adjust"]');
   await rest();
 }
