@@ -3238,18 +3238,19 @@ body.is-library .toast {
 .sheet-float.is-resting .float-btn { opacity: 0.4; }
 .float-btn:disabled { cursor: default; }
 
-/* Everything over the photo steps aside while the Adjust dial is held, so
-   the setting can be seen doing what it does — see clearPhotoWhileHeld. Out
-   in 100ms, quick enough to be gone before the first value lands, and back
-   at the 180 the pill arrives in. The pills set their own pointer-events,
-   so they are named here as well as the row. */
+/* Everything over the photo steps aside while a control that changes it is
+   held, so the change can be seen: the Adjust dial, Crop's Zoom and Angle,
+   and Pop out's Edge — see clearPhotoWhileHeld. Out in 100ms, quick enough
+   to be gone before the first value lands, and back at the 180 the pill
+   arrives in. The pills set their own pointer-events, so they are named
+   here as well as the row. */
 .float-row, .tile-actions, .tile-chip { transition: opacity 180ms ease-out; }
-body.is-dial-held .float-row,
-body.is-dial-held .tile-actions,
-body.is-dial-held .tile-chip { opacity: 0; transition-duration: 100ms; }
-body.is-dial-held .float-row,
-body.is-dial-held .float-pill,
-body.is-dial-held .tile-actions { pointer-events: none; }
+body.is-photo-clear .float-row,
+body.is-photo-clear .tile-actions,
+body.is-photo-clear .tile-chip { opacity: 0; transition-duration: 100ms; }
+body.is-photo-clear .float-row,
+body.is-photo-clear .float-pill,
+body.is-photo-clear .tile-actions { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .float-row, .tile-actions, .tile-chip { transition: none; }
 }

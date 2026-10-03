@@ -1,13 +1,16 @@
-/* Adjust: holding the dial clears the photo of what floats over it.
+/* Holding a control that changes the photo clears the photo of what floats
+ * over it: the Adjust dial, Crop's Zoom and Angle dials, and Pop out's Edge
+ * slider.
  *
  * Close, Compare and Reset hang over the photo and the tile's own actions sit
- * on it. Pressed on the dial — moving or not, by mouse or by touch — they must
- * be out of sight and out of the way of a tap; let go of, or cancelled, or the
- * window losing focus mid-press, they must be back. The keyboard never
+ * on it. Pressed on the control — moving or not, by mouse or by touch — they
+ * must be out of sight and out of the way of a tap; let go of, or cancelled,
+ * or the window losing focus mid-press, they must be back. The keyboard never
  * presses, so it must never hide them.
  *
  * Measured, not inferred: the opacity each one actually has once the fade has
- * run, and what elementFromPoint finds where Close is.
+ * run, what elementFromPoint finds where Close is, and a sweep of everything
+ * laid out over the photo for anything else still showing there.
  */
 import { chromium } from 'playwright';
 import { CHROME, ROOT } from './paths.mjs';
@@ -15,7 +18,7 @@ import { autoEnter } from './enter.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 import { png } from './image.mjs';
 
-const T = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
+const T = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const srv = http.createServer((q, r) => {
   const u = q.url.split('?')[0];
   const f = path.join(ROOT, u === '/' ? 'index.html' : u);
@@ -32,7 +35,8 @@ const p = await ctx.newPage();
 await autoEnter(p);
 const errs = [];
 p.on('pageerror', (e) => errs.push(String(e)));
-p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+// The subject detector logs its start-up as an error; it is not one.
+p.on('console', (m) => { if (m.type() === 'error' && !/^INFO: /.test(m.text())) errs.push(m.text()); });
 await p.goto(`http://localhost:${PORT}/`);
 await p.evaluate(() => localStorage.clear());
 await p.reload();
@@ -66,10 +70,26 @@ const over = () => p.evaluate(() => {
     actions: shown(document.getElementById('tile-actions')) ? alpha(document.getElementById('tile-actions')) : null,
     closeTakesTap: !!hit && !!hit.closest('#float-close'),
     value: document.getElementById('adjust').value,
+    // Anything else drawn over the photo: not the canvas or what holds it,
+    // not the three above, and not inside something already counted.
+    others: (() => {
+      const photo = document.getElementById('canvas');
+      const pr = photo.getBoundingClientRect();
+      const known = '#float-row, #tile-actions, .tile-chip';
+      const found = [];
+      for (const el of document.querySelectorAll('body *')) {
+        if (el === photo || el.contains(photo) || el.closest(known) || found.some((f) => f.contains(el))) continue;
+        if (el.closest('[hidden]') || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden' || alpha(el) < 0.01) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height || r.right <= pr.left || r.left >= pr.right || r.bottom <= pr.top || r.top >= pr.bottom) continue;
+        found.push(el);
+      }
+      return found.map((el) => el.id || el.className || el.tagName);
+    })(),
   };
 });
-const say = (o) => `row ${o.row}, pill ${o.pill}, actions ${o.actions}, Close ${o.closeTakesTap ? 'takes taps' : 'does not'}`;
-const clear = (o) => o.row === 0 && o.actions === 0 && (o.pill === null || o.pill === 0) && !o.closeTakesTap;
+const say = (o) => `row ${o.row}, pill ${o.pill}, actions ${o.actions}, Close ${o.closeTakesTap ? 'takes taps' : 'does not'}${o.others.length ? `, also over the photo: ${o.others.join(' ')}` : ''}`;
+const clear = (o) => o.row === 0 && o.actions === 0 && (o.pill === null || o.pill === 0) && !o.closeTakesTap && !o.others.length;
 const back = (o) => o.row === 1 && o.actions === 1 && (o.pill === null || o.pill === 1) && o.closeTakesTap;
 
 const rest = await over();
@@ -170,6 +190,86 @@ await p.waitForTimeout(350);
 const keyed = await over();
 await p.keyboard.up('ArrowRight');
 check(back(keyed) && keyed.value !== from, 'the arrow keys move the setting and hide nothing', `${say(keyed)}, ${from} -> ${keyed.value}`);
+
+/* ------------------------------------------- Crop's dials, and Pop out's Edge */
+
+// The same press, held still and then moved, by mouse and by finger, on
+// another control. `read` is the control's own value, to show the drag did
+// something while everything stayed out of the way.
+const pressAndHold = async (name, selector, read, dx) => {
+  const r = await p.locator(selector).boundingBox();
+  const x = r.x + r.width / 2, y = r.y + r.height / 2;
+  const before = await over();
+  check(back(before), `${name}: at rest, Close and the tile's actions are over the photo`, say(before));
+  const from = await read();
+  await p.mouse.move(x, y);
+  await p.mouse.down();
+  await p.waitForTimeout(300);
+  const still = await over();
+  for (let i = 1; i <= 8; i += 1) { await p.mouse.move(x + (i * dx) / 8, y); await p.waitForTimeout(16); }
+  await p.waitForTimeout(250);
+  const moved = await over();
+  const to = await read();
+  check(clear(still) && clear(moved) && to !== from, `${name}: held still by mouse and dragged, the photo is clear`, `${say(still)}; dragged ${from} -> ${to}: ${say(moved)}`);
+  await p.mouse.up();
+  await p.waitForTimeout(350);
+  const up = await over();
+  check(back(up), `${name}: let go, everything is back`, say(up));
+  await touch('touchStart', x, y);
+  await p.waitForTimeout(300);
+  const finger = await over();
+  await touch('touchEnd');
+  await p.waitForTimeout(350);
+  const lifted = await over();
+  check(clear(finger) && back(lifted), `${name}: a finger held still clears it, and lifting brings it back`, `${say(finger)} -> ${say(lifted)}`);
+  await touch('touchStart', x, y);
+  await p.waitForTimeout(250);
+  await touch('touchCancel');
+  await p.waitForTimeout(350);
+  const cancelled = await over();
+  check(back(cancelled), `${name}: a cancelled touch cannot leave it hidden`, say(cancelled));
+};
+const value = (id) => () => p.$eval(`#${id}`, (e) => e.value);
+
+await p.click('#tile-tabs [data-tile="crop"]');
+await p.waitForTimeout(500);
+await p.click('[data-turning="zoom"]');
+await p.waitForTimeout(300);
+await pressAndHold('Zoom', '#zoom-slide .dial-track', value('zoom'), -90);
+await p.click('[data-turning="angle"]');
+await p.waitForTimeout(300);
+await pressAndHold('Angle', '#angle-slide .dial-track', value('angle'), 60);
+
+// Pop out, then its edge set by hand. Edge is a plain range input rather
+// than a dial, so it has no capture of its own: a mouse dragged off it and
+// let go somewhere else must still bring everything back.
+await p.click('#tile-tabs [data-tile="effects"]');
+await p.click('.effect-item[data-effect="popOut"]');
+await p.waitForFunction(() => !/Finding/.test(document.getElementById('pop-note').textContent), null, { timeout: 60000 });
+await p.waitForTimeout(400);
+await p.click('#pop-edge');
+await p.waitForTimeout(400);
+check(await p.locator('#edge').isVisible(), 'Edge is open on its slider');
+await pressAndHold('Edge', '#edge', value('edge'), 60);
+
+const edge = await p.locator('#edge').boundingBox();
+await p.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+await p.mouse.down();
+await p.waitForTimeout(200);
+const offHeld = await over();
+await p.mouse.move(edge.x + edge.width / 2, edge.y - 300, { steps: 6 });
+await p.mouse.up();
+await p.waitForTimeout(350);
+const offUp = await over();
+check(clear(offHeld) && back(offUp), 'Edge: let go of off the slider, everything still comes back', `${say(offHeld)} -> ${say(offUp)}`);
+
+await p.focus('#edge');
+const edgeFrom = await p.$eval('#edge', (e) => e.value);
+await p.keyboard.down('ArrowRight');
+await p.waitForTimeout(350);
+const edgeKeyed = await over();
+await p.keyboard.up('ArrowRight');
+check(back(edgeKeyed) && await p.$eval('#edge', (e) => e.value) !== edgeFrom, 'Edge: the arrow keys move it and hide nothing', say(edgeKeyed));
 
 check(!errs.length, 'no errors', errs.slice(0, 3).join(' | '));
 
