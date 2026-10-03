@@ -6948,20 +6948,39 @@
 
   // Moving from one tile's tools to another's keeps the tool that was open,
   // where the new tile has a use for it, so going along a row of photos
-  // adjusting each is a tap per photo. Replace is choosing for the tile it
-  // was opened on, so another tile goes back to the tool Replace came from.
+  // adjusting each is a tap per photo. Replace carries on too, for the tile
+  // tapped: choosing photos for a whole page used to be four steps a tile —
+  // choose it, Replace, choose, back out — and is now a tap and a choice.
   function switchTile(i) {
+    if (tileSub === 'replace' && state.photos.length) { replaceFor(i); return; }
     const photo = photoFor(page().cells[i]);
     if (!photo) {
       if (state.photos.length) fillEmptyTile(i); else select(-1);
       return;
     }
-    const from = tileSub === 'replace' ? replaceFrom : tileSub;
-    if (tileSub === 'replace') endRun();
     morph(() => {
       select(i);
-      showTileSubNow(from && toolFits(from, photo) ? from : toolFor(photo));
+      showTileSubNow(tileSub && toolFits(tileSub, photo) ? tileSub : toolFor(photo));
     });
+  }
+
+  // Replace moved to another tile, reel or tray as it was, on the photo that
+  // tile holds. An empty one is given a copy of the photo in the tile just
+  // left, which keeps it: the picker is already on that photo and stays put,
+  // so a neighbour of it is one tap away. A fresh crop, as anything chosen
+  // here gets.
+  function replaceFor(i) {
+    const left = photoFor(page().cells[state.selected]);
+    const copy = !photoFor(page().cells[i]) && left;
+    // Each tile's choosing is its own step to undo, the copy included.
+    endRun();
+    select(i);
+    if (copy) choosePhoto(copy.id);
+    renderChooser();
+    if (trayOpen) {
+      const on = $('tray-grid').querySelector('.is-current');
+      if (on) on.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   // An empty tile opens the same reel as Replace, rather than the device
