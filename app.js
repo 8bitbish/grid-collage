@@ -8805,6 +8805,25 @@
     });
   }
 
+  // A dial that changes how the photo looks clears the photo while it is
+  // held: Close, Compare and Reset hang over it, and the tile's own actions
+  // sit on it, so a setting being dialled in was half hidden behind the
+  // buttons for it. Pressed is enough, without moving — a thumb resting on
+  // the dial is someone looking. Anything that ends the press brings them
+  // back, and so does the app going into the background, so nothing can be
+  // left stranded hidden. The keyboard never presses, so it never hides.
+  let dialHeld = false;
+  function clearPhotoWhileHeld(track) {
+    const hold = (on) => {
+      dialHeld = on;
+      document.body.classList.toggle('is-dial-held', on);
+    };
+    track.addEventListener('pointerdown', (e) => { if (e.button <= 0) hold(true); });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => track.addEventListener(type, () => hold(false)));
+    window.addEventListener('blur', () => hold(false));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) hold(false); });
+  }
+
   // The number rolls the way it is going, like a counter: up and in for
   // larger, down for smaller. A third of its height rather than most of it,
   // and only when it starts to move. A quick drag changes the number every
@@ -9385,9 +9404,11 @@
     // Leaving, a picture of it goes the way it came while the real one is
     // hidden at once, so a tap in the next 180ms reaches the photo under it.
     // The whole row goes when the sheet does; the photo's pill alone goes
-    // when there is nothing left for it to do.
+    // when there is nothing left for it to do. With the Adjust dial held the
+    // row is already out of sight, and the picture would be the one thing on
+    // the photo: dialling back to nought takes the pill away mid-drag.
     const leaving = rowWas && !open ? row : (pillWas && !want ? pill : null);
-    if (leaving && !calmMotion.matches && leaving.getClientRects().length) {
+    if (leaving && !calmMotion.matches && !dialHeld && leaving.getClientRects().length) {
       const r = leaving.getBoundingClientRect();
       const { copy } = lookalike(leaving);
       const host = $('dock').getBoundingClientRect();
@@ -12570,6 +12591,7 @@
   // two: the same sweep of the thumb now moves half as far, which is the
   // precision these settings want.
   valueDial('adjust', { fromNought: true, everyUnit: true, unitPx: DIAL_PX * 2, notch: 1 });
+  clearPhotoWhileHeld($('adjust-slide').querySelector('.dial-track'));
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not
