@@ -8805,6 +8805,37 @@
     });
   }
 
+  // A control that changes how the photo looks clears the photo while it is
+  // held: Close, Compare and Reset hang over it, and the tile's own actions
+  // sit on it, so a setting being dialled in was half hidden behind the
+  // buttons for it. Pressed is enough, without moving — a thumb resting on
+  // the dial is someone looking. What the control changes is drawn on the
+  // canvas, so all of it stays: there are no guides over a crop to keep.
+  //
+  // Let go of is watched for on the window rather than on the control. A
+  // dial captures its pointer, but Edge is a plain range input, which
+  // captures nothing of ours: Chromium does still hand it a mouse let go of
+  // well off it, measured, but that is the browser's choice rather than
+  // anything this code asked for. Only the pointer that pressed counts, so a
+  // second finger lifting elsewhere leaves the photo clear.
+  // The app going into the background brings everything back too, so
+  // nothing can be left stranded hidden. The keyboard never presses, so it
+  // never hides.
+  let heldBy = null;
+  function holdPhotoClear(pointer) {
+    heldBy = pointer;
+    document.body.classList.toggle('is-photo-clear', pointer !== null);
+  }
+  function clearPhotoWhileHeld(control) {
+    control.addEventListener('pointerdown', (e) => { if (e.button <= 0) holdPhotoClear(e.pointerId); });
+    control.addEventListener('lostpointercapture', (e) => { if (e.pointerId === heldBy) holdPhotoClear(null); });
+  }
+  ['pointerup', 'pointercancel'].forEach((type) => window.addEventListener(type, (e) => {
+    if (heldBy !== null && e.pointerId === heldBy) holdPhotoClear(null);
+  }, true));
+  window.addEventListener('blur', () => holdPhotoClear(null));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) holdPhotoClear(null); });
+
   // The number rolls the way it is going, like a counter: up and in for
   // larger, down for smaller. A third of its height rather than most of it,
   // and only when it starts to move. A quick drag changes the number every
@@ -9385,9 +9416,11 @@
     // Leaving, a picture of it goes the way it came while the real one is
     // hidden at once, so a tap in the next 180ms reaches the photo under it.
     // The whole row goes when the sheet does; the photo's pill alone goes
-    // when there is nothing left for it to do.
+    // when there is nothing left for it to do. With a control held the
+    // row is already out of sight, and the picture would be the one thing on
+    // the photo: dialling back to nought takes the pill away mid-drag.
     const leaving = rowWas && !open ? row : (pillWas && !want ? pill : null);
-    if (leaving && !calmMotion.matches && leaving.getClientRects().length) {
+    if (leaving && !calmMotion.matches && heldBy === null && leaving.getClientRects().length) {
       const r = leaving.getBoundingClientRect();
       const { copy } = lookalike(leaving);
       const host = $('dock').getBoundingClientRect();
@@ -12549,6 +12582,7 @@
   });
   feedback('angle');
   valueDial('angle', { fromNought: true });
+  clearPhotoWhileHeld($('angle-slide').querySelector('.dial-track'));
   $('angle').addEventListener('pointerdown', () => { endRun(); snapshot('angle'); });
   $('angle').addEventListener('pointerup', endRun);
   $('angle').addEventListener('input', (e) => {
@@ -12570,6 +12604,7 @@
   // two: the same sweep of the thumb now moves half as far, which is the
   // precision these settings want.
   valueDial('adjust', { fromNought: true, everyUnit: true, unitPx: DIAL_PX * 2, notch: 1 });
+  clearPhotoWhileHeld($('adjust-slide').querySelector('.dial-track'));
   $('adjust').addEventListener('pointerdown', () => { endRun(); });
   $('adjust').addEventListener('input', dragAdjust);
   // The filmstrip, the cover and the saved deck catch up on letting go, not
@@ -12584,6 +12619,7 @@
   feedback('edge');
   $('pop-edge').addEventListener('click', () => { setPicking(false); edgeMode = true; syncEffects(); });
   $('edge-done').addEventListener('click', () => { edgeMode = false; syncEffects(); });
+  clearPhotoWhileHeld($('edge'));
   $('edge').addEventListener('pointerdown', () => { endRun(); });
   $('edge').addEventListener('input', slideEdge);
   // Let go of, the cutout is made again at full size, and the filmstrip, the
@@ -12812,6 +12848,7 @@
 
   feedback('zoom');
   valueDial('zoom');
+  clearPhotoWhileHeld($('zoom-slide').querySelector('.dial-track'));
   $('zoom').addEventListener('pointerdown', () => { endRun(); snapshot('zoom'); });
   $('zoom').addEventListener('pointerup', endRun);
   $('zoom').addEventListener('input', (e) => {
