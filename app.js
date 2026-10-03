@@ -7829,6 +7829,16 @@
       const pg = filled[i];
       const moving = hasVideo(pg);
       exportProgress(job, i, 0, moving);
+      // Never export a proxy. Whatever is on screen, the file that comes out
+      // is rendered from the photo as it arrived — a video slide's photos as
+      // much as a still's. Only the still waited for this once, so a photo
+      // beside a clip went out as whatever the tray had decoded: the proxy,
+      // or for a slide more than one from the one on screen, the 384px
+      // thumbnail, upscaled. Measured on a 2×1 at 1080, a fine checkerboard
+      // beside a clip kept 14 levels of contrast out of 95.
+      await Promise.all(photosOn(pg).map(ensureFull));
+      await subjectsFor(pg);
+      if (job.cancelled) break;
       if (moving) {
         let clip = null;
         try {
@@ -7843,11 +7853,6 @@
         // still, and it is obvious which happened.
         job.failed += 1;
       }
-      // Never export a proxy. Whatever is on screen, the file that comes out
-      // is rendered from the photo as it arrived.
-      await Promise.all(photosOn(pg).map(ensureFull));
-      await subjectsFor(pg);
-      if (job.cancelled) break;
       const blob = await renderToBlob(pg);
       // Instagram imports by filename, so the order has to be in the name.
       if (blob) job.files.push(new File([blob], slideName(i, 'jpg'), { type: 'image/jpeg' }));

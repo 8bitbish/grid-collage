@@ -38,10 +38,12 @@ const NEEDS = {
   video: ['fixtures/clip.mp4'],
 };
 
-// And what each needs on the PATH. rotated reads the exported file back with
-// ffmpeg, because the thing it checks is only visible in the file itself.
+// And what each needs on the PATH. rotated and videophotos read the exported
+// file back with ffmpeg, because the thing they check is only visible in the
+// file itself.
 const TOOLS = {
   rotated: ['ffmpeg', 'ffprobe'],
+  videophotos: ['ffmpeg', 'ffprobe'],
 };
 const onPath = (cmd) => (process.env.PATH || '').split(path.delimiter)
   .some((dir) => dir && fs.existsSync(path.join(dir, cmd)));
