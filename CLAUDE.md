@@ -28,6 +28,13 @@ python3 -m http.server 8000    # then http://localhost:8000
 Opening `index.html` off disk mostly works, but the service worker, install and
 share target all need it served over http(s).
 
+To try a build on a phone away from home Wi-Fi, put a `cloudflared` quick tunnel
+in front of that server (`cloudflared tunnel --url http://127.0.0.1:8000`; it is
+already installed) and send the `trycloudflare.com` address it prints. It lasts
+as long as the process does, so stop it when the testing is done. Services that
+serve a branch straight from GitHub are no substitute: raw.githack injects an ad
+script into the page.
+
 ## Checks
 
 Before pushing anything:
@@ -42,7 +49,7 @@ Then the browser suite, which is what actually covers this app:
 cd tests && npm install && node run.mjs
 ```
 
-43 tests, no framework, Playwright the only dependency. It exits non-zero on any
+73 tests, no framework, Playwright the only dependency. It exits non-zero on any
 failure and says plainly what it skipped and why — seven tests need fixtures too
 big for git, which `tests/fixtures/make.sh` generates and which need ffmpeg. CI
 runs the lot on every push and pull request.
@@ -126,25 +133,51 @@ https://www.figma.com/design/vvTNILQSm10sgKMBqGTHYY
 **Work in that file. Do not create a new one.** Nothing about a Figma file is
 discoverable from a repository, so without this written down every session
 starts by making a second file, and then there are two design systems that
-disagree. It holds the token collection, the component sets, the icon set and
-the screens.
+disagree.
+
+It has two pages. **Finished** holds the system, the icons and the screens that
+have been agreed, and it is the spec to build from. **Grid Collage** is where
+explorations happen and stay.
 
 The file is in the 3 SIDED CUBE plan, in drafts. The other plan on the account
 is a View-only seat and cannot be written to.
 
+- **Extend the component that is already there.** A control that sits beside an
+  existing one goes into that component, as a new child or boolean, styled from
+  the real sibling instance rather than a fresh copy. Never flatten, delete and
+  redraw, or otherwise replace the layers inside a component: Figma keys every
+  instance override to those nodes, so replacing them drops the overrides in
+  every instance in the file, silently. Flattening the icon set once reset 1,083
+  icon colour overrides to grey. Change a layer in place, so its id survives.
+- **Opacity on a token-linked paint is ignored.** Put it on the layer instead.
+- **Rotation cannot be overridden inside an instance** (`This property cannot be
+  overridden in an instance: relative-transform`). A turned icon needs its own
+  component.
+- **Set `figma.skipInvisibleInstanceChildren = false`** before searching inside
+  instances, and back to `true` afterwards. Otherwise `findOne` and `findAll`
+  skip hidden children, so a layer that has just been hidden cannot be found.
+
 ## The design system in that file
 
-- **Variables mirror `styles.css` where the CSS has a name for something.** The
-  nine custom properties are flat variables — `bg`, `surface`, `accent` — each
-  carrying `var(--bg)` as its code syntax so Dev Mode shows the CSS name. Groups
-  (`type/`, `copy/`) are Figma-only organisation for things the stylesheet
-  never named: the font sizes are literals scattered through the CSS, and the
-  labels live in `index.html`.
+- **Tokens come in the same two layers as `styles.css`.** A **Primitives**
+  collection holds the raw values (`grey/0`…`grey/950`, `red/*`, sizes, radii)
+  and is hidden: its variables have no scopes, so nothing binds to them
+  directly. The **System** collection holds the semantic roles that point at
+  them — `background/*`, `content/*`, `border/*`, `selection/indicator` — each
+  carrying its CSS name as code syntax (`var(--background-screen)`), so Dev Mode
+  shows a token that exists in the stylesheet. Bind to System only.
+- **There is no accent colour.** The chosen thing — the needle, the current
+  page, the chosen tab, the selection ring — is white (`selection/indicator`).
+  Red is kept for destructive actions alone (`content/danger` and its
+  background and border), so deleting never looks like choosing. The older flat
+  **Tokens** collection (`bg`, `surface`, `accent`, `type/`, `copy/`) is still
+  in the file and predates this; a few stray bindings to it remain, but do not
+  add new ones.
 - **Seed a bound paint with the token's own colour, never black.** A bound paint
   falls back to its base when it cannot resolve, and black on a dark UI simply
   disappears. This hid a real bug for a while: every stroked icon looked correct
-  whether or not its binding worked, because `--muted` is the same `#8d8d9c`
-  already baked into the SVGs.
+  whether or not its binding worked, because the old `--muted` grey was the
+  same `#8d8d9c` baked into the SVGs.
 - **Icons are the app's own set**, not Material Symbols. That was measured and
   rejected: at default weight the filled shapes sit heavier than the 1.7–2.2px
   strokes, and four of eight candidates were worse on meaning — `space_bar` for
